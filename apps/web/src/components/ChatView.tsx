@@ -37,7 +37,6 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const pinAgent = useMutation(api.chats.pinAgent);
   const invite = useMutation(api.workspaces.invite);
   const stopRun = useMutation(api.runs.interrupt);
-  const setAutoRoute = useMutation(api.chats.setAutoRoute);
   const runs = useQuery(api.runs.forChat, { chatId: chat._id });
   const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
   const u = useUi();
@@ -254,8 +253,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <span>{pinned ? `→ ${HARNESS_NAME[pinned.harness]} · plain messages dispatch` : "pin a default agent"}</span><i>▾</i>
                 <span className="dd"><span className="ddh">Default agent</span>{detail.agents.map((a) => <button key={a._id} className={chat.pinnedAgent === a._id ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: a._id }); }}>{HARNESS_NAME[a.harness]}</button>)}<button className={!chat.pinnedAgent ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: null }); }}>none · @mention only</button></span>
               </span>
-            : <span>{chat.activeBranch ? `chat → ${chat.activeBranch}` : chat.repo ? "no branch until first dispatch" : "no repo · talk freely, or ask the agent to attach one"}</span>}
-          {!chat.private && <button className={`listen${(chat.autoRoute ?? true) ? " on" : ""}`} title="When on, agents read plain messages and act when one is for them. Mentions always work." onClick={() => { const on = !(chat.autoRoute ?? true); void setAutoRoute({ chatId: chat._id, on }); toast(on ? "Agents are listening · no need to @mention" : "Agents only act on @mentions now"); }}>agents {(chat.autoRoute ?? true) ? "listening" : "on mention only"}</button>}
+            : null}
           {liveRun && <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · branch will still be pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>}
         </div>
       </div>
