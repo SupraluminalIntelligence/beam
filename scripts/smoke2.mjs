@@ -14,6 +14,12 @@ try {
   // A opens a team chat and invites B
   await A.getByText("+ New chat").click(); await A.getByText("Team chat").first().click();
   await A.getByPlaceholder(/Message Untitled/).waitFor({ timeout: 20000 });
+  // attach a repo through the header so a dispatch has somewhere to work
+  await A.locator(".repopick").click();
+  await A.getByText("+ connect another repo").click();
+  await A.getByPlaceholder("owner/name or GitHub URL").fill("acme/platform");
+  await A.locator(".modal .btn").filter({ hasText: /^Connect$/ }).click();
+  await A.locator(".thead .chip", { hasText: "acme/platform" }).waitFor({ timeout: 10000 });
   await A.getByPlaceholder(/Message Untitled/).fill("noah, gateway or per-service jwt?"); await A.keyboard.press("Enter");
   await A.locator(".msg .tx", { hasText: "gateway or per-service" }).waitFor();
   // find B's login: B has no workspace yet so there is no footer; read it from B's Gate via a second path: A invites using a placeholder, so instead sign B's login from localStorage-less API: use the me query text by creating a throwaway workspace for B
