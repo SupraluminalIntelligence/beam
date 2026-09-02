@@ -9,8 +9,12 @@ import { startRun } from "./messages";
  * chat's agents should act on it, so people do not have to @mention every time. Explicit mentions never
  * pass through here. Runs as a scheduled action right after the message is written.
  *
- *   ANTHROPIC_API_KEY   required (Convex env)
- *   ROUTER_MODEL        default claude-haiku-4-5-20251001
+ *   Provider is picked from whichever key is set (Convex env), in this order:
+ *   GEMINI_API_KEY      → Gemini 3.8 Flash, thinking minimal (default; best intelligence at ~0.7s first token)
+ *   ANTHROPIC_API_KEY   → Claude Haiku 4.5
+ *   OPENAI_API_KEY      → GPT-5.6 Luna
+ *   ROUTER_PROVIDER     force one of gemini | anthropic | openai
+ *   ROUTER_MODEL        override the model id
  *   ROUTER_STUB         tests only: a handle to always pick, or "none"
  */
 declare const process: { env: Record<string, string | undefined> };
@@ -67,26 +71,68 @@ If several agents are in the chat, pick the one the conversation is with (the on
 
 Reply with JSON only, no prose: {"agent": "<handle>" | null, "why": "<at most 8 words>"}`;
 
-async function ask(key: string, model: string, c: RouterContext): Promise<{ agent: string | null; why: string }> {
+type Provider = "gemini" | "anthropic" | "openai";
+const DEFAULT_MODEL: Record<Provider, string> = { gemini: "gemini-3.8-flash", anthropic: "claude-haiku-4-5-20251001", openai: "gpt-5.6-luna" };
+
+function renderUser(c: RouterContext): string {
   const lines = c.transcript.map((t) => `${t.who}: ${t.text}`).join("\n");
-  const user = [
+  return [
     `Chat: "${c.title}"${c.repo ? ` · repo ${c.repo}` : " · no repo attached"}`,
     `Agents in this chat: ${c.agents.map((a) => `@${a.handle} (${a.name}, ${a.model})`).join(", ")}`,
     c.liveHandle ? `Currently running: @${c.liveHandle}` : "No agent is running.",
     ``, `Chat so far:`, lines || "(nothing yet)", ``, `NEWEST: ${c.message.who}: ${c.message.text}`,
   ].join("\n");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: 80, temperature: 0, system: SYSTEM, messages: [{ role: "user", content: user }, { role: "assistant", content: "{" }] }),
-  });
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = (await res.json()) as { content: { type: string; text?: string }[] };
-  const text = "{" + (data.content.find((b) => b.type === "text")?.text ?? "");
+}
+
+function parseDecision(text: string, c: RouterContext): { agent: string | null; why: string } {
   const m = text.match(/\{[\s\S]*\}/);
   const parsed = JSON.parse(m ? m[0] : text) as { agent?: string | null; why?: string };
   const agent = typeof parsed.agent === "string" ? parsed.agent.replace(/^@/, "").toLowerCase() : null;
   return { agent: agent && c.agents.some((a) => a.handle === agent) ? agent : null, why: String(parsed.why ?? "").slice(0, 80) };
+}
+
+async function askGemini(key: string, model: string, c: RouterContext) {
+  const body = (thinking: boolean) => JSON.stringify({
+    system_instruction: { parts: [{ text: SYSTEM }] },
+    contents: [{ role: "user", parts: [{ text: renderUser(c) }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 120, responseMimeType: "application/json", ...(thinking ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}) },
+  });
+  const call = (thinking: boolean) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "content-type": "application/json" }, body: body(thinking) });
+  let res = await call(true);
+  if (res.status === 400) res = await call(false); // older Flash models reject thinkingLevel
+  if (!res.ok) throw new Error(`gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  return parseDecision(data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "", c);
+}
+
+async function askAnthropic(key: string, model: string, c: RouterContext) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens: 80, temperature: 0, system: SYSTEM, messages: [{ role: "user", content: renderUser(c) }, { role: "assistant", content: "{" }] }),
+  });
+  if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { content: { type: string; text?: string }[] };
+  return parseDecision("{" + (data.content.find((b) => b.type === "text")?.text ?? ""), c);
+}
+
+async function askOpenAI(key: string, model: string, c: RouterContext) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({ model, max_completion_tokens: 120, reasoning_effort: "minimal", response_format: { type: "json_object" }, messages: [{ role: "system", content: SYSTEM }, { role: "user", content: renderUser(c) }] }),
+  });
+  if (!res.ok) throw new Error(`openai ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { choices: { message: { content: string } }[] };
+  return parseDecision(data.choices[0]?.message.content ?? "", c);
+}
+
+function pickProvider(): { provider: Provider; key: string } | null {
+  const forced = process.env["ROUTER_PROVIDER"] as Provider | undefined;
+  const keys: Record<Provider, string | undefined> = { gemini: process.env["GEMINI_API_KEY"], anthropic: process.env["ANTHROPIC_API_KEY"], openai: process.env["OPENAI_API_KEY"] };
+  if (forced && keys[forced]) return { provider: forced, key: keys[forced]! };
+  for (const p of ["gemini", "anthropic", "openai"] as Provider[]) if (keys[p]) return { provider: p, key: keys[p]! };
+  return null;
 }
 
 export const classify = internalAction({
@@ -95,13 +141,16 @@ export const classify = internalAction({
     const c = await ctx.runQuery(internal.router.context, { messageId });
     if (!c) return;
     const stub = process.env["ROUTER_STUB"];
-    const key = process.env["ANTHROPIC_API_KEY"];
+    const pick = pickProvider();
     let decision: { agent: string | null; why: string };
     if (stub) decision = { agent: stub === "none" ? null : stub, why: "stub" };
-    else if (!key) { console.log("router: ANTHROPIC_API_KEY not set, skipping"); return; }
+    else if (!pick) { console.log("router: no GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY set, skipping"); return; }
     else {
-      try { decision = await ask(key, process.env["ROUTER_MODEL"] ?? "claude-haiku-4-5-20251001", c); }
+      const model = process.env["ROUTER_MODEL"] ?? DEFAULT_MODEL[pick.provider];
+      const t0 = Date.now();
+      try { decision = await (pick.provider === "gemini" ? askGemini : pick.provider === "anthropic" ? askAnthropic : askOpenAI)(pick.key, model, c); }
       catch (e) { console.error("router failed", (e as Error).message); return; }
+      console.log(`router: ${pick.provider}/${model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
     }
     await ctx.runMutation(internal.router.apply, { messageId, agent: decision.agent, why: decision.why });
   },
