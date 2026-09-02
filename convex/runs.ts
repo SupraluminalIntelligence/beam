@@ -194,17 +194,28 @@ export const interrupt = mutation({
   },
 });
 
-/** Pick where a dispatch runs: the chat's pinned runner if it is up, else one of the dispatcher's own. */
+/**
+ * Pick where a dispatch runs: the chat's pinned runner if it is up, else the dispatcher's own runner,
+ * else any workspace member's online runner that has the harness signed in (so someone on the web
+ * with no machine of their own can still put an agent to work; the runner's owner pays).
+ */
 export async function chooseRunner(ctx: QueryCtx | MutationCtx, chat: Doc<"chats">, login: string, harness: string) {
   const fresh = (r: Doc<"runners">) => r.online && r.lastSeen > Date.now() - 90_000;
   const ready = (r: Doc<"runners">) => (r.harnesses as { harness: string; auth: string }[] | null)?.some((h) => h.harness === harness && h.auth === "authenticated") ?? false;
+  const best = (rs: Doc<"runners">[]) => rs.filter(fresh).filter(ready).sort((a, b) => Number(b.launchedByApp) - Number(a.launchedByApp))[0] ?? null;
   if (chat.pinnedRunner) {
     const r = await ctx.db.get(chat.pinnedRunner);
     if (r && fresh(r) && ready(r)) return r;
   }
-  const mine = (await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", login)).collect()).filter(fresh);
-  if (!mine.length) throw new Error("No runner online for you. Open the Beam app on a machine, or run `beam-runner start`.");
-  const ok = mine.filter(ready);
-  if (!ok.length) throw new Error(`Your runner is up but ${harness} is not signed in there. Check Settings → Connected harnesses.`);
-  return ok.sort((a, b) => Number(b.launchedByApp) - Number(a.launchedByApp))[0]!;
+  const mine = await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", login)).collect();
+  const own = best(mine);
+  if (own) return own;
+  const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
+  for (const m of members) {
+    if (m.githubLogin === login) continue;
+    const r = best(await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", m.githubLogin)).collect());
+    if (r) return r;
+  }
+  if (mine.some(fresh)) throw new Error(`Your runner is up but ${harness} is not signed in there. Check Settings → Connected harnesses.`);
+  throw new Error("No runner online in this workspace. Open the Beam app on a machine, or run `beam-runner start`.");
 }

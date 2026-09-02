@@ -36,7 +36,7 @@ export async function probeClaude(): Promise<HarnessStatus> {
   try {
     q = query({
       prompt: never() as AsyncIterable<never>,
-      options: { cwd: tmpdir(), persistSession: false, allowedTools: [], mcpServers: {}, strictMcpConfig: true, settingSources: [], env: baseEnv() },
+      options: { cwd: tmpdir(), persistSession: false, allowedTools: [], mcpServers: {}, strictMcpConfig: true, settingSources: [], env: baseEnv(), pathToClaudeCodeExecutable: bin },
     });
     const init = await withTimeout(q.initializationResult(), 25_000, "claude init");
     const acct = init.account ?? {};
@@ -72,7 +72,8 @@ class ClaudeSession implements Session {
   private stopped = false;
   private readonly input: StartSession;
 
-  constructor(input: StartSession) {
+  /** `bin` is the user's installed `claude`; the SDK's own copy is not shipped inside the packaged app. */
+  constructor(input: StartSession, bin: string) {
     this.input = input;
     const { agent, cwd, resumeCursor } = input;
     this.allow = [...agent.alwaysAllow];
@@ -99,6 +100,7 @@ class ClaudeSession implements Session {
         settingSources: ["user", "project"],
         mcpServers: input.tools.length ? { beam } : {},
         env: baseEnv(),
+        pathToClaudeCodeExecutable: bin,
         ...(this.sessionId ? { resume: this.sessionId } : {}),
         ...(input.systemContext ? { systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: input.systemContext } } : {}),
       },
@@ -209,5 +211,9 @@ class ClaudeSession implements Session {
 export const claudeAdapter: HarnessAdapter = {
   kind: "claude",
   probe: probeClaude,
-  async start(input: StartSession): Promise<Session> { return new ClaudeSession(input); },
+  async start(input: StartSession): Promise<Session> {
+    const bin = await which("claude");
+    if (!bin) throw new Error("Claude Code (`claude`) is not on PATH on this runner");
+    return new ClaudeSession(input, bin);
+  },
 };

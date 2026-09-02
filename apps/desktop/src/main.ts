@@ -14,11 +14,14 @@ let pendingPair: string | null = null;
 const runnerLog: string[] = [];
 
 function startRunner() {
-  const entry = join(__dirname, "..", "..", "runner", "src", "cli.ts");
-  runner = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", entry, "start", "--app"], {
+  // Packaged: the esbuild bundle next to main.cjs, kept outside app.asar so the runtime can read it as a file.
+  // Dev: the runner's TypeScript source, run with strip-types.
+  const packaged = app.isPackaged;
+  const entry = packaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  runner = spawn(process.execPath, packaged ? [entry, "start", "--app"] : ["--experimental-strip-types", "--no-warnings", entry, "start", "--app"], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["ignore", "pipe", "pipe"],
-    cwd: join(__dirname, "..", "..", ".."),
+    cwd: packaged ? app.getPath("home") : join(__dirname, "..", "..", ".."),
   });
   const push = (s: string) => { runnerLog.push(s); if (runnerLog.length > 200) runnerLog.shift(); win?.webContents.send("beam:runnerLog", s); };
   createInterface({ input: runner.stdout! }).on("line", (l) => {
@@ -41,7 +44,7 @@ function createWindow() {
   if (process.env["BEAM_DEV"]) { win.webContents.on("console-message", (_e, level, msg) => { if (level >= 2 || /convex|auth|beam/i.test(msg)) console.log(`[renderer] ${msg}`); }); }
   win.webContents.on("did-fail-load", (_e, code, desc, url) => console.log(`[renderer] failed to load ${url}: ${code} ${desc}`));
   if (process.env["BEAM_DEV"]) void win.loadURL("http://localhost:5173");
-  else void win.loadFile(join(__dirname, "..", "..", "web", "dist", "index.html"));
+  else void win.loadFile(join(__dirname, "web", "index.html"));
   win.on("closed", () => { win = null; });
 }
 
