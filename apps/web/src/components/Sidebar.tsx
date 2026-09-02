@@ -40,7 +40,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
 
   return (
     <aside className="side">
-      <div className="sb-top"><div className="lights"><i /><i /><i /></div><span className="sb-brand">BEAM</span><button className="k" onClick={() => p.setModal({ kind: "palette" })} title="Jump">⌕</button></div>
+      <div className="sb-top"><span className="sb-brand">BEAM</span></div>
       <div className="ws-row top" onClick={stop}>
         <button className="sb-act" onClick={() => setNewPop(newPop === "top" ? null : "top")}>+ New chat <span className="k">⌘T</span></button>
         <NewPop open={newPop === "top"} wsName={p.detail.name} onPick={(k) => { setNewPop(null); p.onNewChat(k); }} />
