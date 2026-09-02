@@ -16,6 +16,12 @@ type RunnerRow = { id: unknown; name: string; ownerLogin: string; online: boolea
 type Status = { harness: string; installed: boolean; auth: string };
 
 const EFFORTS = ["low", "medium", "high", "max"] as const;
+/** Claude Code's three ways of working. Codex and omp map onto the same three in M3. */
+const MODES = [
+  { v: "ask", label: "ask", hint: "Ask: every risky action waits for someone in the chat to approve" },
+  { v: "plan", label: "plan", hint: "Plan: read-only until the plan is approved in the chat" },
+  { v: "auto", label: "auto", hint: "Auto: the harness approves routine actions itself and only asks about the rest" },
+] as const;
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const MODELS: Record<string, string[]> = { claude: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], codex: ["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"], omp: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"] };
 
@@ -80,6 +86,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                 <span>{a.model}</span><i>▾</i>
                 <span className="dd"><span className="ddh">{a.harness}</span>{(MODELS[a.harness] ?? []).map((m) => <button key={m} className={m === a.model ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { model: m } }); toast(`${HARNESS_NAME[a.harness]} → ${m} · next run`); }}>{m}</button>)}</span>
               </span>
+              <button className={`pmode ${a.permissionMode}`} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint} · click to change`} onClick={() => { const i = MODES.findIndex((m) => m.v === a.permissionMode); const n = MODES[(i + 1) % MODES.length]!; void updateAgent({ agentId: a._id, patch: { permissionMode: n.v } }); toast(`${HARNESS_NAME[a.harness]} → ${n.label} mode · next run`); }}>{(MODES.find((m) => m.v === a.permissionMode) ?? { label: a.permissionMode }).label}</button>
               <button className="eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title={`Reasoning effort: ${a.effort} · click to change`} onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><i /><i /><i /><i /></button>
             </span>
           </div>

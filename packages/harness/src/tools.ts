@@ -18,6 +18,8 @@ export function describeTool(name: string, input: Record<string, unknown>, cwd: 
     case "Agent": case "Task": return { kind: "agent", summary: `Subagent · ${short(String(i["description"] ?? i["prompt"] ?? ""), 70)}` };
     case "TodoWrite": return { kind: "plan", summary: "Update todo list" };
     case "ToolSearch": return { kind: "plan", summary: "Look up tools" };
+    case "EnterPlanMode": return { kind: "plan", summary: "Start planning" };
+    case "ExitPlanMode": return { kind: "plan", summary: "Present the plan" };
     case "AskUserQuestion": return { kind: "ask", summary: "Ask a question" };
     case "mcp__beam__attach_repo": return { kind: "beam", summary: `Attach ${String(i["repo"] ?? "")} to this chat` };
     case "mcp__beam__list_repos": return { kind: "beam", summary: "List the workspace's repos" };

@@ -15,7 +15,8 @@ export const HarnessKind = z.enum(["claude", "codex", "omp"]);
 export type HarnessKind = z.infer<typeof HarnessKind>;
 
 export const Effort = z.enum(["low", "medium", "high", "max"]);
-export const PermissionMode = z.enum(["ask", "allowlist", "auto"]);
+/** ask = approve each risky call in the chat · plan = read-only until the plan is approved · auto = the harness's own auto-approval · allowlist = only alwaysAllow plus edits */
+export const PermissionMode = z.enum(["ask", "plan", "auto", "allowlist"]);
 export const ContextPolicy = z.enum(["last-landing", "since-landing-plus-summary", "whole-chat"]);
 
 /** A workspace-level agent: a harness plus its settings. Nobody owns it. */

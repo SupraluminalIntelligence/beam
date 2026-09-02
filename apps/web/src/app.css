@@ -443,3 +443,7 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .msg .tx .md{white-space:normal}
 .rl-connect{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:12px 18px;font-size:12.5px;color:var(--ink-2)}
 .rl-connect .btn{flex:none}
+.pmode{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.04em;color:var(--ink-3);border:1px solid var(--line);padding:0 5px;margin-left:6px;height:16px;line-height:14px}
+.pmode:hover{color:var(--ink-2);border-color:var(--line-2)}
+.pmode.plan{color:var(--warn);border-color:var(--warn)}
+.pmode.auto{color:var(--ok);border-color:var(--ok)}

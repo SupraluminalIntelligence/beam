@@ -78,7 +78,9 @@ class ClaudeSession implements Session {
     const { agent, cwd, resumeCursor } = input;
     this.allow = [...agent.alwaysAllow];
     this.sessionId = (resumeCursor as { sessionId?: string } | null)?.sessionId ?? null;
-    const permissionMode: PermissionMode = agent.permissionMode === "auto" ? "bypassPermissions" : agent.permissionMode === "allowlist" ? "acceptEdits" : "default";
+    // Beam mode → Claude Code mode. "auto" is Claude Code's classifier-approved mode, not bypass: the chat still sees
+    // (and can answer) whatever the classifier will not approve on its own.
+    const permissionMode: PermissionMode = ({ ask: "default", plan: "plan", auto: "auto", allowlist: "acceptEdits" } as Record<string, PermissionMode>)[agent.permissionMode] ?? "default";
     const beam = createSdkMcpServer({
       name: "beam",
       tools: input.tools.map((t) => tool(t.name, t.description, t.schema, async (args) => {
@@ -113,7 +115,8 @@ class ClaudeSession implements Session {
   private async askPermission(name: string, toolInput: Record<string, unknown>, requestId: string) {
     if (matchesAllow(name, toolInput, this.allow)) return { behavior: "allow" as const, updatedInput: toolInput };
     const { kind, summary } = describeTool(name, toolInput, this.input.cwd);
-    this.emit({ type: "request.opened", runId: this.input.runId as never, requestId, kind: "approval", prompt: kind === "bash" ? `Run: ${summary}` : summary, options: ["allow", "always", "deny"] });
+    const plan = name === "ExitPlanMode";
+    this.emit({ type: "request.opened", runId: this.input.runId as never, requestId, kind: "approval", prompt: plan ? "Approve the plan and start making changes?" : kind === "bash" ? `Run: ${summary}` : summary, options: plan ? ["allow", "deny"] : ["allow", "always", "deny"] });
     const decision = await new Promise<string>((res) => this.pending.set(requestId, res));
     if (decision === "always") { this.allow.push(name === "Bash" ? String(toolInput["command"] ?? "").split(/\s+/).slice(0, 2).join(" ") : name); }
     if (decision === "allow" || decision === "always") return { behavior: "allow" as const, updatedInput: toolInput };
