@@ -1,4 +1,7 @@
 import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { autoTitle, requireChat } from "./lib";
 import { chooseRunner, isLive } from "./runs";
@@ -10,6 +13,17 @@ export const list = query({
     return ctx.db.query("messages").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
   },
 });
+
+/** Create a run for a dispatch. Throws when nobody can host it. */
+export async function startRun(ctx: MutationCtx, chat: Doc<"chats">, agent: Doc<"agents">, messageId: Id<"messages">, login: string) {
+  const runner = await chooseRunner(ctx, chat, login, agent.harness);
+  const runId = await ctx.db.insert("runs", {
+    chatId: chat._id, agentId: agent._id, runnerId: runner._id, dispatchedBy: login, dispatchMessageId: messageId, state: "queued",
+    branch: chat.activeBranch, worktree: null, resumeCursor: null, landing: null, startedAt: null, endedAt: null,
+  });
+  await ctx.db.patch(messageId, { runId });
+  return { runId, runnerName: runner.name };
+}
 
 /** Kind is decided here from chat state: plain text, a dispatch, or a steer of the live run. */
 export const send = mutation({
@@ -31,19 +45,18 @@ export const send = mutation({
     // A mention of a different agent while one is live is a plain message: one active run per chat.
     const steer = !!(target && live && live.agentId === target._id);
     const kind = target ? (live ? (steer ? "steer" : "text") : "dispatch") : "text";
-    const runner = kind === "dispatch" ? await chooseRunner(ctx, chat, u.githubLogin!, target!.harness) : null;
+    // Fail before writing anything if a dispatch has nowhere to run.
+    if (kind === "dispatch") await chooseRunner(ctx, chat, u.githubLogin!, target!.harness);
     const patch: Record<string, unknown> = { lastMessageAt: Date.now() };
     if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body) });
     await ctx.db.patch(chatId, patch);
     const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [] });
-    if (runner) {
-      const runId = await ctx.db.insert("runs", {
-        chatId, agentId: target!._id, runnerId: runner._id, dispatchedBy: u.githubLogin!, dispatchMessageId: id, state: "queued",
-        branch: chat.activeBranch, worktree: null, resumeCursor: null, landing: null, startedAt: null, endedAt: null,
-      });
-      await ctx.db.patch(id, { runId });
-    }
-    return { id, kind, runner: runner?.name ?? null };
+    let runner: string | null = null;
+    if (kind === "dispatch") runner = (await startRun(ctx, chat, target!, id, u.githubLogin!)).runnerName;
+    // Plain messages in a team chat with agents go to the router: it decides whether an agent should act.
+    const listening = (chat.autoRoute ?? true) && !chat.private && (chat.agents ? chat.agents.length > 0 : agents.length > 0);
+    if (kind === "text" && !target && !mentionHandle && listening) await ctx.scheduler.runAfter(0, internal.router.classify, { messageId: id });
+    return { id, kind, runner };
   },
 });
 

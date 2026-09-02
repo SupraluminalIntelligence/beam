@@ -80,3 +80,9 @@ export const pinAgent = mutation({
     await ctx.db.patch(chatId, { pinnedAgent: agentId });
   },
 });
+
+/** Whether agents listen to plain messages here (the router). Default on. */
+export const setAutoRoute = mutation({
+  args: { chatId: v.id("chats"), on: v.boolean() },
+  handler: async (ctx, { chatId, on }) => { await requireChat(ctx, chatId); await ctx.db.patch(chatId, { autoRoute: on }); },
+});

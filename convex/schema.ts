@@ -42,6 +42,7 @@ export default defineSchema({
     agents: v.union(v.array(v.id("agents")), v.null()),
     pinnedAgent: v.union(v.id("agents"), v.null()), pinnedRunner: v.union(v.id("runners"), v.null()),
     repo: v.union(v.string(), v.null()), activeBranch: v.union(v.string(), v.null()),
+    autoRoute: v.optional(v.boolean()),   // agents listen to plain messages (default on)
     createdBy: v.string(), lastMessageAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
   messages: defineTable({
@@ -51,6 +52,7 @@ export default defineSchema({
     text: v.string(),
     runId: v.union(v.id("runs"), v.null()),
     turn: v.optional(v.number()),   // agent messages: which turn of the run produced this text
+    routed: v.optional(v.union(v.null(), v.object({ agent: v.union(v.string(), v.null()), why: v.string() }))), // the router's decision for a plain message
     reactions: v.array(v.object({ emoji: v.string(), by: v.array(v.string()) })),
   }).index("by_chat", ["chatId"]),
   runs: defineTable({

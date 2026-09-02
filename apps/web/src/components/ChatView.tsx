@@ -36,6 +36,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const pinAgent = useMutation(api.chats.pinAgent);
   const invite = useMutation(api.workspaces.invite);
   const stopRun = useMutation(api.runs.interrupt);
+  const setAutoRoute = useMutation(api.chats.setAutoRoute);
   const runs = useQuery(api.runs.forChat, { chatId: chat._id });
   const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
   const u = useUi();
@@ -196,6 +197,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
                 {m.kind === "report" ? <StreamText text={m.text} live={turnLive} handles={handles} logins={logins} /> : m.text && <div className="tx pre">{renderText(m.text, handles, logins)}</div>}
                 {run && lastOfRun && !isLive(run.state) && !trailing.some((t) => t.r._id === run._id) && <LandingCard run={run} />}
+                {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>
                   {(more === m._id ? MORE : QUICK).map((e) => <button key={e} onClick={() => { void react({ messageId: m._id, emoji: e }); setMore(null); }}>{e}</button>)}
@@ -252,6 +254,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <span className="dd"><span className="ddh">Default agent</span>{detail.agents.map((a) => <button key={a._id} className={chat.pinnedAgent === a._id ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: a._id }); }}>{HARNESS_NAME[a.harness]}</button>)}<button className={!chat.pinnedAgent ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: null }); }}>none · @mention only</button></span>
               </span>
             : <span>{chat.activeBranch ? `chat → ${chat.activeBranch}` : chat.repo ? "no branch until first dispatch" : "no repo · talk freely, or ask the agent to attach one"}</span>}
+          {!chat.private && <button className={`listen${(chat.autoRoute ?? true) ? " on" : ""}`} title="When on, agents read plain messages and act when one is for them. Mentions always work." onClick={() => { const on = !(chat.autoRoute ?? true); void setAutoRoute({ chatId: chat._id, on }); toast(on ? "Agents are listening · no need to @mention" : "Agents only act on @mentions now"); }}>agents {(chat.autoRoute ?? true) ? "listening" : "on mention only"}</button>}
           {liveRun && <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · branch will still be pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>}
         </div>
       </div>

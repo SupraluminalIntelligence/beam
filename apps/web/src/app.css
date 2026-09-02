@@ -411,3 +411,8 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .rl-row .t{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
 .rl-note{padding:12px 18px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3)}
 .tx .cursor{display:inline-block;width:6px;height:13px;background:var(--claude);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(2) infinite}
+.listen{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);border:1px solid transparent;padding:1px 6px;margin-left:8px}
+.listen.on{color:var(--ink-2)}
+.listen::before{content:"";display:inline-block;width:6px;height:6px;background:var(--line-2);margin-right:6px;vertical-align:1px}
+.listen.on::before{background:var(--ok)}
+.listen:hover{border-color:var(--line)}
