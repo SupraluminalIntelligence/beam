@@ -18,9 +18,9 @@ type Status = { harness: string; installed: boolean; auth: string };
 const EFFORTS = ["low", "medium", "high", "max"] as const;
 /** Claude Code's three ways of working. Codex and omp map onto the same three in M3. */
 const MODES = [
-  { v: "ask", label: "ask", hint: "Ask: every risky action waits for someone in the chat to approve" },
-  { v: "plan", label: "plan", hint: "Plan: read-only until the plan is approved in the chat" },
-  { v: "auto", label: "auto", hint: "Auto: the harness approves routine actions itself and only asks about the rest" },
+  { v: "ask", label: "ask", hint: "Ask: risky actions wait for approval in the chat" },
+  { v: "plan", label: "plan", hint: "Plan: read-only until the plan is approved" },
+  { v: "auto", label: "auto", hint: "Auto: approves routine actions, asks about the rest" },
 ] as const;
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const MODELS: Record<string, string[]> = { claude: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], codex: ["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"], omp: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"] };
@@ -81,13 +81,18 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           <div key={a._id} className="ag-item" onClick={stop}>
             <button className="ag-name" onClick={() => p.setModal({ kind: "agent", id: a._id })} title="Agent settings"><AgentAvatar harness={a.harness} /><span className="nm">{HARNESS_NAME[a.harness] ?? a.harness}{a.handle !== a.harness && <> <span className="k">@{a.handle}</span></>}</span></button>
             <span className={`sq ${harnessReady(a.harness) ? "ok" : "idle"}`} title={harnessReady(a.harness) ? "a runner is online with this harness signed in" : "no online runner has this harness signed in"} />
-            <span className="sub">
-              <span className={`sel sb-sel${openSel === a._id ? " open" : ""}`} tabIndex={0} onClick={() => setOpenSel(openSel === a._id ? null : a._id)}>
+            <span className="sub ctls">
+              <span className={`sel ctl${openSel === a._id ? " open" : ""}`} tabIndex={0} title="Model · next run" onClick={() => setOpenSel(openSel === a._id ? null : a._id)}>
                 <span>{a.model}</span><i>▾</i>
-                <span className="dd"><span className="ddh">{a.harness}</span>{(MODELS[a.harness] ?? []).map((m) => <button key={m} className={m === a.model ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { model: m } }); toast(`${HARNESS_NAME[a.harness]} → ${m} · next run`); }}>{m}</button>)}</span>
+                <span className="dd"><span className="ddh">model</span>{(MODELS[a.harness] ?? []).map((m) => <button key={m} className={m === a.model ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { model: m } }); toast(`${HARNESS_NAME[a.harness]} → ${m} · next run`); }}>{m}</button>)}</span>
               </span>
-              <button className={`pmode ${a.permissionMode}`} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint} · click to change`} onClick={() => { const i = MODES.findIndex((m) => m.v === a.permissionMode); const n = MODES[(i + 1) % MODES.length]!; void updateAgent({ agentId: a._id, patch: { permissionMode: n.v } }); toast(`${HARNESS_NAME[a.harness]} → ${n.label} mode · next run`); }}>{(MODES.find((m) => m.v === a.permissionMode) ?? { label: a.permissionMode }).label}</button>
-              <button className="eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title={`Reasoning effort: ${a.effort} · click to change`} onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><i /><i /><i /><i /></button>
+              <span className="dot">·</span>
+              <span className={`sel ctl mode ${a.permissionMode}${openSel === `${a._id}:mode` ? " open" : ""}`} tabIndex={0} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint}`} onClick={() => setOpenSel(openSel === `${a._id}:mode` ? null : `${a._id}:mode`)}>
+                <span>{(MODES.find((m) => m.v === a.permissionMode) ?? { label: a.permissionMode }).label}</span><i>▾</i>
+                <span className="dd wide"><span className="ddh">how it works</span>{MODES.map((m) => <button key={m.v} className={m.v === a.permissionMode ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { permissionMode: m.v } }); toast(`${HARNESS_NAME[a.harness]} → ${m.label} · next run`); }}><b>{m.label}</b><span>{m.hint.replace(/^\w+: /, "")}</span></button>)}</span>
+              </span>
+              <span className="dot">·</span>
+              <button className="ctl eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title="Reasoning effort · click to change" onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><span className="bars"><i /><i /><i /><i /></span><span>{a.effort}</span></button>
             </span>
           </div>
         ))}
