@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const userData = mkdtempSync(join(tmpdir(), "beam-electron-"));
-const app = await electron.launch({ args: ["apps/desktop/dist/main.cjs", `--user-data-dir=${userData}`], env: { ...process.env, BEAM_DEV: "1", BEAM_TEST: "1", ELECTRON_ENABLE_LOGGING: "1" } });
+const app = await electron.launch({ args: ["apps/desktop/dist/main.cjs", `--user-data-dir=${userData}`], env: { ...process.env, BEAM_DEV: "1", BEAM_TEST: "1", ELECTRON_ENABLE_LOGGING: "1", BEAM_HOME: userData + "/beamhome" } });
 const logs = [];
 app.process().stdout.on("data", (d) => logs.push(String(d)));
 app.process().stderr.on("data", (d) => logs.push("! " + String(d)));
@@ -38,6 +38,13 @@ try {
     win.getByRole("button", { name: "Continue with GitHub in your browser" }).waitFor({ timeout: 15000 }).then(() => "signed-out"),
   ]);
   const keys2 = await win.evaluate(() => Object.keys(localStorage));
-  console.log(JSON.stringify({ first, after, keys1, keys2, url }));
+  // the app-launched runner should be approved automatically and show its harnesses in Settings
+  await win.keyboard.press("Meta+,");
+  const runnerRow = await Promise.race([
+    win.locator(".hrow .st.authenticated").first().waitFor({ timeout: 60000 }).then(() => "runner-connected"),
+    new Promise((r) => setTimeout(() => r("no-runner"), 61000)),
+  ]);
+  logs.push(`[runner] ${runnerRow}\n`);
+  console.log(JSON.stringify({ first, after, runnerRow, url }));
 } catch (e) { console.log(JSON.stringify({ ok: false, error: String(e).slice(0, 300) })); }
 finally { console.log("--- logs:\n" + logs.filter((l) => /probe|device sign-in|pageerror|error/i.test(l) && !/Security Warning/.test(l)).slice(-30).join("")); await b.close(); await app.close(); }

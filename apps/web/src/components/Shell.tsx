@@ -27,14 +27,18 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const [modal, setModal] = useState<ModalKind>(null);
   const [pairCode, setPairCode] = useState<string | null>(null);
   const runnersOnline = useQuery(api.runners.online, { workspaceId: wsId });
+  const approveRunner = useMutation(api.runnerAuth.approve);
   useEffect(() => {
+    // A ?pair= link is a runner on another machine: show the code for a deliberate approval.
     const fromUrl = new URLSearchParams(location.search).get("pair");
     if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings" }); history.replaceState(null, "", location.pathname); }
     const b = bridge();
     if (!b) return;
-    void b.runnerStatus().then((s) => { if (s.pendingPair) { setPairCode(s.pendingPair); setModal({ kind: "settings" }); } });
-    return b.onPairCode((code) => { setPairCode(code); setModal({ kind: "settings" }); });
-  }, []);
+    // The runner this app launched is ours: approve it the moment we are signed in, no code shown.
+    const auto = (code: string) => approveRunner({ userCode: code }).then((r) => toast(r.already ? "Runner connected" : `Runner ${r.name} connected`)).catch(() => { setPairCode(code); setModal({ kind: "settings" }); });
+    void b.runnerStatus().then((s) => { if (s.pendingPair) void auto(s.pendingPair); });
+    return b.onPairCode((code) => void auto(code));
+  }, [approveRunner]);
 
   const tabs = useMemo(() => (u.tabs[wsId] ?? []).filter((id) => chats?.some((c) => c._id === id)), [u.tabs, wsId, chats]);
   const activeId = (u.active[wsId] && tabs.includes(u.active[wsId]!) ? u.active[wsId] : tabs[0]) ?? null;

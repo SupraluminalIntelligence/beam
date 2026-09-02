@@ -27,7 +27,7 @@ export function Harnesses() {
     return () => window.removeEventListener("focus", onFocus);
   }, [runners, requestProbe]);
   if (runners === undefined) return <div className="row"><span>Connected harnesses</span><span className="hint">…</span></div>;
-  if (runners.length === 0) return <div className="row"><span>Connected harnesses</span><span className="hint">No runner yet. {b ? "The app is starting one; approve it below when its code appears." : "Run `beam-runner login` on a machine, or open the desktop app."}</span></div>;
+  if (runners.length === 0) return <div className="row"><span>Connected harnesses</span><span className="hint">No runner yet. {b ? "The app is starting one; it connects on its own in a few seconds." : "Run `beam-runner login` on a machine, or open the desktop app."}</span></div>;
   return (
     <>
       {runners.map((r) => (
