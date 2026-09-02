@@ -1,0 +1,8 @@
+apps/desktop/release
+apps/desktop/dist
+apps/desktop/node_modules
+**/node_modules
+*.dmg
+*.blockmap
+design
+scripts

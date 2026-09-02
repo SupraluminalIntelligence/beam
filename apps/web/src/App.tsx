@@ -7,7 +7,35 @@ import { bridge } from "./bridge";
 import { Shell } from "./components/Shell";
 import { Toast, toast } from "./components/Toast";
 
+/** Where the hosted web app lives. The desktop app sends browser-side flows (sign-in, GitHub connect) here. */
+export const HOSTED_URL = (import.meta.env["VITE_SITE_URL"] as string | undefined) ?? "https://beam-nine-ruby.vercel.app";
+
+/**
+ * ?connect=github: run the GitHub authorization (with the repo scope) right away, in the browser, whatever
+ * the current session is. Beam stores the token on the user, and every signed-in client of that user,
+ * including the desktop app, can list repos from then on. ?connected=github is the landing page after.
+ */
+function ConnectGitHub() {
+  const { signIn } = useAuthActions();
+  const params = new URLSearchParams(location.search);
+  const connect = params.get("connect") === "github", connected = params.get("connected") === "github";
+  const started = useRef(false);
+  useEffect(() => { if (connect && !started.current) { started.current = true; void signIn("github", { redirectTo: "/?connected=github" }); } }, [connect, signIn]);
+  if (!connect && !connected) return null;
+  return (
+    <div className="signin"><div className="card-ish">
+      <div className="brand"><span className="eyebrow">Supraluminal Intelligence</span><h1>Beam</h1></div>
+      {connect
+        ? <div style={{ color: "var(--ink-2)" }}>Connecting GitHub… you will be sent to GitHub to allow repo access.</div>
+        : <><div style={{ color: "var(--ink-2)" }}>GitHub connected. Beam can now list the repos you can push to.</div><div className="k">Go back to Beam; the repo picker fills in by itself. You can close this tab.</div>
+            <button className="btn ghost" onClick={() => { history.replaceState(null, "", location.pathname); location.reload(); }}>Stay here</button></>}
+    </div></div>
+  );
+}
+
 export function App() {
+  const p = new URLSearchParams(location.search);
+  if (p.get("connect") === "github" || p.get("connected") === "github") return <ConnectGitHub />;
   return (
     <>
       <AuthLoading><div className="signin"><div className="k">…</div></div></AuthLoading>

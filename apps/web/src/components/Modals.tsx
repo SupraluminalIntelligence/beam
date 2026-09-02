@@ -11,6 +11,7 @@ import { ApproveRunner, Harnesses } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
 import type { Me } from "./Shell";
 import { toast } from "./Toast";
+import { HOSTED_URL } from "../App";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
@@ -128,11 +129,25 @@ export function AddRepoModal({ open, onClose, wsId, wsName, chatId }: { open: bo
   const myRepos = useAction(api.github.myRepos);
   const [repo, setRepoV] = useState("");
   const [list, setList] = useState<{ repos: { name: string; private: boolean; pushedAt: number; description: string | null }[] | null; reason: string | null } | "loading">("loading");
+  const load = () => myRepos({}).then((r) => setList(r), () => setList({ repos: null, reason: "github-error" }));
   useEffect(() => {
     if (!open) return;
     setRepoV(""); setList("loading");
-    myRepos({}).then((r) => setList(r), () => setList({ repos: null, reason: "github-error" }));
+    void load();
   }, [open]);
+  // No token yet: keep asking every few seconds so the list appears the moment GitHub is connected in the browser.
+  const needsConnect = list !== "loading" && !list.repos && (list.reason === "no-token" || list.reason === "no-scope");
+  useEffect(() => {
+    if (!open || !needsConnect) return;
+    const t = setInterval(() => void load(), 3000);
+    return () => clearInterval(t);
+  }, [open, needsConnect]);
+  const connectGitHub = () => {
+    const url = `${HOSTED_URL}/?connect=github`;
+    const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam;
+    if (b?.openExternal) b.openExternal(url); else window.open(url, "_blank", "noopener");
+    toast("Allow repo access in your browser · this list fills in by itself");
+  };
   const connect = async (name: string) => {
     const r = name.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
     if (!/^[\w.-]+\/[\w.-]+$/.test(r)) { toast("owner/name, please"); return; }
@@ -151,7 +166,8 @@ export function AddRepoModal({ open, onClose, wsId, wsName, chatId }: { open: bo
         {list === "loading" && <div className="rl-note">Loading your GitHub repos…</div>}
         {list !== "loading" && list.repos && rows.map((r) => <button key={r.name} className="rl-row" onClick={() => void connect(r.name)}><span className="nm">{r.name}</span>{r.private && <span className="k">private</span>}<span className="d">{r.description ?? ""}</span><span className="t">{ago(r.pushedAt)}</span></button>)}
         {list !== "loading" && list.repos && !rows.length && <div className="rl-note">{q ? "No repo matches. Paste owner/name to connect one you cannot see here." : "No repos you can push to."}</div>}
-        {list !== "loading" && !list.repos && <div className="rl-note">{list.reason === "no-token" || list.reason === "no-scope" ? "Sign out and back in with GitHub to pick from your repos. Beam asks for repo access on that sign-in." : "GitHub did not answer. Paste owner/name instead."}</div>}
+        {needsConnect && <div className="rl-connect"><span>Let Beam see your GitHub repos to pick from a list. Read-only listing; pushes still go through your own git.</span><button className="btn" onClick={connectGitHub}>Connect GitHub</button></div>}
+        {list !== "loading" && !list.repos && !needsConnect && <div className="rl-note">GitHub did not answer. Paste owner/name instead.</div>}
       </div>
       <div className="m-f"><span>Cloned once per runner, then worktrees per chat.</span><span><button className="btn ghost" onClick={onClose}>Cancel</button> <button className="btn" onClick={() => void connect(repo)}>Connect</button></span></div>
     </Modal>
