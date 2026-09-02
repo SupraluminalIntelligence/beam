@@ -1,5 +1,5 @@
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
@@ -23,6 +23,9 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
   const [openSel, setOpenSel] = useState<string | null>(null);
   const updateAgent = useMutation(api.workspaces.updateAgent);
   const { signOut } = useAuthActions();
+  const people = useQuery(api.users.byLogins, { logins: p.detail.members });
+  const nameOf = (l: string) => (l === p.me.githubLogin ? p.me.name : people?.[l]?.name ?? l);
+  const imageOf = (l: string) => (l === p.me.githubLogin ? p.me.image : people?.[l]?.image ?? null);
   useEffect(() => {
     const close = () => { setNewPop(null); setAcct(false); setOpenSel(null); };
     document.addEventListener("click", close);
@@ -56,7 +59,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                     <span className={`sq ${status(c)}`} />
                     <span className={`nm${c.untitled ? " untitled" : ""}`}>{c.title}</span>
                     {c.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
-                    <span className="here" title={here.length ? `${here.join(", ")} focused here` : ""}>{here.map((l) => <PersonAvatar key={l} login={l} hue={l === p.me.githubLogin ? "me" : hueClass(l)} className="xs" />)}</span>
+                    <span className="here" title={here.length ? `${here.map(nameOf).join(", ")} focused here` : ""}>{here.map((l) => <PersonAvatar key={l} login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} className="xs" />)}</span>
                   </button>
                 );
               })}
@@ -82,8 +85,8 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           const online = p.presence.some((x) => x.login === l);
           return (
             <button key={l} className="pp-item" onClick={() => toast(`${l} · ${online ? "online" : "away"}`)}>
-              <PersonAvatar login={l} hue={l === p.me.githubLogin ? "me" : hueClass(l)} />
-              <span className="nm">{l === p.me.githubLogin ? p.me.name : l}</span>
+              <PersonAvatar login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} />
+              <span className="nm">{nameOf(l)}</span>
               <span className={`sq ${online ? "ok" : "idle"}`} />
               <span className="sub">{l === p.me.githubLogin ? "you" : online ? "online" : "away"}</span>
             </button>
