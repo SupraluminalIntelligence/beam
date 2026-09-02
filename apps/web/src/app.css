@@ -381,3 +381,4 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .ag-item .sq,.pp-item .sq{margin-right:3.5px}
 .ag-item .sb-sel,.ag-item .sb-sel.sel{border:0;padding:0;background:none}
 .thead .repopick,.thead .repopick.sel{border:0;padding:0;background:none}
+.toast{left:auto;right:24px;bottom:24px;transform:none;max-width:420px}
