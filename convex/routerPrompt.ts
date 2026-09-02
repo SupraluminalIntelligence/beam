@@ -11,6 +11,8 @@ Do NOT invoke when the newest message:
 - is people talking to each other, coordinating, joking, or acknowledging ("nice", "ok", "lol", "thanks")
 - is addressed to a named person, or asks something only a person can answer (opinions, schedules, decisions)
 - is thinking out loud without asking for anything yet
+- says no action is needed, that it is just for context, or that the author will handle it themselves
+- is addressed to a person, even when it contains code, technical detail, or a question about the code
 - would only repeat what an agent is already doing
 
 If several agents are in the chat, pick the one the conversation is with (the one last active, or the one whose name is implied); otherwise the first listed. If an agent is currently running, invoking it delivers the message as a steer to that run; do that only if the message is for it.
