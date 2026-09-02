@@ -360,3 +360,16 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .rbar{top:-8px}
 .msg .tx.pre{white-space:pre-wrap}
 .empty.center{place-self:center;text-align:center}
+
+/* connected harnesses */
+.hlist{border-bottom:1px solid var(--line)}
+.hrow{display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:13px}
+.hrow.head{background:var(--surface-2);border-bottom:1px solid var(--line)}
+.hrow .nm{font-weight:500;min-width:110px}
+.hrow .sp{flex:1}
+.hrow .st{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:1px 6px;border:1px solid var(--line-2);color:var(--ink-2)}
+.hrow .st.authenticated{color:var(--ok);border-color:var(--ok)}
+.hrow .st.unauthenticated{color:var(--warn);border-color:var(--warn)}
+.hrow button.k,.hrow button.cmd{color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px;font-size:11px}
+.hrow button.k:hover,.hrow button.cmd:hover{color:var(--ink)}
+.hnote{padding:6px 14px 10px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}

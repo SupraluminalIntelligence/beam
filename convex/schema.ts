@@ -23,10 +23,17 @@ export default defineSchema({
     workspaceId: v.id("workspaces"), harness: v.string(), handle: v.string(), model: v.string(), effort: v.string(),
     permissionMode: v.string(), alwaysAllow: v.array(v.string()), contextPolicy: v.string(),
   }).index("by_workspace", ["workspaceId"]),
+  /** A runner's long-lived credential. Only the hash is stored. One per machine per person. */
+  runnerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
+    .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
+  /** Device-code login in flight. Deleted once polled after approval. */
+  deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()) })
+    .index("by_device", ["deviceCode"]).index("by_user_code", ["userCode"]),
+  /** A machine that can host runs. Belongs to a person, available in every workspace they are a member of. */
   runners: defineTable({
-    workspaceId: v.id("workspaces"), ownerLogin: v.string(), name: v.string(), online: v.boolean(), lastSeen: v.number(),
-    harnesses: v.any(),
-  }).index("by_workspace", ["workspaceId"]),
+    tokenId: v.id("runnerTokens"), ownerLogin: v.string(), name: v.string(), hostname: v.string(), platform: v.string(),
+    online: v.boolean(), lastSeen: v.number(), harnesses: v.any(), probeRequestedAt: v.number(), launchedByApp: v.boolean(),
+  }).index("by_token", ["tokenId"]).index("by_owner", ["ownerLogin"]),
   chats: defineTable({
     workspaceId: v.id("workspaces"), title: v.string(), untitled: v.boolean(), private: v.boolean(),
     members: v.array(v.string()), // github logins

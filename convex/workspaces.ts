@@ -26,8 +26,7 @@ export const detail = query({
     if (!w) return null;
     const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    const runners = await ctx.db.query("runners").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    return { id: w._id, name: w.name, repos: w.repos, members: members.map((m) => m.githubLogin), agents, runners };
+    return { id: w._id, name: w.name, repos: w.repos, members: members.map((m) => m.githubLogin), agents };
   },
 });
 

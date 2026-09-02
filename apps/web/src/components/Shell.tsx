@@ -25,6 +25,16 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const createChat = useMutation(api.chats.create);
   const focus = useMutation(api.presence.focus);
   const [modal, setModal] = useState<ModalKind>(null);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const runnersOnline = useQuery(api.runners.online, { workspaceId: wsId });
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(location.search).get("pair");
+    if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings" }); history.replaceState(null, "", location.pathname); }
+    const b = bridge();
+    if (!b) return;
+    void b.runnerStatus().then((s) => { if (s.pendingPair) { setPairCode(s.pendingPair); setModal({ kind: "settings" }); } });
+    return b.onPairCode((code) => { setPairCode(code); setModal({ kind: "settings" }); });
+  }, []);
 
   const tabs = useMemo(() => (u.tabs[wsId] ?? []).filter((id) => chats?.some((c) => c._id === id)), [u.tabs, wsId, chats]);
   const activeId = (u.active[wsId] && tabs.includes(u.active[wsId]!) ? u.active[wsId] : tabs[0]) ?? null;
@@ -61,7 +71,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
 
   return (
     <div className={`app${bridge() ? "" : " browser"}`}>
-      <Sidebar me={me} workspaces={workspaces} wsId={wsId} detail={detail} chats={chats} presence={presence ?? []} tabs={tabs} activeId={activeId} onNewChat={newChat} setModal={setModal} />
+      <Sidebar me={me} workspaces={workspaces} wsId={wsId} detail={detail} chats={chats} presence={presence ?? []} runners={runnersOnline ?? []} tabs={tabs} activeId={activeId} onNewChat={newChat} setModal={setModal} />
       <div className="pane">
         <div className="titlebar">
           <div className="tb-ws"><b>{detail.name}</b><span className="mono">{detail.repos.length} repo{detail.repos.length === 1 ? "" : "s"} · {detail.members.length} {detail.members.length === 1 ? "person" : "people"}</span></div>
@@ -72,7 +82,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
           {active ? <ChatView key={active._id} me={me} chat={active} detail={detail} logins={logins} setModal={setModal} /> : <EmptyPane />}
         </div>
       </div>
-      <SettingsModal open={modal?.kind === "settings"} onClose={() => setModal(null)} me={me} />
+      <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} />
       <AgentSettingsModal open={modal?.kind === "agent"} agentId={modal?.kind === "agent" ? modal.id : null} detail={detail} onClose={() => setModal(null)} />
       <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />

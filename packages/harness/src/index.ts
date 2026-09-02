@@ -1,8 +1,10 @@
 export * from "./adapter.ts";
 export * from "./path.ts";
-export { claudeAdapter } from "./claude/index.ts";
-export { codexAdapter } from "./codex/index.ts";
-export { ompAdapter } from "./omp/index.ts";
+export * from "./version.ts";
+export { claudeAdapter, probeClaude } from "./claude/index.ts";
+export { codexAdapter, probeCodex } from "./codex/index.ts";
+export { JsonRpcChild } from "./codex/rpc.ts";
+export { ompAdapter, probeOmp } from "./omp/index.ts";
 import type { HarnessKind } from "@beam/contracts";
 import type { HarnessAdapter } from "./adapter.ts";
 import { claudeAdapter } from "./claude/index.ts";

@@ -11,13 +11,15 @@ import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
 
 type Detail = NonNullable<ReturnType<typeof useDetailType>>;
-function useDetailType() { return null as null | { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[]; runners: Doc<"runners">[] }; }
+function useDetailType() { return null as null | { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] }; }
+type RunnerRow = { id: unknown; name: string; ownerLogin: string; online: boolean; harnesses: unknown };
+type Status = { harness: string; installed: boolean; auth: string };
 
 const EFFORTS = ["low", "medium", "high", "max"] as const;
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const MODELS: Record<string, string[]> = { claude: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], codex: ["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"], omp: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"] };
 
-export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"workspaces">; detail: Detail; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; tabs: string[]; activeId: string | null; onNewChat: (k: "team" | "private") => void; setModal: (m: ModalKind) => void }) {
+export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"workspaces">; detail: Detail; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; runners: RunnerRow[]; tabs: string[]; activeId: string | null; onNewChat: (k: "team" | "private") => void; setModal: (m: ModalKind) => void }) {
   const [newPop, setNewPop] = useState<string | null>(null);
   const [acct, setAcct] = useState(false);
   const [openSel, setOpenSel] = useState<string | null>(null);
@@ -32,7 +34,9 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
     return () => document.removeEventListener("click", close);
   }, []);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const status = (c: Doc<"chats">) => "idle";
+  const status = (_c: Doc<"chats">) => "idle";
+  const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
+  const runnersOf = (login: string) => p.runners.filter((r) => r.online && r.ownerLogin === login);
 
   return (
     <aside className="side">
@@ -70,7 +74,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
         {p.detail.agents.map((a) => (
           <div key={a._id} className="ag-item" onClick={stop}>
             <button className="ag-name" onClick={() => p.setModal({ kind: "agent", id: a._id })} title="Agent settings"><AgentAvatar harness={a.harness} /><span className="nm">{HARNESS_NAME[a.harness] ?? a.harness}{a.handle !== a.harness && <> <span className="k">@{a.handle}</span></>}</span></button>
-            <span className="sq idle" />
+            <span className={`sq ${harnessReady(a.harness) ? "ok" : "idle"}`} title={harnessReady(a.harness) ? "a runner is online with this harness signed in" : "no online runner has this harness signed in"} />
             <span className="sub">
               <span className={`sel sb-sel${openSel === a._id ? " open" : ""}`} tabIndex={0} onClick={() => setOpenSel(openSel === a._id ? null : a._id)}>
                 <span>{a.model}</span><i>▾</i>
@@ -88,7 +92,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
               <PersonAvatar login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} />
               <span className="nm">{nameOf(l)}</span>
               <span className={`sq ${online ? "ok" : "idle"}`} />
-              <span className="sub">{l === p.me.githubLogin ? "you" : online ? "online" : "away"}</span>
+              <span className="sub">{[l === p.me.githubLogin ? "you" : online ? "online" : "away", ...(runnersOf(l).length ? [`runner · ${runnersOf(l).map((r) => r.name).join(", ")}`] : [])].join(" · ")}</span>
             </button>
           );
         })}

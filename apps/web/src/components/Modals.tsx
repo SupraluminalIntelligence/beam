@@ -7,11 +7,12 @@ import type { WorkspaceRow } from "../App";
 import { bridge } from "../bridge";
 import { ui, useUi } from "../lib/ui";
 import { AgentAvatar } from "./Avatar";
+import { ApproveRunner, Harnesses } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
 import type { Me } from "./Shell";
 import { toast } from "./Toast";
 
-type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[]; runners: Doc<"runners">[] };
+type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const HARNESS_INFO: Record<string, { vendor: string; models: string[]; min: string; files: string }> = {
   claude: { vendor: "Anthropic", models: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], min: "Claude Code ≥ 2.4", files: "CLAUDE.md, AGENTS.md" },
@@ -19,15 +20,17 @@ const HARNESS_INFO: Record<string, { vendor: string; models: string[]; min: stri
   omp: { vendor: "via omp · pick a provider", models: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"], min: "omp ≥ 1.0", files: "AGENTS.md, .omp/" },
 };
 
-export function SettingsModal({ open, onClose, me }: { open: boolean; onClose: () => void; me: Me }) {
+export function SettingsModal({ open, onClose, me, pairCode }: { open: boolean; onClose: () => void; me: Me; pairCode?: string | null }) {
   const u = useUi();
   const { signOut } = useAuthActions();
   return (
     <Modal open={open} onClose={onClose}>
       <div className="m-h">Settings<span className="k hint">⌘,</span></div>
       <div className="row"><span>Account</span><span className="val">{me.name} <span className="hint">· {me.githubLogin}{me.isAnonymous ? " · guest" : ""}</span></span></div>
-      <div className="row"><span>Connected harnesses</span><span className="hint">arrives with the runner in M1: install state, sign-in, plan</span></div>
-      <div className="row"><span>This machine</span><span className="hint">{bridge() ? "runner launched by the app (M1)" : "browser · runners need the desktop app"}</span></div>
+      <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Connected harnesses</div>
+      <Harnesses />
+      <ApproveRunner initial={pairCode ?? null} />
+      <div className="row"><span>This machine</span><span className="hint">{bridge() ? "runner launched by the app on startup · your own logins, nothing stored" : "browser · a runner needs the desktop app or `beam-runner start` on a machine"}</span></div>
       <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
       <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
       <div className="m-f"><span>Per-agent settings live on each agent in the sidebar.</span><span><button className="btn ghost" onClick={() => void signOut()}>Log out</button> <button className="btn" onClick={onClose}>Done</button></span></div>

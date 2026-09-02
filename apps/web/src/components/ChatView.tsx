@@ -9,7 +9,7 @@ import { Modal, Seg } from "./Modal";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
 
-type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[]; runners: Doc<"runners">[] };
+type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const QUICK = ["👍", "🔥", "👀", "✅"];
 const MORE = ["👍", "🔥", "👀", "✅", "💯", "🚀", "🤔", "😂", "🙏", "👎"];
