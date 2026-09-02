@@ -375,3 +375,8 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .hrow button.k,.hrow button.cmd{color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px;font-size:11px}
 .hrow button.k:hover,.hrow button.cmd:hover{color:var(--ink)}
 .hnote{padding:6px 14px 10px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+
+/* sidebar alignment: section plus and status squares share one axis */
+.sb-sec button{padding:0;width:14px;text-align:center;line-height:1}
+.ag-item .sq,.pp-item .sq{margin-right:3.5px}
+.ag-item .sb-sel,.ag-item .sb-sel.sel{border:0;padding:0;background:none}
