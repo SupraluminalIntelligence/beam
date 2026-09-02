@@ -5,11 +5,12 @@ import { adapters, hydratePathFromLoginShell } from "@beam/harness";
 import { api } from "../../../convex/_generated/api.js";
 import { readConfig } from "./config.ts";
 import { login } from "./login.ts";
+import { watchRuns } from "./runs.ts";
 
 /**
  * beam-runner: a standalone Convex client that hosts runs on this machine.
  *   beam-runner login [--name X]   device-code sign-in, writes ~/.beam/runner.json
- *   beam-runner start [--app]      probe harnesses, heartbeat, watch for probe requests (runs in M2)
+ *   beam-runner start [--app]      probe harnesses, heartbeat, host runs dispatched to this machine
  *   beam-runner probe              print harness status and exit
  *   beam-runner logout
  * Launched by the desktop app at startup (--app) or by hand on any box. Nothing assumes an app is attached.
@@ -30,12 +31,12 @@ if (cmd === "probe") {
   for (const s of await probeAll()) console.log(line(s));
   process.exit(0);
 }
-if (cmd === "login") { await login({ name: opt("--name"), fromApp: flag("--app") }); process.exit(0); }
+if (cmd === "login") { await login({ ...(opt("--name") ? { name: opt("--name")! } : {}), fromApp: flag("--app") }); process.exit(0); }
 if (cmd === "logout") { const { rm } = await import("node:fs/promises"); const { beamHome } = await import("./config.ts"); await rm(`${beamHome()}/runner.json`, { force: true }); console.log("logged out"); process.exit(0); }
 
 if (cmd === "start") {
   let cfg = await readConfig();
-  if (!cfg) { await login({ name: opt("--name"), fromApp: flag("--app") }); cfg = (await readConfig())!; }
+  if (!cfg) { await login({ ...(opt("--name") ? { name: opt("--name")! } : {}), fromApp: flag("--app") }); cfg = (await readConfig())!; }
   const client = new ConvexClient(cfg.convexUrl);
   const token = cfg.token;
   let statuses = await probeAll();
@@ -53,6 +54,7 @@ if (cmd === "start") {
   setInterval(() => client.mutation(api.runners.heartbeat, { token, runnerId }).catch((e) => console.error("heartbeat", (e as Error).message)), 30_000);
   setInterval(() => void reprobe("interval"), 5 * 60_000);
   client.onUpdate(api.runners.self, { token }, (row) => { if (row && row.probeRequestedAt > lastProbeReq) { lastProbeReq = row.probeRequestedAt; void reprobe("requested"); } });
+  watchRuns(client, token);
 
   const bye = async () => { try { await client.mutation(api.runners.bye, { token, runnerId }); } catch {} process.exit(0); };
   process.on("SIGINT", bye); process.on("SIGTERM", bye);

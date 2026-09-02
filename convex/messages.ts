@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { autoTitle, requireChat } from "./lib";
+import { chooseRunner, isLive } from "./runs";
 
 export const list = query({
   args: { chatId: v.id("chats") },
@@ -17,23 +18,33 @@ export const send = mutation({
     const { chat, u } = await requireChat(ctx, chatId);
     const body = text.trim();
     if (!body) throw new Error("empty");
-    let target = null as null | string;
+    const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
+    let target: typeof agents[number] | null = null;
     if (mentionHandle) {
-      const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
       const a = agents.find((x) => x.handle === mentionHandle);
       if (!a) throw new Error(`no agent @${mentionHandle} in this workspace`);
       if (chat.agents && !chat.agents.includes(a._id)) throw new Error(`@${mentionHandle} is not in this chat`);
-      target = a._id;
-    } else if (chat.private && chat.pinnedAgent) target = chat.pinnedAgent;
-    const live = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId))
-      .filter((q) => q.or(q.eq(q.field("state"), "working"), q.eq(q.field("state"), "starting"), q.eq(q.field("state"), "queued"))).first();
-    const kind = target ? (live ? "steer" : "dispatch") : "text";
+      target = a;
+    } else if (chat.private && chat.pinnedAgent) target = agents.find((x) => x._id === chat.pinnedAgent) ?? null;
+    const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
+    const live = runs.find((r) => isLive(r.state)) ?? null;
+    // A mention of a different agent while one is live is a plain message: one active run per chat.
+    const steer = !!(target && live && live.agentId === target._id);
+    const kind = target ? (live ? (steer ? "steer" : "text") : "dispatch") : "text";
+    if (kind === "dispatch" && !chat.repo) throw new Error("Attach a repo first so the agent has somewhere to work.");
+    const runner = kind === "dispatch" ? await chooseRunner(ctx, chat, u.githubLogin!, target!.harness) : null;
     const patch: Record<string, unknown> = { lastMessageAt: Date.now() };
     if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body) });
     await ctx.db.patch(chatId, patch);
     const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [] });
-    // TODO(M2): if kind === "dispatch" && chat.repo, insert a run for the dispatcher's online runner (or pinnedRunner)
-    return { id, kind };
+    if (runner) {
+      const runId = await ctx.db.insert("runs", {
+        chatId, agentId: target!._id, runnerId: runner._id, dispatchedBy: u.githubLogin!, dispatchMessageId: id, state: "queued",
+        branch: chat.activeBranch, worktree: null, resumeCursor: null, landing: null, startedAt: null, endedAt: null,
+      });
+      await ctx.db.patch(id, { runId });
+    }
+    return { id, kind, runner: runner?.name ?? null };
   },
 });
 

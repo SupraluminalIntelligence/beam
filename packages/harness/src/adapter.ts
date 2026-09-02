@@ -20,7 +20,7 @@ export interface Session {
   send(text: string, messageId: string): Promise<void>;
   /** Cancel the in-flight tool call and deliver nothing. */
   interrupt(): Promise<void>;
-  respond(requestId: string, decision: string, by: string): Promise<void>;
+  respond(requestId: string, decision: string, by?: string): Promise<void>;
   stop(): Promise<void>;
   events: AsyncIterable<RunEvent>;
   resumeCursor(): unknown;

@@ -48,6 +48,7 @@ export default defineSchema({
     kind: v.string(),          // text | dispatch | steer | ask | report
     text: v.string(),
     runId: v.union(v.id("runs"), v.null()),
+    turn: v.optional(v.number()),   // agent messages: which turn of the run produced this text
     reactions: v.array(v.object({ emoji: v.string(), by: v.array(v.string()) })),
   }).index("by_chat", ["chatId"]),
   runs: defineTable({
@@ -55,6 +56,7 @@ export default defineSchema({
     dispatchMessageId: v.id("messages"), state: v.string(),
     branch: v.union(v.string(), v.null()), worktree: v.union(v.string(), v.null()), resumeCursor: v.any(),
     landing: v.any(), startedAt: v.union(v.number(), v.null()), endedAt: v.union(v.number(), v.null()),
+    interruptRequestedAt: v.optional(v.number()),
   }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
   presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number() })

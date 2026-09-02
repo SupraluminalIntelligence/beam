@@ -1,6 +1,8 @@
 export * from "./adapter.ts";
 export * from "./path.ts";
 export * from "./version.ts";
+export * from "./queue.ts";
+export * from "./tools.ts";
 export { claudeAdapter, probeClaude } from "./claude/index.ts";
 export { codexAdapter, probeCodex } from "./codex/index.ts";
 export { JsonRpcChild } from "./codex/rpc.ts";

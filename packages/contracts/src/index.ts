@@ -70,6 +70,7 @@ export const Message = z.object({
   kind: MessageKind,
   text: z.string(),
   runId: RunId.nullable(),
+  turn: z.number().optional(),
   reactions: z.array(z.object({ emoji: z.string(), by: z.array(UserId) })),
   createdAt: z.number(),
 });
@@ -77,6 +78,20 @@ export type Message = z.infer<typeof Message>;
 
 // ---- runs ----
 export const RunState = z.enum(["queued", "starting", "working", "landing", "landed", "failed", "interrupted"]);
+/** What a run leaves behind. The branch is always pushed, the PR is best effort. */
+export const Landing = z.object({
+  branch: z.string(),
+  base: z.string(),
+  pushed: z.boolean(),
+  add: z.number(),
+  del: z.number(),
+  files: z.number(),
+  prUrl: z.string().nullable(),
+  compareUrl: z.string().nullable(),
+  error: z.string().nullable(),
+});
+export type Landing = z.infer<typeof Landing>;
+
 export const Run = z.object({
   id: RunId,
   chatId: ChatId,
@@ -88,11 +103,10 @@ export const Run = z.object({
   branch: z.string().nullable(),
   worktree: z.string().nullable(),
   resumeCursor: z.unknown().nullable(),
-  landing: z
-    .object({ prNumber: z.number().nullable(), prUrl: z.string().nullable(), add: z.number(), del: z.number(), files: z.number() })
-    .nullable(),
+  landing: Landing.nullable(),
   startedAt: z.number().nullable(),
   endedAt: z.number().nullable(),
+  interruptRequestedAt: z.number().optional(),
 });
 export type Run = z.infer<typeof Run>;
 

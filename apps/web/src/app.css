@@ -382,3 +382,21 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .ag-item .sb-sel,.ag-item .sb-sel.sel{border:0;padding:0;background:none}
 .thead .repopick,.thead .repopick.sel{border:0;padding:0;background:none}
 .toast{left:auto;right:24px;bottom:24px;transform:none;max-width:420px}
+
+/* ---- runs (M2) ---- */
+.msg.report .tx{max-width:76ch}
+.msg .act+.tx,.msg .ask+.tx{margin-top:10px}
+.step .ic.bad{color:var(--del)}
+.rstat{display:flex;gap:8px;align-items:center;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);margin-top:4px}
+.rstat i{width:7px;height:7px;background:var(--warn);display:inline-block;animation:pulse 1.6s infinite}
+.rstat.bad{color:var(--del)}
+.ask{border:1px solid var(--warn);background:var(--surface);padding:8px 12px;margin-top:8px;max-width:680px;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.ask.fail{border-color:var(--del)}
+.ask .askp{display:flex;flex-direction:column;gap:4px;color:var(--ink)}
+.ask .k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn)}
+.ask.fail .k{color:var(--del)}
+.ask .perm{margin-top:8px}
+.card .mt .err{color:var(--del)}
+.card .mt .hint{color:var(--ink-3);text-decoration:underline;text-underline-offset:2px}
+.stopbtn{border:1px solid var(--del);color:var(--del);background:transparent;padding:1px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;margin-left:8px}
+.stopbtn:hover{background:var(--del);color:var(--surface)}

@@ -5,7 +5,7 @@ import { me, requireMember } from "./lib";
 import { sha256 } from "./runnerAuth";
 
 /** Runner calls authenticate with their token, not with Convex Auth. */
-async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) {
+export async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) {
   const hash = await sha256(token);
   const t = await ctx.db.query("runnerTokens").withIndex("by_hash", (q) => q.eq("tokenHash", hash)).first();
   if (!t || t.revokedAt) throw new Error("runner token invalid or revoked");
@@ -81,6 +81,14 @@ export const online = query({
     return out;
   },
 });
+
+/** Resolve the runner row for a token. Runner-side calls go through this. */
+export async function runnerForToken(ctx: QueryCtx | MutationCtx, token: string) {
+  const t = await requireRunner(ctx, token);
+  const r = await ctx.db.query("runners").withIndex("by_token", (q) => q.eq("tokenId", t._id)).first();
+  if (!r) throw new Error("runner has not said hello");
+  return r;
+}
 
 export const requestProbe = mutation({
   args: { runnerId: v.id("runners") },

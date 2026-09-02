@@ -6,6 +6,8 @@ import { dayLabel, firstMention, hhmm, hueClass, renderText } from "../lib/forma
 import { useUi } from "../lib/ui";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import { Modal, Seg } from "./Modal";
+import { fold, type RunView } from "@beam/reducer";
+import { Activity, LandingCard, Requests, RunStatus, isLive } from "./RunBlocks";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
 
@@ -25,7 +27,17 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const setAgents = useMutation(api.chats.setAgents);
   const pinAgent = useMutation(api.chats.pinAgent);
   const invite = useMutation(api.workspaces.invite);
+  const stopRun = useMutation(api.runs.interrupt);
+  const runs = useQuery(api.runs.forChat, { chatId: chat._id });
+  const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
   const u = useUi();
+  const views = useMemo(() => {
+    const out: Record<string, RunView> = {};
+    for (const [id, evs] of Object.entries(runEvents ?? {})) out[id] = fold(id, evs as never);
+    return out;
+  }, [runEvents]);
+  const liveRun = runs?.find((r) => isLive(r.state)) ?? null;
+  const liveAgent = liveRun ? detail.agents.find((a) => a._id === liveRun.agentId) ?? null : null;
 
   const [text, setText] = useState("");
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
@@ -43,7 +55,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const pinned = chat.pinnedAgent ? detail.agents.find((a) => a._id === chat.pinnedAgent) ?? null : null;
   const members = chat.private ? [me.githubLogin] : chat.members;
 
-  useEffect(() => { const el = msgsRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages?.length]);
+  const tailText = messages?.length ? messages[messages.length - 1]!.text.length : 0;
+  useEffect(() => { const el = msgsRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages?.length, tailText, runEvents]);
   useEffect(() => { inputRef.current?.focus(); }, [chat._id]);
   useEffect(() => {
     const close = () => { setRepoOpen(false); setScopeOpen(false); setPinOpen(false); setMore(null); };
@@ -86,14 +99,27 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     setText(""); setPop(null);
     try {
       const r = await send({ chatId: chat._id, text: body, mentionHandle: mention });
-      if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : "Dispatched · runs arrive in M2");
+      if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
     } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); }
   }
 
   const grouped = useMemo(() => {
     let prev: string | null = null;
-    return (messages ?? []).map((m) => { const cont = m.author === prev; prev = m.author; return { m, cont }; });
+    const lastReport: Record<string, string> = {};
+    for (const m of messages ?? []) if (m.kind === "report" && m.runId) lastReport[m.runId] = m._id;
+    return (messages ?? []).map((m) => { const cont = m.author === prev; prev = m.author; return { m, cont, lastOfRun: !!m.runId && lastReport[m.runId] === m._id }; });
   }, [messages]);
+  // Runs whose current turn has no text yet get a trailing block of their own.
+  const trailing = useMemo(() => {
+    const spoken = new Set((messages ?? []).filter((m) => m.kind === "report").map((m) => `${m.runId}:${m.turn}`));
+    return (runs ?? []).filter((r) => {
+      const v = views[r._id];
+      const turn = v?.turns.length ?? 0;
+      if (isLive(r.state)) return !spoken.has(`${r._id}:${turn}`);
+      return turn === 0 || (!spoken.has(`${r._id}:${turn}`) && (r.landing || r.state === "failed"));
+    }).map((r) => ({ r, v: views[r._id] ?? null }));
+  }, [runs, views, messages]);
+  const lastAuthor = messages?.length ? messages[messages.length - 1]!.author : null;
 
   return (
     <main className="thread">
@@ -147,20 +173,45 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         {messages && messages.length === 0 && (chat.private
           ? <div className="empty"><b>Just you{pinned ? ` and ${HARNESS_NAME[pinned.harness]}` : ""}.</b><span>Your first message names the chat. {pinned ? "Plain messages go straight to the pinned agent." : "@mention an agent when you want one."} Share it from the header whenever it turns into something.</span></div>
           : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {chat.repo ? `Attached to ${chat.repo}; a worktree and branch appear on the first dispatch.` : "Attach a repo from the header when you want an agent to work."} Your first message names the chat.</span></div>)}
-        {grouped.map(({ m, cont }) => {
+        {grouped.map(({ m, cont, lastOfRun }) => {
           const ag = isAgent(m.author) ? agentOf(m.author) : null;
           const mine = m.author === me.githubLogin;
+          const run = m.kind === "report" && m.runId ? runs?.find((r) => r._id === m.runId) ?? null : null;
+          const view = run ? views[run._id] ?? null : null;
+          const turnView = view && m.turn ? view.turns.find((t) => t.turn === m.turn) ?? null : null;
+          const turnLive = !!run && isLive(run.state) && !!turnView && !turnView.done;
           return (
-            <div key={m._id} className={`msg${cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" ? ` ${m.kind}` : ""}`}>
+            <div key={m._id} className={`msg${cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span><span className="tm">{hhmm(m._creationTime)}</span></div>
-                <div className="tx pre">{renderText(m.text, handles, logins)}</div>
+                {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} />}
+                {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
+                {m.text && <div className="tx pre">{renderText(m.text, handles, logins)}</div>}
+                {run && lastOfRun && !isLive(run.state) && !trailing.some((t) => t.r._id === run._id) && <LandingCard run={run} />}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>
                   {(more === m._id ? MORE : QUICK).map((e) => <button key={e} onClick={() => { void react({ messageId: m._id, emoji: e }); setMore(null); }}>{e}</button>)}
                   {more !== m._id && <button onClick={() => setMore(m._id)} title="More">+</button>}
                 </div>
+              </div>
+            </div>
+          );
+        })}
+        {trailing.map(({ r, v }) => {
+          const ag = detail.agents.find((a) => a._id === r.agentId) ?? null;
+          const name = ag ? HARNESS_NAME[ag.harness]! : "Agent";
+          const t = v?.turns[v.turns.length - 1] ?? null;
+          const live = isLive(r.state);
+          return (
+            <div key={r._id} className={`msg report${lastAuthor === `agent:${r.agentId}` ? " cont" : ""}`}>
+              <AgentAvatar harness={ag?.harness ?? "claude"} />
+              <div>
+                <div className="hd"><span className={`nm ${ag?.harness === "codex" ? "codex" : ag?.harness === "omp" ? "omp" : "claude"}`}>{name}</span><span className="tm">{hhmm(r.startedAt ?? r._creationTime)}</span></div>
+                <RunStatus run={r} view={v} />
+                {t && <Activity t={t} live={live && !t.done} agentName={name} />}
+                {v && t && <Requests view={v} turn={t.turn} runId={r._id} />}
+                {!live && <LandingCard run={r} />}
               </div>
             </div>
           );
@@ -194,6 +245,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <span className="dd"><span className="ddh">Default agent</span>{detail.agents.map((a) => <button key={a._id} className={chat.pinnedAgent === a._id ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: a._id }); }}>{HARNESS_NAME[a.harness]}</button>)}<button className={!chat.pinnedAgent ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: null }); }}>none · @mention only</button></span>
               </span>
             : <span>{chat.activeBranch ? `chat → ${chat.activeBranch}` : "no branch until first dispatch"}</span>}
+          {liveRun && <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · branch will still be pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>}
         </div>
       </div>
 
