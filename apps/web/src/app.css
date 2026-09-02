@@ -311,7 +311,7 @@ table.tbl{width:100%;border-collapse:collapse;background:var(--surface);border:1
 /* modals */
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:20}
 .scrim.open{display:flex}
-.modal{width:520px;max-width:calc(100vw - 40px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--surface);border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--surface-3);font-size:13px}
+.modal{width:600px;max-width:calc(100vw - 40px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--surface);border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--surface-3);font-size:13px}
 .m-h{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;background:var(--surface-2)}
 .m-h .k{margin-left:auto;font-weight:400}
 .m-h .tabs2{display:flex;gap:2px}
@@ -365,9 +365,10 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .hlist{border-bottom:1px solid var(--line)}
 .hrow{display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:13px}
 .hrow.head{background:var(--surface-2);border-bottom:1px solid var(--line)}
-.hrow .nm{font-weight:500;min-width:110px}
+.hrow .nm{font-weight:500;min-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hrow .sp{flex:1}
-.hrow .st{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:1px 6px;border:1px solid var(--line-2);color:var(--ink-2)}
+.hrow .st{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:1px 6px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
+.hrow .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hrow .st.authenticated{color:var(--ok);border-color:var(--ok)}
 .hrow .st.unauthenticated{color:var(--warn);border-color:var(--warn)}
 .hrow button.k,.hrow button.cmd{color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px;font-size:11px}
