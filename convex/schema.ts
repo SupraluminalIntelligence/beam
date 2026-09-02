@@ -27,7 +27,7 @@ export default defineSchema({
   runnerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
     .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
   /** Device-code login in flight. Deleted once polled after approval. */
-  deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()) })
+  deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), kind: v.optional(v.string()), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()), userId: v.optional(v.id("users")) })
     .index("by_device", ["deviceCode"]).index("by_user_code", ["userCode"]),
   /** A machine that can host runs. Belongs to a person, available in every workspace they are a member of. */
   runners: defineTable({

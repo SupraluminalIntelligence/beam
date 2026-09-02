@@ -20,13 +20,27 @@ export async function sha256(s: string): Promise<string> {
   return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** kind "runner": approval mints a runner token. kind "desktop": approval binds the code to the approver's user, and the app signs in with it. */
 export const start = internalMutation({
-  args: { name: v.string(), hostname: v.string() },
-  handler: async (ctx, { name, hostname }) => {
+  args: { name: v.string(), hostname: v.string(), kind: v.string() },
+  handler: async (ctx, { name, hostname, kind }) => {
     const deviceCode = randomToken();
     const userCode = `${randomCode(4)}-${randomCode(4)}`;
-    await ctx.db.insert("deviceCodes", { deviceCode, userCode, name, hostname, status: "pending", expiresAt: Date.now() + 15 * 60_000, token: null, githubLogin: null });
+    await ctx.db.insert("deviceCodes", { deviceCode, userCode, kind: kind === "desktop" ? "desktop" : "runner", name, hostname, status: "pending", expiresAt: Date.now() + 15 * 60_000, token: null, githubLogin: null });
     return { deviceCode, userCode, expiresAt: Date.now() + 15 * 60_000 };
+  },
+});
+
+/** Consumed by the "device" credentials provider: an approved desktop code becomes a session for that user. */
+export const consumeDesktop = internalMutation({
+  args: { deviceCode: v.string() },
+  handler: async (ctx, { deviceCode }) => {
+    const row = await ctx.db.query("deviceCodes").withIndex("by_device", (q) => q.eq("deviceCode", deviceCode)).first();
+    if (!row || (row.kind ?? "runner") !== "desktop") return null;
+    if (row.expiresAt < Date.now()) { await ctx.db.delete(row._id); return null; }
+    if (row.status !== "approved" || !row.userId) return null;
+    await ctx.db.delete(row._id);
+    return { userId: row.userId };
   },
 });
 
@@ -50,11 +64,12 @@ export const approve = mutation({
     const code = userCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})(.{4})$/, "$1-$2");
     const row = await ctx.db.query("deviceCodes").withIndex("by_user_code", (q) => q.eq("userCode", code)).first();
     if (!row || row.expiresAt < Date.now()) throw new Error("That code is not waiting for approval");
-    if (row.status === "approved") return { name: row.name, already: true };
+    if (row.status === "approved") return { name: row.name, kind: row.kind ?? "runner", already: true };
+    if ((row.kind ?? "runner") === "desktop") { await ctx.db.patch(row._id, { status: "approved", userId: u._id, githubLogin: u.githubLogin! }); return { name: row.name, kind: "desktop", already: false }; }
     const token = randomToken();
     await ctx.db.insert("runnerTokens", { tokenHash: await sha256(token), githubLogin: u.githubLogin!, name: row.name, createdAt: Date.now(), revokedAt: null });
     await ctx.db.patch(row._id, { status: "approved", token, githubLogin: u.githubLogin! });
-    return { name: row.name, already: false };
+    return { name: row.name, kind: "runner", already: false };
   },
 });
 
@@ -63,7 +78,7 @@ export const pending = query({
   handler: async (ctx, { userCode }) => {
     const code = userCode.trim().toUpperCase();
     const row = await ctx.db.query("deviceCodes").withIndex("by_user_code", (q) => q.eq("userCode", code)).first();
-    return row && row.expiresAt > Date.now() ? { name: row.name, hostname: row.hostname, status: row.status } : null;
+    return row && row.expiresAt > Date.now() ? { name: row.name, hostname: row.hostname, status: row.status, kind: row.kind ?? "runner" } : null;
   },
 });
 
