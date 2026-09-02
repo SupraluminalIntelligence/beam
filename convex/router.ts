@@ -3,6 +3,7 @@ import { internalAction, internalMutation, internalQuery } from "./_generated/se
 import { internal } from "./_generated/api";
 import { isLive } from "./runs";
 import { startRun } from "./messages";
+import { SYSTEM } from "./routerPrompt";
 
 /**
  * The router: a small, fast model reads each plain message in a team chat and decides whether one of the
@@ -10,7 +11,9 @@ import { startRun } from "./messages";
  * pass through here. Runs as a scheduled action right after the message is written.
  *
  *   Provider is picked from whichever key is set (Convex env), in this order:
- *   OPENROUTER_API_KEY  → google/gemini-3.8-flash via OpenRouter (any model id works in ROUTER_MODEL)
+ *   OPENROUTER_API_KEY  → openai/gpt-5.4-mini via OpenRouter, hedged by google/gemini-3.5-flash-lite after
+ *                         ROUTER_HEDGE_MS (1000): measured 36/36 on scripts/router-bench.mjs at ~550ms median but
+ *                         with a 4-5s tail; the hedge caps that. ROUTER_MODEL / ROUTER_HEDGE_MODEL override.
  *   GEMINI_API_KEY      → Gemini 3.8 Flash, thinking minimal (best intelligence at ~0.7s first token)
  *   ANTHROPIC_API_KEY   → Claude Haiku 4.5
  *   OPENAI_API_KEY      → GPT-5.6 Luna
@@ -54,26 +57,11 @@ export const context = internalQuery({
   },
 });
 
-const SYSTEM = `You route messages in a team chat where people and coding agents work together. Agents can read and edit the chat's repo, run commands, and answer technical questions. Given the chat so far and the NEWEST message, decide whether an agent should act on the newest message right now, and which one.
 
-Invoke an agent when the newest message:
-- asks for work, a change, a check, or an investigation an agent could do
-- asks a question that needs the code or the repo to answer
-- answers or follows up on something an agent just said or asked (e.g. "yes do that", "use the second option", "why did you change X?")
-- is clearly addressed to an agent even without a mention
-
-Do NOT invoke when the newest message:
-- is people talking to each other, coordinating, joking, or acknowledging ("nice", "ok", "lol", "thanks")
-- is addressed to a named person, or asks something only a person can answer (opinions, schedules, decisions)
-- is thinking out loud without asking for anything yet
-- would only repeat what an agent is already doing
-
-If several agents are in the chat, pick the one the conversation is with (the one last active, or the one whose name is implied); otherwise the first listed. If an agent is currently running, invoking it delivers the message as a steer to that run; do that only if the message is for it.
-
-Reply with JSON only, no prose: {"agent": "<handle>" | null, "why": "<at most 8 words>"}`;
 
 type Provider = "openrouter" | "gemini" | "anthropic" | "openai";
-const DEFAULT_MODEL: Record<Provider, string> = { openrouter: "google/gemini-3.8-flash", gemini: "gemini-3.8-flash", anthropic: "claude-haiku-4-5-20251001", openai: "gpt-5.6-luna" };
+const DEFAULT_MODEL: Record<Provider, string> = { openrouter: "openai/gpt-5.4-mini", gemini: "gemini-3.8-flash", anthropic: "claude-haiku-4-5-20251001", openai: "gpt-5.4-mini" };
+const DEFAULT_HEDGE = "google/gemini-3.5-flash-lite";
 
 function renderUser(c: RouterContext): string {
   const lines = c.transcript.map((t) => `${t.who}: ${t.text}`).join("\n");
@@ -131,7 +119,7 @@ async function askOpenAI(key: string, model: string, c: RouterContext) {
 /** OpenAI-compatible. `reasoning.effort` is OpenRouter's unified knob; retried without it if a model rejects it. */
 async function askOpenRouter(key: string, model: string, c: RouterContext) {
   const body = (reasoning: boolean) => JSON.stringify({
-    model, max_tokens: 120, temperature: 0, response_format: { type: "json_object" },
+    model, max_tokens: 400, temperature: 0, response_format: { type: "json_object" },
     ...(reasoning ? { reasoning: { effort: "minimal" } } : {}),
     messages: [{ role: "system", content: SYSTEM }, { role: "user", content: renderUser(c) }],
   });
@@ -145,6 +133,20 @@ async function askOpenRouter(key: string, model: string, c: RouterContext) {
   if (!res.ok) throw new Error(`openrouter ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as { choices: { message: { content: string } }[] };
   return parseDecision(data.choices[0]?.message.content ?? "", c);
+}
+
+/** Primary model, and after hedgeMs a second model in parallel; first good answer wins. */
+async function askOpenRouterHedged(key: string, model: string, c: RouterContext) {
+  const hedgeModel = process.env["ROUTER_HEDGE_MODEL"] ?? DEFAULT_HEDGE;
+  const hedgeMs = Number(process.env["ROUTER_HEDGE_MS"] ?? 1000);
+  if (!hedgeModel || hedgeModel === "none" || hedgeModel === model) return askOpenRouter(key, model, c);
+  const tag = (m: string, p: Promise<{ agent: string | null; why: string }>) => p.then((d) => ({ ...d, model: m }));
+  const primary = tag(model, askOpenRouter(key, model, c));
+  const timer = new Promise<"hedge">((res) => setTimeout(() => res("hedge"), hedgeMs));
+  const first = await Promise.race([primary.catch(() => "failed" as const), timer]);
+  if (first !== "hedge" && first !== "failed") return first;
+  const hedge = tag(hedgeModel, askOpenRouter(key, hedgeModel, c));
+  return Promise.any([primary, hedge]);
 }
 
 function pickProvider(): { provider: Provider; key: string } | null {
@@ -168,10 +170,10 @@ export const classify = internalAction({
     else {
       const model = process.env["ROUTER_MODEL"] ?? DEFAULT_MODEL[pick.provider];
       const t0 = Date.now();
-      const ask = { openrouter: askOpenRouter, gemini: askGemini, anthropic: askAnthropic, openai: askOpenAI }[pick.provider];
+      const ask = { openrouter: askOpenRouterHedged, gemini: askGemini, anthropic: askAnthropic, openai: askOpenAI }[pick.provider];
       try { decision = await ask(pick.key, model, c); }
       catch (e) { console.error("router failed", (e as Error).message); return; }
-      console.log(`router: ${pick.provider}/${model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
+      console.log(`router: ${pick.provider}/${(decision as { model?: string }).model ?? model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
     }
     await ctx.runMutation(internal.router.apply, { messageId, agent: decision.agent, why: decision.why });
   },
