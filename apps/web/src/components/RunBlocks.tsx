@@ -1,6 +1,6 @@
 import { useMutation } from "convex/react";
 import { useState } from "react";
-import type { RunView, TurnView } from "@beam/reducer";
+import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
@@ -10,6 +10,30 @@ export const isLive = (state: string) => state === "queued" || state === "starti
 
 const ms = (n: number | null) => (n == null ? "" : n < 1000 ? `${n}ms` : n < 60_000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n / 60_000)}m`);
 const span = (t: TurnView) => (t.startedAt && t.endedAt ? ms(t.endedAt - t.startedAt) : "");
+
+const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam" };
+
+/** One tool call: status square, kind, one clipped line, timing. Click for the full command and its output. */
+function Step({ a }: { a: ActivityLine }) {
+  const [open, setOpen] = useState(false);
+  const label = KIND_LABEL[a.kind] ?? a.kind.slice(0, 5);
+  // "Read src/x.ts" → the file, since the kind column already says read
+  const text = a.kind === "bash" ? a.summary : a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "");
+  return (
+    <div className={`step${open ? " open" : ""}`}>
+      <button className="stepline" onClick={() => setOpen(!open)} title={open ? "collapse" : "show full command and output"}>
+        <span className={`sq ${a.ok === null ? "run" : a.ok ? "ok" : "bad"}`} />
+        <span className="kind">{label}</span>
+        <span className="what">{text}</span>
+        <span className="r">{ms(a.ms)}</span>
+      </button>
+      {open && <div className="stepdetail">
+        {a.kind === "bash" && <pre className="cmd">{a.summary}</pre>}
+        <pre className="out">{a.detail ?? (a.ok === null ? "still running" : "no output")}</pre>
+      </div>}
+    </div>
+  );
+}
 
 /** One turn's tool calls. Open while it runs, folded once it is done. */
 export function Activity({ t, live, agentName }: { t: TurnView; live: boolean; agentName: string }) {
@@ -25,13 +49,7 @@ export function Activity({ t, live, agentName }: { t: TurnView; live: boolean; a
         <span className={`st ${live ? "work" : "done"}`}><i />{live ? "" : span(t)}</span>
       </button>
       <div className="stepwrap"><div className="steps">
-        {t.activity.map((a) => (
-          <div key={a.itemId} className="step" title={a.detail ?? undefined}>
-            <span className={`ic${a.ok === null ? " run" : a.ok ? "" : " bad"}`}>{a.ok === null ? "…" : a.ok ? "✓" : "✗"}</span>
-            <span>{a.summary}</span>
-            <span className="r">{ms(a.ms)}</span>
-          </div>
-        ))}
+        {t.activity.map((a) => <Step key={a.itemId} a={a} />)}
       </div></div>
     </div>
   );
