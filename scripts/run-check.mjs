@@ -66,13 +66,19 @@ try {
 
   // approve whatever the agent asks for, until it lands
   const t0 = Date.now(); let approvals = 0;
+  // sample what the reader sees: how often the streamed text changes
+  const samples = []; let lastLen = -1;
   while (Date.now() - t0 < 300_000) {
     const ask = p.locator(".ask .perm button", { hasText: /^allow$/ });
     if (await ask.count()) { await ask.first().click(); approvals += 1; await p.screenshot({ path: join(shots, `2-approve-${approvals}.png`) }); }
     if (await p.locator(".card .ttl", { hasText: /^beam\// }).count()) break;
     if (await p.locator(".ask.fail").count()) break;
-    await p.waitForTimeout(700);
+    const len = await p.evaluate(() => { const els = document.querySelectorAll(".msg.report .tx"); return els.length ? els[els.length - 1].textContent.length : 0; });
+    if (len !== lastLen) { samples.push([Date.now() - t0, len]); lastLen = len; }
+    await p.waitForTimeout(30);
   }
+  const gaps = samples.slice(1).map((s, i) => s[0] - samples[i][0]).filter((g) => g < 2000).sort((a, b) => a - b);
+  const stream = { updates: samples.length, medianGapMs: gaps[Math.floor(gaps.length / 2)] ?? null, p90GapMs: gaps[Math.floor(gaps.length * 0.9)] ?? null, charsPerUpdate: samples.length > 1 ? Math.round(samples[samples.length - 1][1] / samples.length) : null };
   await p.waitForTimeout(800);
   await p.screenshot({ path: join(shots, "3-landed.png"), fullPage: false });
   const card = await p.locator(".card .mt").first().innerText().catch(() => "");
@@ -83,7 +89,7 @@ try {
   const changed = branch ? git(["diff", "--stat", `main...${branch}`], bare) : "";
   const math = branch ? git(["show", `${branch}:src/math.ts`], bare) : "";
   result.ok = !!branch && /subtract/.test(math);
-  Object.assign(result, { branch, card: card.replace(/\s+/g, " "), approvals, steps: steps.map((s) => s.replace(/\s+/g, " ").trim()), report: report.map((r) => r.slice(0, 300)), remoteBranches, changed, math, errs, headerBranch: await p.locator(".thead .chip").allInnerTexts() });
+  Object.assign(result, { stream, branch, card: card.replace(/\s+/g, " "), approvals, steps: steps.map((s) => s.replace(/\s+/g, " ").trim()), report: report.map((r) => r.slice(0, 300)), remoteBranches, changed, math, errs, headerBranch: await p.locator(".thead .chip").allInnerTexts() });
 } catch (e) {
   await p.screenshot({ path: join(shots, "err.png") }).catch(() => {});
   Object.assign(result, { error: String(e).slice(0, 600), errs, runnerTail: out.slice(-1500) });

@@ -96,21 +96,26 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   };
   const queue = (e: RunEvent) => { batch.push(e); if (!flushTimer) flushTimer = setTimeout(() => void flush(), 100); };
 
-  const said = new Map<string, { id: Id<"messages"> | Promise<Id<"messages">>; text: string; timer: NodeJS.Timeout | null; dirty: boolean }>();
+  // Text: one Convex message per turn, patched at SAY_MS while the model streams. Patches pipeline (Convex keeps
+  // order and lands them ~16ms apart), so the window can be short; the UI smooths the last hop.
+  const SAY_MS = 60;
+  const said = new Map<string, { id: Promise<Id<"messages">>; text: string; sent: string; timer: NodeJS.Timeout | null; inflight: boolean }>();
   const sayFlush = async (key: string) => {
     const s = said.get(key); if (!s) return;
     s.timer = null;
-    if (!s.dirty) return;
-    s.dirty = false;
-    const id = await s.id;
-    await client.mutation(api.runs.patchSay, { token, messageId: id, text: s.text }).catch((e) => log(runId, "patchSay failed", (e as Error).message));
+    if (s.inflight || s.text === s.sent) return;
+    s.inflight = true;
+    const text = s.text;
+    try { await client.mutation(api.runs.patchSay, { token, messageId: await s.id, text }); s.sent = text; }
+    catch (e) { log(runId, "patchSay failed", (e as Error).message); }
+    finally { s.inflight = false; if (s.text !== s.sent && !s.timer) s.timer = setTimeout(() => void sayFlush(key), SAY_MS); }
   };
   const say = (key: string, turn: number, text: string, final: boolean) => {
     let s = said.get(key);
-    if (!s) { s = { id: client.mutation(api.runs.say, { token, runId, turn, text }), text, timer: null, dirty: false }; said.set(key, s); return; }
-    s.text = text; s.dirty = true;
-    if (final) { if (s.timer) clearTimeout(s.timer); void sayFlush(key); }
-    else if (!s.timer) s.timer = setTimeout(() => void sayFlush(key), 150);
+    if (!s) { s = { id: client.mutation(api.runs.say, { token, runId, turn, text }), text, sent: text, timer: null, inflight: false }; said.set(key, s); return; }
+    s.text = text;
+    if (final) { if (s.timer) { clearTimeout(s.timer); s.timer = null; } void sayFlush(key); }
+    else if (!s.timer && !s.inflight) s.timer = setTimeout(() => void sayFlush(key), SAY_MS);
   };
 
   let turn = 0, openTurns = 0, ended = false, state = "landed", cursor: unknown = resumeCursor;
@@ -160,7 +165,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   cursor = session.resumeCursor() ?? cursor;
   if (flushTimer) clearTimeout(flushTimer);
   await flush();
-  for (const key of said.keys()) await sayFlush(key);
+  for (const key of said.keys()) { const s = said.get(key)!; if (s.timer) clearTimeout(s.timer); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); await sayFlush(key); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); }
 
   // 6. Land: commit, push, draft PR. Always, even after a failure or interrupt. Repo-less runs just end.
   if (repo && branch) await land(client, token, runId, state, branch, base, null, { wt, repo, title: chat.title, cursor });

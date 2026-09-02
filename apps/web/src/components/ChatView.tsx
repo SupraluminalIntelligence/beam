@@ -4,12 +4,20 @@ import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { dayLabel, firstMention, hhmm, hueClass, renderText } from "../lib/format";
 import { useUi } from "../lib/ui";
+import { useSmoothText } from "../lib/smooth";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import { Modal, Seg } from "./Modal";
 import { fold, type RunView } from "@beam/reducer";
 import { Activity, LandingCard, Requests, RunStatus, isLive } from "./RunBlocks";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
+
+/** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
+function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
+  const shown = useSmoothText(text, live);
+  if (!shown && !live) return null;
+  return <div className="tx pre">{renderText(shown, handles, logins)}{live && <span className="cursor" />}</div>;
+}
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
@@ -186,7 +194,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span><span className="tm">{hhmm(m._creationTime)}</span></div>
                 {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} />}
                 {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
-                {m.text && <div className="tx pre">{renderText(m.text, handles, logins)}</div>}
+                {m.kind === "report" ? <StreamText text={m.text} live={turnLive} handles={handles} logins={logins} /> : m.text && <div className="tx pre">{renderText(m.text, handles, logins)}</div>}
                 {run && lastOfRun && !isLive(run.state) && !trailing.some((t) => t.r._id === run._id) && <LandingCard run={run} />}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>
