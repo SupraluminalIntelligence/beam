@@ -10,10 +10,11 @@ import { startRun } from "./messages";
  * pass through here. Runs as a scheduled action right after the message is written.
  *
  *   Provider is picked from whichever key is set (Convex env), in this order:
- *   GEMINI_API_KEY      → Gemini 3.8 Flash, thinking minimal (default; best intelligence at ~0.7s first token)
+ *   OPENROUTER_API_KEY  → google/gemini-3.8-flash via OpenRouter (any model id works in ROUTER_MODEL)
+ *   GEMINI_API_KEY      → Gemini 3.8 Flash, thinking minimal (best intelligence at ~0.7s first token)
  *   ANTHROPIC_API_KEY   → Claude Haiku 4.5
  *   OPENAI_API_KEY      → GPT-5.6 Luna
- *   ROUTER_PROVIDER     force one of gemini | anthropic | openai
+ *   ROUTER_PROVIDER     force one of openrouter | gemini | anthropic | openai
  *   ROUTER_MODEL        override the model id
  *   ROUTER_STUB         tests only: a handle to always pick, or "none"
  */
@@ -71,8 +72,8 @@ If several agents are in the chat, pick the one the conversation is with (the on
 
 Reply with JSON only, no prose: {"agent": "<handle>" | null, "why": "<at most 8 words>"}`;
 
-type Provider = "gemini" | "anthropic" | "openai";
-const DEFAULT_MODEL: Record<Provider, string> = { gemini: "gemini-3.8-flash", anthropic: "claude-haiku-4-5-20251001", openai: "gpt-5.6-luna" };
+type Provider = "openrouter" | "gemini" | "anthropic" | "openai";
+const DEFAULT_MODEL: Record<Provider, string> = { openrouter: "google/gemini-3.8-flash", gemini: "gemini-3.8-flash", anthropic: "claude-haiku-4-5-20251001", openai: "gpt-5.6-luna" };
 
 function renderUser(c: RouterContext): string {
   const lines = c.transcript.map((t) => `${t.who}: ${t.text}`).join("\n");
@@ -127,11 +128,30 @@ async function askOpenAI(key: string, model: string, c: RouterContext) {
   return parseDecision(data.choices[0]?.message.content ?? "", c);
 }
 
+/** OpenAI-compatible. `reasoning.effort` is OpenRouter's unified knob; retried without it if a model rejects it. */
+async function askOpenRouter(key: string, model: string, c: RouterContext) {
+  const body = (reasoning: boolean) => JSON.stringify({
+    model, max_tokens: 120, temperature: 0, response_format: { type: "json_object" },
+    ...(reasoning ? { reasoning: { effort: "minimal" } } : {}),
+    messages: [{ role: "system", content: SYSTEM }, { role: "user", content: renderUser(c) }],
+  });
+  const call = (reasoning: boolean) => fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "HTTP-Referer": "https://beam.supraluminal.dev", "X-Title": "Beam" },
+    body: body(reasoning),
+  });
+  let res = await call(true);
+  if (res.status === 400) res = await call(false);
+  if (!res.ok) throw new Error(`openrouter ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = (await res.json()) as { choices: { message: { content: string } }[] };
+  return parseDecision(data.choices[0]?.message.content ?? "", c);
+}
+
 function pickProvider(): { provider: Provider; key: string } | null {
   const forced = process.env["ROUTER_PROVIDER"] as Provider | undefined;
-  const keys: Record<Provider, string | undefined> = { gemini: process.env["GEMINI_API_KEY"], anthropic: process.env["ANTHROPIC_API_KEY"], openai: process.env["OPENAI_API_KEY"] };
+  const keys: Record<Provider, string | undefined> = { openrouter: process.env["OPENROUTER_API_KEY"], gemini: process.env["GEMINI_API_KEY"], anthropic: process.env["ANTHROPIC_API_KEY"], openai: process.env["OPENAI_API_KEY"] };
   if (forced && keys[forced]) return { provider: forced, key: keys[forced]! };
-  for (const p of ["gemini", "anthropic", "openai"] as Provider[]) if (keys[p]) return { provider: p, key: keys[p]! };
+  for (const p of ["openrouter", "gemini", "anthropic", "openai"] as Provider[]) if (keys[p]) return { provider: p, key: keys[p]! };
   return null;
 }
 
@@ -144,11 +164,12 @@ export const classify = internalAction({
     const pick = pickProvider();
     let decision: { agent: string | null; why: string };
     if (stub) decision = { agent: stub === "none" ? null : stub, why: "stub" };
-    else if (!pick) { console.log("router: no GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY set, skipping"); return; }
+    else if (!pick) { console.log("router: no OPENROUTER_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY set, skipping"); return; }
     else {
       const model = process.env["ROUTER_MODEL"] ?? DEFAULT_MODEL[pick.provider];
       const t0 = Date.now();
-      try { decision = await (pick.provider === "gemini" ? askGemini : pick.provider === "anthropic" ? askAnthropic : askOpenAI)(pick.key, model, c); }
+      const ask = { openrouter: askOpenRouter, gemini: askGemini, anthropic: askAnthropic, openai: askOpenAI }[pick.provider];
+      try { decision = await ask(pick.key, model, c); }
       catch (e) { console.error("router failed", (e as Error).message); return; }
       console.log(`router: ${pick.provider}/${model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
     }
