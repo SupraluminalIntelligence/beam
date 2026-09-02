@@ -380,3 +380,4 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .sb-sec button{padding:0;width:14px;text-align:center;line-height:1}
 .ag-item .sq,.pp-item .sq{margin-right:3.5px}
 .ag-item .sb-sel,.ag-item .sb-sel.sel{border:0;padding:0;background:none}
+.thead .repopick,.thead .repopick.sel{border:0;padding:0;background:none}
