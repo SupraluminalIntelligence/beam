@@ -2,7 +2,9 @@
   "name": "beam",
   "private": true,
   "packageManager": "pnpm@10.29.1",
-  "engines": { "node": ">=22.16" },
+  "engines": {
+    "node": ">=22.16"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel --filter @beam/web --filter @beam/runner dev",
     "dev:web": "pnpm --filter @beam/web dev",
@@ -17,11 +19,15 @@
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.10.0"
+    "vitest": "^3.0.0"
   },
   "dependencies": {
-    "convex": "^1.43.0"
+    "@auth/core": "^0.41.3",
+    "@convex-dev/auth": "^0.0.95",
+    "convex": "^1.43.0",
+    "jose": "^6.2.10"
   }
 }

@@ -1,10 +1,15 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-/** Runners poll this (or subscribe) for work assigned to them. */
+/** Runners subscribe to this for work assigned to them. */
 export const queuedFor = query({
   args: { runnerId: v.id("runners") },
   handler: (ctx, { runnerId }) => ctx.db.query("runs").withIndex("by_runner_state", (q) => q.eq("runnerId", runnerId).eq("state", "queued")).collect(),
+});
+
+export const forChat = query({
+  args: { chatId: v.id("chats") },
+  handler: (ctx, { chatId }) => ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect(),
 });
 
 export const claim = mutation({

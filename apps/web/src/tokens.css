@@ -1,6 +1,0 @@
-:root{--bg:#E9EBE7;--surface:#FFFFFF;--surface-2:#F1F2EF;--surface-3:#E2E5E0;--ink:#1B1F22;--ink-2:#5B6369;--ink-3:#8B949A;--line:#D8DCD7;--line-2:#C7CCC6;--claude:#1E7F7A;--claude-soft:#DDF0EE;--codex:#4A57C9;--codex-soft:#E3E6F8;--ok:#2E8B4E;--warn:#C27A12;--bad:#C0392B}
-@media (prefers-color-scheme: dark){:root{--bg:#0F1214;--surface:#1C2023;--surface-2:#23282B;--surface-3:#2B3134;--ink:#E4E7E4;--ink-2:#9AA3A8;--ink-3:#6E787D;--line:#2E3538;--line-2:#3A4245;--claude:#45B8B1;--claude-soft:#1B3634;--codex:#8A93F0;--codex-soft:#25294A;--ok:#4FB870;--warn:#E09A2E;--bad:#E0584A}}
-*{box-sizing:border-box}
-html,body,#root{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
-.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
