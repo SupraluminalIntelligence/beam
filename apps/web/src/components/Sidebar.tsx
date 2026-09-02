@@ -87,12 +87,12 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                 <span className="dd"><span className="ddh">model</span>{(MODELS[a.harness] ?? []).map((m) => <button key={m} className={m === a.model ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { model: m } }); toast(`${HARNESS_NAME[a.harness]} → ${m} · next run`); }}>{m}</button>)}</span>
               </span>
               <span className="dot">·</span>
-              <span className={`sel ctl mode ${a.permissionMode}${openSel === `${a._id}:mode` ? " open" : ""}`} tabIndex={0} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint}`} onClick={() => setOpenSel(openSel === `${a._id}:mode` ? null : `${a._id}:mode`)}>
+              <span className={`sel ctl mode m-${a.permissionMode}${openSel === `${a._id}:mode` ? " open" : ""}`} tabIndex={0} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint}`} onClick={() => setOpenSel(openSel === `${a._id}:mode` ? null : `${a._id}:mode`)}>
                 <span>{(MODES.find((m) => m.v === a.permissionMode) ?? { label: a.permissionMode }).label}</span><i>▾</i>
                 <span className="dd wide"><span className="ddh">how it works</span>{MODES.map((m) => <button key={m.v} className={m.v === a.permissionMode ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { permissionMode: m.v } }); toast(`${HARNESS_NAME[a.harness]} → ${m.label} · next run`); }}><b>{m.label}</b><span>{m.hint.replace(/^\w+: /, "")}</span></button>)}</span>
               </span>
               <span className="dot">·</span>
-              <button className="ctl eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title="Reasoning effort · click to change" onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><span className="bars"><i /><i /><i /><i /></span><span>{a.effort}</span></button>
+              <button className="ctl eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title="Reasoning effort · click to change" onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><span className="bars"><i /><i /><i /><i /></span><span>{a.effort === "medium" ? "med" : a.effort}</span></button>
             </span>
           </div>
         ))}
