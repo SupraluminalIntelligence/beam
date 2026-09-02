@@ -400,3 +400,13 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .card .mt .hint{color:var(--ink-3);text-decoration:underline;text-underline-offset:2px}
 .stopbtn{border:1px solid var(--del);color:var(--del);background:transparent;padding:1px 8px;font-family:"IBM Plex Mono",monospace;font-size:11px;margin-left:8px}
 .stopbtn:hover{background:var(--del);color:var(--surface)}
+
+/* ---- repo picker ---- */
+.repolist{display:flex;flex-direction:column;max-height:300px;overflow-y:auto;border-top:1px solid var(--line)}
+.rl-row{display:grid;grid-template-columns:auto auto 1fr auto;gap:10px;align-items:baseline;padding:8px 18px;text-align:left;width:100%;border-bottom:1px solid var(--line);font-size:13px}
+.rl-row:hover{background:var(--surface-2)}
+.rl-row .nm{font-weight:600}
+.rl-row .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);border:1px solid var(--line);padding:0 4px}
+.rl-row .d{color:var(--ink-3);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rl-row .t{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.rl-note{padding:12px 18px;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3)}

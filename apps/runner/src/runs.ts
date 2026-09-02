@@ -1,7 +1,10 @@
 import type { ConvexClient } from "convex/browser";
 import type { Agent, RunEvent } from "@beam/contracts";
-import { adapters, type Session } from "@beam/harness";
-import { branchName, checkpointAndPush, compareUrl, defaultBranch, diffStat, draftPullRequest, ensureMirror, ensureWorktree } from "@beam/git";
+import { adapters, type BeamTool, type Session } from "@beam/harness";
+import { z } from "zod";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { beamHome, branchName, checkpointAndPush, compareUrl, defaultBranch, diffStat, draftPullRequest, ensureMirror, ensureWorktree } from "@beam/git";
 import { api } from "../../../convex/_generated/api.js";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 
@@ -35,17 +38,23 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
   const { chat, agent, dispatch } = d;
   const repo = chat.repo;
-  if (!repo) return land(client, token, runId, "failed", null, null, "chat has no repo");
-  log(runId, `dispatch from ${dispatch.author} → @${agent.handle} on ${repo}`);
+  log(runId, `dispatch from ${dispatch.author} → @${agent.handle}${repo ? ` on ${repo}` : " (no repo)"}`);
 
   // 1. Worktree on the chat's branch. First run names the branch; later runs reuse it.
-  let base = "main", branch = chat.activeBranch ?? d.run.branch ?? branchName(chat.title, runId), wt: string;
-  try {
-    await ensureMirror(repo);
-    base = await defaultBranch(repo);
-    wt = await ensureWorktree(repo, chat.workspaceId, chat._id, branch, base);
-  } catch (e) {
-    return land(client, token, runId, "failed", null, null, `could not prepare worktree: ${(e as Error).message}`);
+  //    Without a repo the agent talks from a scratch directory: no branch, nothing pushed.
+  let base = "main", branch: string | null = null, wt: string;
+  if (repo) {
+    branch = chat.activeBranch ?? d.run.branch ?? branchName(chat.title, runId);
+    try {
+      await ensureMirror(repo);
+      base = await defaultBranch(repo);
+      wt = await ensureWorktree(repo, chat.workspaceId, chat._id, branch, base);
+    } catch (e) {
+      return land(client, token, runId, "failed", null, null, `could not prepare worktree: ${(e as Error).message}`);
+    }
+  } else {
+    wt = join(beamHome(), "scratch", chat.workspaceId, chat._id);
+    await mkdir(wt, { recursive: true });
   }
   await client.mutation(api.runs.claim, { token, runId, branch, worktree: wt });
 
@@ -56,9 +65,22 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const sameWorktree = d.previous?.worktree === wt;
   const resumeCursor = sameWorktree ? d.previous?.resumeCursor ?? null : null;
   const systemContext = renderContext(d, branch);
+  let attachedDuringRun: string | null = null;
+  const tools: BeamTool[] = [
+    {
+      name: "list_repos", description: "List the GitHub repos connected to this Beam workspace, and which one (if any) this chat is attached to.",
+      schema: {},
+      run: async () => { const r = await client.query(api.runs.workspaceRepos, { token, runId }); return r.repos.length ? `Repos: ${r.repos.join(", ")}. Attached to this chat: ${r.attached ?? "none"}.` : "No repos are connected to this workspace yet. You can attach one by owner/name with attach_repo."; },
+    },
+    {
+      name: "attach_repo", description: "Attach a GitHub repo (owner/name) to this chat so future runs work inside a worktree of it. Use it when the team has decided which repo the work belongs in. Takes effect on the next @mention, not this run.",
+      schema: { repo: z.string().describe("owner/name, e.g. acme/platform") },
+      run: async (args) => { const r = await client.mutation(api.runs.attachRepo, { token, runId, repo: String(args["repo"]) }); attachedDuringRun = r.repo; return `Attached ${r.repo} to this chat${r.added ? " (and connected it to the workspace)" : ""}. This run stays where it is; the next time someone @mentions you here, you will start inside a worktree of ${r.repo} on a fresh branch.`; },
+    },
+  ];
   let session: Session;
   try {
-    session = await adapter.start({ runId, agent: agentView, cwd: wt, resumeCursor, systemContext });
+    session = await adapter.start({ runId, agent: agentView, cwd: wt, resumeCursor, systemContext, tools });
   } catch (e) {
     return land(client, token, runId, "failed", branch, base, `${agent.harness} failed to start: ${(e as Error).message}`);
   }
@@ -140,14 +162,15 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   await flush();
   for (const key of said.keys()) await sayFlush(key);
 
-  // 6. Land: commit, push, draft PR. Always, even after a failure or interrupt.
-  await land(client, token, runId, state, branch, base, null, { wt, repo, title: chat.title, cursor });
+  // 6. Land: commit, push, draft PR. Always, even after a failure or interrupt. Repo-less runs just end.
+  if (repo && branch) await land(client, token, runId, state, branch, base, null, { wt, repo, title: chat.title, cursor });
+  else { if (attachedDuringRun) log(runId, `attached ${attachedDuringRun}; next run gets a worktree`); await land(client, token, runId, state, null, null, null, { wt, repo: "", title: chat.title, cursor }); }
 }
 
 async function land(client: ConvexClient, token: string, runId: Id<"runs">, state: string, branch: string | null, base: string | null, error: string | null,
   push?: { wt: string; repo: string; title: string; cursor: unknown }) {
   let landing = branch && base ? { branch, base, pushed: false, add: 0, del: 0, files: 0, prUrl: null as string | null, compareUrl: null as string | null, error } : null;
-  if (push && landing) {
+  if (push && landing && push.repo) {
     try {
       const { committed } = await checkpointAndPush(push.wt, landing.branch, `${push.title}\n\nRun in Beam · ${runId}`);
       const stat = await diffStat(push.wt, `origin/${landing.base}`);
@@ -164,7 +187,7 @@ async function land(client: ConvexClient, token: string, runId: Id<"runs">, stat
 }
 
 /** The chat so far, rendered for the harness. Names are handles; the agent's own messages are marked. */
-function renderContext(d: Detail, branch: string): string {
+function renderContext(d: Detail, branch: string | null): string {
   const who = (author: string) => {
     if (!author.startsWith("agent:")) return `@${author}`;
     const a = d.agents.find((x) => `agent:${x.id}` === author);
@@ -173,7 +196,9 @@ function renderContext(d: Detail, branch: string): string {
   const lines = d.transcript.filter((m) => m.text.trim()).map((m) => `${who(m.author)}: ${m.text.trim()}`);
   const head = [
     `You are @${d.agent.handle}, a coding agent in a Beam chat called "${d.chat.title}" with a team of people.`,
-    `You work in a git worktree on branch ${branch}. Do not switch branches, and do not push: Beam commits and pushes for you when the run ends.`,
+    branch
+      ? `You work in a git worktree on branch ${branch}. Do not switch branches, and do not push: Beam commits and pushes for you when the run ends.`
+      : `No repo is attached to this chat yet, so you are in an empty scratch directory. Talk, plan, and answer questions. When the team knows which repo the work belongs in, call list_repos and attach_repo; code work starts on the next @mention after that.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
   ];

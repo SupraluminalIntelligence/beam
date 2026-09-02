@@ -1,5 +1,5 @@
 import type { HarnessStatus, RunEvent } from "@beam/contracts";
-import { query, type PermissionMode, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type PermissionMode, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { tmpdir } from "node:os";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
 import { which } from "../path.ts";
@@ -78,6 +78,13 @@ class ClaudeSession implements Session {
     this.allow = [...agent.alwaysAllow];
     this.sessionId = (resumeCursor as { sessionId?: string } | null)?.sessionId ?? null;
     const permissionMode: PermissionMode = agent.permissionMode === "auto" ? "bypassPermissions" : agent.permissionMode === "allowlist" ? "acceptEdits" : "default";
+    const beam = createSdkMcpServer({
+      name: "beam",
+      tools: input.tools.map((t) => tool(t.name, t.description, t.schema, async (args) => {
+        try { return { content: [{ type: "text", text: await t.run(args as Record<string, unknown>) }] }; }
+        catch (e) { return { content: [{ type: "text", text: `Error: ${(e as Error).message}` }], isError: true }; }
+      }, { alwaysLoad: true })),
+    });
     this.q = query({
       prompt: this.inbox,
       options: {
@@ -90,6 +97,7 @@ class ClaudeSession implements Session {
         includePartialMessages: true,
         persistSession: true,
         settingSources: ["user", "project"],
+        mcpServers: input.tools.length ? { beam } : {},
         env: baseEnv(),
         ...(this.sessionId ? { resume: this.sessionId } : {}),
         ...(input.systemContext ? { systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: input.systemContext } } : {}),

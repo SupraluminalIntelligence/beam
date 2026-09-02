@@ -1,11 +1,21 @@
 import type { Agent, HarnessKind, HarnessStatus, RunEvent } from "@beam/contracts";
+import type { ZodTypeAny } from "zod";
+
+/** A tool Beam itself offers the model (attach a repo, list repos). Adapters expose these however their harness allows. */
+export interface BeamTool {
+  name: string;
+  description: string;
+  schema: Record<string, ZodTypeAny>;
+  run(args: Record<string, unknown>): Promise<string>;
+}
 
 export interface StartSession {
   runId: string;
   agent: Agent;
-  cwd: string;             // the chat's worktree
+  cwd: string;             // the chat's worktree, or a scratch directory when no repo is attached
   resumeCursor: unknown;   // adapter-specific, opaque to everyone else
   systemContext: string;   // chat transcript per context policy, rendered as text
+  tools: BeamTool[];
 }
 
 /** One shape per harness. Everything else in Beam talks to this. */

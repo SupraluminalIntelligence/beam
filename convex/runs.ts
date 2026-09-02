@@ -47,12 +47,12 @@ export const detail = query({
 
 /** The runner has a worktree and is about to start the harness. First claim also fixes the chat's branch. */
 export const claim = mutation({
-  args: { token: v.string(), runId: v.id("runs"), branch: v.string(), worktree: v.string() },
+  args: { token: v.string(), runId: v.id("runs"), branch: v.union(v.string(), v.null()), worktree: v.string() },
   handler: async (ctx, { token, runId, branch, worktree }) => {
     const { run } = await ownRun(ctx, token, runId);
     await ctx.db.patch(runId, { state: "working", branch, worktree, startedAt: Date.now() });
     const chat = (await ctx.db.get(run.chatId))!;
-    if (!chat.activeBranch) await ctx.db.patch(chat._id, { activeBranch: branch });
+    if (branch && !chat.activeBranch) await ctx.db.patch(chat._id, { activeBranch: branch });
   },
 });
 
@@ -102,6 +102,32 @@ export const control = query({
     const resolutions = events.map((e) => e.event as { type: string; requestId?: string; by?: string; decision?: string })
       .filter((e) => e.type === "request.resolved").map((e) => ({ requestId: e.requestId!, by: e.by!, decision: e.decision! }));
     return { state: run.state, interruptRequestedAt: run.interruptRequestedAt ?? null, steers, resolutions };
+  },
+});
+
+/** Beam's attach_repo tool. The agent may attach any repo in the workspace, or add a new one by name. */
+export const attachRepo = mutation({
+  args: { token: v.string(), runId: v.id("runs"), repo: v.string() },
+  handler: async (ctx, { token, runId, repo }) => {
+    const { run } = await ownRun(ctx, token, runId);
+    const chat = (await ctx.db.get(run.chatId))!;
+    const name = repo.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
+    if (!/^[\w.-]+\/[\w.-]+$/.test(name)) throw new Error(`"${repo}" is not owner/name`);
+    if (chat.activeBranch && chat.repo !== name) throw new Error(`this chat already has a branch on ${chat.repo}`);
+    const ws = (await ctx.db.get(chat.workspaceId))!;
+    if (!ws.repos.includes(name)) await ctx.db.patch(ws._id, { repos: [...ws.repos, name] });
+    await ctx.db.patch(chat._id, { repo: name });
+    return { repo: name, added: !ws.repos.includes(name) };
+  },
+});
+
+export const workspaceRepos = query({
+  args: { token: v.string(), runId: v.id("runs") },
+  handler: async (ctx, { token, runId }) => {
+    const { run } = await ownRun(ctx, token, runId);
+    const chat = (await ctx.db.get(run.chatId))!;
+    const ws = (await ctx.db.get(chat.workspaceId))!;
+    return { repos: ws.repos, attached: chat.repo };
   },
 });
 

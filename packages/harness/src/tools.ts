@@ -17,13 +17,17 @@ export function describeTool(name: string, input: Record<string, unknown>, cwd: 
     case "WebSearch": return { kind: "web", summary: `Search ${short(String(i["query"] ?? ""), 60)}` };
     case "Agent": case "Task": return { kind: "agent", summary: `Subagent · ${short(String(i["description"] ?? i["prompt"] ?? ""), 70)}` };
     case "TodoWrite": return { kind: "plan", summary: "Update todo list" };
+    case "ToolSearch": return { kind: "plan", summary: "Look up tools" };
     case "AskUserQuestion": return { kind: "ask", summary: "Ask a question" };
+    case "mcp__beam__attach_repo": return { kind: "beam", summary: `Attach ${String(i["repo"] ?? "")} to this chat` };
+    case "mcp__beam__list_repos": return { kind: "beam", summary: "List the workspace's repos" };
     default: return { kind: name.toLowerCase(), summary: `${name} ${short(JSON.stringify(i), 60)}` };
   }
 }
 
 /** Does a tool call match an "always allow" entry? Entries are tool names ("Edit") or Bash command prefixes ("git status"). */
 export function matchesAllow(name: string, input: Record<string, unknown>, allow: readonly string[]): boolean {
+  if (name.startsWith("mcp__beam__")) return true; // Beam's own tools never prompt
   for (const a of allow) {
     if (a === name || a === "*") return true;
     if (name === "Bash") {

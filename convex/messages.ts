@@ -31,7 +31,6 @@ export const send = mutation({
     // A mention of a different agent while one is live is a plain message: one active run per chat.
     const steer = !!(target && live && live.agentId === target._id);
     const kind = target ? (live ? (steer ? "steer" : "text") : "dispatch") : "text";
-    if (kind === "dispatch" && !chat.repo) throw new Error("Attach a repo first so the agent has somewhere to work.");
     const runner = kind === "dispatch" ? await chooseRunner(ctx, chat, u.githubLogin!, target!.harness) : null;
     const patch: Record<string, unknown> = { lastMessageAt: Date.now() };
     if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body) });

@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": { "beam-runner": "./src/cli.ts" },
+  "bin": {
+    "beam-runner": "./src/cli.ts"
+  },
   "scripts": {
     "dev": "node --experimental-strip-types src/cli.ts start",
     "probe": "node --experimental-strip-types src/cli.ts probe",
@@ -12,8 +14,9 @@
   },
   "dependencies": {
     "@beam/contracts": "workspace:*",
-    "@beam/harness": "workspace:*",
     "@beam/git": "workspace:*",
-    "convex": "^1.43.0"
+    "@beam/harness": "workspace:*",
+    "convex": "^1.43.0",
+    "zod": "^3.25.76"
   }
 }

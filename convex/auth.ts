@@ -12,9 +12,13 @@ import { convexAuth } from "@convex-dev/auth/server";
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
     GitHub({
-      profile(p) {
+      // `repo` so Beam can list the repos you can push to. The token stays server-side (users.githubToken) and
+      // is only read by github.ts actions.
+      authorization: { params: { scope: "read:user user:email repo" } },
+      profile(p, tokens) {
         const gh = p as { id: number; login: string; name: string | null; email: string | null; avatar_url: string };
-        return { id: String(gh.id), name: gh.name ?? gh.login, email: gh.email, image: gh.avatar_url, githubLogin: gh.login };
+        const t = tokens as { access_token?: string; scope?: string };
+        return { id: String(gh.id), name: gh.name ?? gh.login, email: gh.email, image: gh.avatar_url, githubLogin: gh.login, githubToken: t.access_token, githubTokenScope: t.scope ?? "" };
       },
     }),
     /** Desktop sign-in: the system browser approves a device code, the app signs in with it. */

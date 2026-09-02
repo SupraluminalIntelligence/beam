@@ -95,7 +95,6 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     const body = text.trim();
     if (!body) return;
     const mention = firstMention(body, handles);
-    if (mention && !chat.repo) { setText(""); setRepoOpen(true); toast("Attach a repo first so the agent has somewhere to work"); return; }
     setText(""); setPop(null);
     try {
       const r = await send({ chatId: chat._id, text: body, mentionHandle: mention });
@@ -172,7 +171,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         {messages && messages.length > 0 && <div className="daysep"><span>Started {dayLabel(chat._creationTime)} · {hhmm(chat._creationTime)}{chat.private ? " · private" : ""}</span></div>}
         {messages && messages.length === 0 && (chat.private
           ? <div className="empty"><b>Just you{pinned ? ` and ${HARNESS_NAME[pinned.harness]}` : ""}.</b><span>Your first message names the chat. {pinned ? "Plain messages go straight to the pinned agent." : "@mention an agent when you want one."} Share it from the header whenever it turns into something.</span></div>
-          : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {chat.repo ? `Attached to ${chat.repo}; a worktree and branch appear on the first dispatch.` : "Attach a repo from the header when you want an agent to work."} Your first message names the chat.</span></div>)}
+          : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {chat.repo ? `Attached to ${chat.repo}; a worktree and branch appear on the first dispatch.` : "No repo yet: @mention an agent to talk, and it can attach one when the work has a home."} Your first message names the chat.</span></div>)}
         {grouped.map(({ m, cont, lastOfRun }) => {
           const ag = isAgent(m.author) ? agentOf(m.author) : null;
           const mine = m.author === me.githubLogin;
@@ -244,7 +243,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <span>{pinned ? `→ ${HARNESS_NAME[pinned.harness]} · plain messages dispatch` : "pin a default agent"}</span><i>▾</i>
                 <span className="dd"><span className="ddh">Default agent</span>{detail.agents.map((a) => <button key={a._id} className={chat.pinnedAgent === a._id ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: a._id }); }}>{HARNESS_NAME[a.harness]}</button>)}<button className={!chat.pinnedAgent ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: null }); }}>none · @mention only</button></span>
               </span>
-            : <span>{chat.activeBranch ? `chat → ${chat.activeBranch}` : "no branch until first dispatch"}</span>}
+            : <span>{chat.activeBranch ? `chat → ${chat.activeBranch}` : chat.repo ? "no branch until first dispatch" : "no repo · talk freely, or ask the agent to attach one"}</span>}
           {liveRun && <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · branch will still be pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>}
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
@@ -125,20 +125,35 @@ export function NewWorkspaceModal({ open, onClose }: { open: boolean; onClose: (
 export function AddRepoModal({ open, onClose, wsId, wsName, chatId }: { open: boolean; onClose: () => void; wsId: Id<"workspaces">; wsName: string; chatId: Id<"chats"> | null }) {
   const addRepo = useMutation(api.workspaces.addRepo);
   const setRepo = useMutation(api.chats.setRepo);
+  const myRepos = useAction(api.github.myRepos);
   const [repo, setRepoV] = useState("");
-  useEffect(() => { if (open) setRepoV(""); }, [open]);
-  const go = async () => {
-    const r = repo.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
+  const [list, setList] = useState<{ repos: { name: string; private: boolean; pushedAt: number; description: string | null }[] | null; reason: string | null } | "loading">("loading");
+  useEffect(() => {
+    if (!open) return;
+    setRepoV(""); setList("loading");
+    myRepos({}).then((r) => setList(r), () => setList({ repos: null, reason: "github-error" }));
+  }, [open]);
+  const connect = async (name: string) => {
+    const r = name.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "");
     if (!/^[\w.-]+\/[\w.-]+$/.test(r)) { toast("owner/name, please"); return; }
     await addRepo({ workspaceId: wsId, repo: r });
     if (chatId) await setRepo({ chatId, repo: r }).catch(() => {});
     onClose(); toast(`${r} connected`);
   };
+  const q = repo.trim().toLowerCase();
+  const rows = list !== "loading" && list.repos ? list.repos.filter((r) => !q || r.name.toLowerCase().includes(q)).slice(0, 12) : [];
+  const ago = (t: number) => { const d = Math.max(0, Date.now() - t); const h = d / 3.6e6; return h < 1 ? "just now" : h < 24 ? `${Math.round(h)}h ago` : h < 24 * 30 ? `${Math.round(h / 24)}d ago` : `${Math.round(h / 24 / 30)}mo ago`; };
   return (
     <Modal open={open} onClose={onClose}>
       <div className="m-h">Connect a repo to {wsName}</div>
-      <div className="row"><span>Repo</span><input type="text" value={repo} onChange={(e) => setRepoV(e.target.value)} placeholder="owner/name or GitHub URL" autoFocus onKeyDown={(e) => { if (e.key === "Enter") void go(); }} /></div>
-      <div className="m-f"><span>Cloned once per runner, then worktrees per chat.</span><span><button className="btn ghost" onClick={onClose}>Cancel</button> <button className="btn" onClick={() => void go()}>Connect</button></span></div>
+      <div className="row"><span>Repo</span><input type="text" value={repo} onChange={(e) => setRepoV(e.target.value)} placeholder={list !== "loading" && list.repos ? "filter your repos, or paste owner/name" : "owner/name or GitHub URL"} autoFocus onKeyDown={(e) => { if (e.key === "Enter") void connect(rows.length && !/\//.test(repo) ? rows[0]!.name : repo); }} /></div>
+      <div className="repolist">
+        {list === "loading" && <div className="rl-note">Loading your GitHub repos…</div>}
+        {list !== "loading" && list.repos && rows.map((r) => <button key={r.name} className="rl-row" onClick={() => void connect(r.name)}><span className="nm">{r.name}</span>{r.private && <span className="k">private</span>}<span className="d">{r.description ?? ""}</span><span className="t">{ago(r.pushedAt)}</span></button>)}
+        {list !== "loading" && list.repos && !rows.length && <div className="rl-note">{q ? "No repo matches. Paste owner/name to connect one you cannot see here." : "No repos you can push to."}</div>}
+        {list !== "loading" && !list.repos && <div className="rl-note">{list.reason === "no-token" || list.reason === "no-scope" ? "Sign out and back in with GitHub to pick from your repos. Beam asks for repo access on that sign-in." : "GitHub did not answer. Paste owner/name instead."}</div>}
+      </div>
+      <div className="m-f"><span>Cloned once per runner, then worktrees per chat.</span><span><button className="btn ghost" onClick={onClose}>Cancel</button> <button className="btn" onClick={() => void connect(repo)}>Connect</button></span></div>
     </Modal>
   );
 }
