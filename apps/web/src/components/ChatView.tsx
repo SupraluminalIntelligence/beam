@@ -136,7 +136,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         {chat.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
         <span className={`t${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>
         <span className={`sel repopick${repoOpen ? " open" : ""}`} tabIndex={0} onClick={(e) => { e.stopPropagation(); setRepoOpen(!repoOpen); }}>
-          {chat.repo ? <span className="chip">{chat.repo}</span> : <span className="chip addrepo">+ repo</span>}
+          {chat.repo ? <span className="chip repo" title="Repository attached to this chat · click to change"><i>repo</i>{chat.repo}</span> : <span className="chip addrepo">+ repo</span>}
           <span className="dd">
             <span className="ddh">Repos in {detail.name}</span>
             {detail.repos.map((r) => <button key={r} className={r === chat.repo ? "on" : ""} onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} attached · worktree on first dispatch`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r}</button>)}
@@ -144,7 +144,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             {chat.repo && !chat.activeBranch && <span className="ddf">Worktree and branch are created automatically on the first dispatch.</span>}
           </span>
         </span>
-        {chat.activeBranch && <span className="chip">{chat.activeBranch}</span>}
+        {chat.activeBranch && <span className="chip branch" title="Every run in this chat lands on this branch. It rotates when the branch is merged."><i>⎇ branch</i>{chat.activeBranch}</span>}
         <span className="sp" />
         <div className="scope" onClick={(e) => e.stopPropagation()}>
           <button className="scopebtn" onClick={() => setScopeOpen(!scopeOpen)} title={chat.private ? "Private · just you" : "Members and agents"}>
