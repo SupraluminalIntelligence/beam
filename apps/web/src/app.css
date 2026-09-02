@@ -65,7 +65,10 @@ button:focus-visible,[tabindex]:focus-visible,input:focus-visible,textarea:focus
 .sb-brand{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;letter-spacing:.08em;font-size:13px}
 .sb-act{height:36px;padding:0 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-weight:500;flex:none;width:100%;text-align:left}
 .sb-act:hover{background:var(--surface)}
-.sb-scroll{overflow-y:auto;overflow-x:visible;flex:1;min-height:0;padding-bottom:12px;display:block}
+.sb-scroll{overflow-y:auto;overflow-x:visible;flex:1;min-height:0;padding-bottom:12px;display:flex;flex-direction:column}
+/* Agents and people live at the bottom of the panel, above the account row; workspaces and chats grow from the top. */
+.sb-bottom{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
+.sb-bottom>.sb-sec:first-child{padding-top:4px}
 .sb-sec{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:14px 14px 6px;display:flex;justify-content:space-between;align-items:center}
 .sb-scroll>.sb-sec:first-child{height:46px;padding-top:0;padding-bottom:0;border-bottom:1px solid var(--line);margin-bottom:4px}
 .sb-sec button{color:var(--ink-2);font-size:14px;line-height:1;padding:0 2px}

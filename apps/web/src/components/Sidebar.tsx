@@ -76,6 +76,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             </div>
           );
         })}
+        <div className="sb-bottom">
         <div className="sb-sec">Agents <button onClick={() => p.setModal({ kind: "agent", id: "new" as unknown as Id<"agents"> })} title="Add an agent: omp, Gemini CLI, or any harness with a JSON stream">+</button></div>
         {p.detail.agents.map((a) => (
           <div key={a._id} className="ag-item" onClick={stop}>
@@ -108,6 +109,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             </button>
           );
         })}
+        </div>
       </div>
       <div className="sb-foot" onClick={stop}>
         <div className="menu" hidden={!acct}>
