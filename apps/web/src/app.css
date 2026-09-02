@@ -416,3 +416,28 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .listen::before{content:"";display:inline-block;width:6px;height:6px;background:var(--line-2);margin-right:6px;vertical-align:1px}
 .listen.on::before{background:var(--ok)}
 .listen:hover{border-color:var(--line)}
+
+/* ---- markdown in messages ---- */
+.md{line-height:1.5}
+.md>*:first-child{margin-top:0}.md>*:last-child{margin-bottom:0}
+.md p{margin:0 0 .7em}
+.md ul,.md ol{margin:0 0 .7em;padding-left:1.4em}
+.md li{margin:.15em 0}.md li>p{margin:0}
+.md li.task-list-item{list-style:none;margin-left:-1.4em}
+.md .cb{display:inline-grid;place-items:center;width:13px;height:13px;border:1px solid var(--line-2);font-size:10px;margin-right:6px;vertical-align:-1px;color:var(--ok)}
+.md .cb.on{border-color:var(--ok)}
+.md h1,.md h2,.md h3,.md h4{font-size:13px;font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:1em 0 .4em;font-weight:600}
+.md h1{font-size:14px}
+.md strong{font-weight:600;color:var(--ink)}
+.md em{font-style:italic}
+.md a{color:var(--claude);text-decoration:underline;text-underline-offset:2px}
+.md blockquote{margin:0 0 .7em;padding:2px 12px;border-left:2px solid var(--line-2);color:var(--ink-2)}
+.md hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+.md code{font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--surface-2);padding:1px 5px}
+.md pre.codeblock{background:var(--surface);border:1px solid var(--line);padding:10px 12px;margin:0 0 .7em;overflow-x:auto;white-space:pre;font-size:12px;line-height:1.45}
+.md pre.codeblock code{background:transparent;padding:0;font-size:inherit}
+.md table{border-collapse:collapse;margin:0 0 .7em;font-size:12.5px;display:block;overflow-x:auto;max-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:4px 10px;text-align:left}
+.md th{background:var(--surface-2);font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2)}
+.md .cursor{margin-left:1px}
+.msg .tx .md{white-space:normal}
