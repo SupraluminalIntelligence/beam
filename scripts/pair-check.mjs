@@ -6,8 +6,6 @@ const errs = []; p.on("pageerror", (e) => errs.push(e.message));
 try {
   await p.goto("http://localhost:5173/?pair=" + code, { waitUntil: "networkidle" });
   await p.getByRole("button", { name: "Continue as a guest" }).click();
-  await p.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 20000 });
-  await p.getByPlaceholder("acme").fill("pairtest"); await p.getByRole("button", { name: "Create" }).click();
   await p.getByText("+ New chat").waitFor({ timeout: 20000 });
   await p.keyboard.press("Meta+,");
   await p.getByText("Approve a runner").waitFor({ timeout: 10000 });

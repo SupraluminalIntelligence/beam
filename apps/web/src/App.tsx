@@ -1,6 +1,6 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Authenticated, AuthLoading, Unauthenticated, useConvex, useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { bridge } from "./bridge";
@@ -103,27 +103,16 @@ function Gate() {
   if (approveCode) return <ApproveDesktop code={approveCode.toUpperCase()} onDone={() => { setApproveCode(null); history.replaceState(null, "", location.pathname); }} />;
   if (me === undefined || workspaces === undefined) return <div className="signin"><div className="k">…</div></div>;
   if (!me) return <div className="signin"><div className="k">no user</div></div>;
-  if (workspaces.length === 0) return <FirstWorkspace />;
+  if (workspaces.length === 0) return <AutoWorkspace login={me.githubLogin} />;
   return <Shell me={me} workspaces={workspaces} />;
 }
 
-function FirstWorkspace() {
+/** No setup screen. The first sign-in gets a personal workspace named after the person; repos and people come later. */
+function AutoWorkspace({ login }: { login: string }) {
   const create = useMutation(api.workspaces.create);
-  const [name, setName] = useState("");
-  const [repo, setRepo] = useState("");
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="signin">
-      <div className="box">
-        <h1 style={{ fontSize: 28 }}>Your first workspace</h1>
-        <div style={{ color: "var(--ink-2)" }}>A team space with connected repos. Chats live inside it.</div>
-        <div className="row" style={{ padding: 0, border: 0 }}><span>Name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="acme" autoFocus /></div>
-        <div className="row" style={{ padding: 0, border: 0 }}><span>Repo</span><input type="text" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/name (optional)" /></div>
-        <button className="btn" disabled={busy || !name.trim()} onClick={async () => { setBusy(true); await create({ name: name.trim(), repo: repo.trim() || null }); }}>Create</button>
-        <div className="k">{bridge() ? "desktop" : "browser"}</div>
-      </div>
-    </div>
-  );
+  const started = useRef(false);
+  useEffect(() => { if (started.current) return; started.current = true; void create({ name: login, repo: null }); }, [create, login]);
+  return <div className="signin"><div className="k">setting up your workspace…</div></div>;
 }
 
 export type WorkspaceRow = { id: Id<"workspaces">; name: string; repos: string[] };

@@ -13,12 +13,9 @@ try {
   await page.goto("http://localhost:5173/", { waitUntil: "networkidle" });
   await shot("1-signin");
   await page.getByRole("button", { name: "Continue as a guest" }).click();
-  await page.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 20000 });
-  await shot("2-first-workspace");
-  await page.getByPlaceholder("acme").fill("acme");
-  await page.getByPlaceholder("owner/name (optional)").fill("acme/platform");
-  await page.getByRole("button", { name: "Create" }).click();
   await page.getByText("+ New chat").waitFor({ timeout: 20000 });
+  await shot("2-first-workspace");
+  // attach a repo through the header picker later; workspaces start without one
   await shot("3-shell-empty");
   await page.getByText("+ New chat").click();
   await page.getByText("Team chat", { exact: false }).first().click();

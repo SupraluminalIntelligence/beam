@@ -9,28 +9,22 @@ for (const p of [A, B]) p.on("pageerror", (e) => errs.push(e.message));
 const login = async (p) => { await p.goto("http://localhost:5173/", { waitUntil: "networkidle" }); await p.getByRole("button", { name: "Continue as a guest" }).click(); };
 try {
   await login(A); await login(B);
-  await A.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 20000 });
-  await A.getByPlaceholder("acme").fill("acme"); await A.getByPlaceholder("owner/name (optional)").fill("acme/platform");
-  await A.getByRole("button", { name: "Create" }).click();
   await A.getByText("+ New chat").waitFor({ timeout: 20000 });
-  await B.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 20000 });
-  // B's login from its own account footer
-  const bLogin = (await B.locator(".signin .box").innerText()).match(/guest-[a-z0-9]+/)?.[0] ?? null;
+  await B.getByText("+ New chat").waitFor({ timeout: 20000 });
   // A opens a team chat and invites B
   await A.getByText("+ New chat").click(); await A.getByText("Team chat").first().click();
   await A.getByPlaceholder(/Message Untitled/).waitFor({ timeout: 20000 });
   await A.getByPlaceholder(/Message Untitled/).fill("noah, gateway or per-service jwt?"); await A.keyboard.press("Enter");
   await A.locator(".msg .tx", { hasText: "gateway or per-service" }).waitFor();
   // find B's login: B has no workspace yet so there is no footer; read it from B's Gate via a second path: A invites using a placeholder, so instead sign B's login from localStorage-less API: use the me query text by creating a throwaway workspace for B
-  await B.getByPlaceholder("acme").fill("scratch"); await B.getByRole("button", { name: "Create" }).click();
-  await B.getByText("+ New chat").waitFor({ timeout: 20000 });
   const bName = (await B.locator(".acct .nm").innerText()).trim();
   await A.locator(".scopebtn").click(); await A.getByText("Invite someone new").click();
   await A.getByPlaceholder("octocat").fill(bName); await A.locator(".modal .btn").filter({ hasText: /^Invite$/ }).click();
   await A.getByText(/Invited/).waitFor({ timeout: 10000 });
   // B: switch to acme workspace, open the chat
-  await B.locator(".ws-item", { hasText: "acme" }).waitFor({ timeout: 20000 });
-  await B.locator(".ws-item", { hasText: "acme" }).click();
+  const aName = (await A.locator(".acct .nm").innerText()).trim();
+  await B.locator(".ws-item", { hasText: aName }).waitFor({ timeout: 20000 });
+  await B.locator(".ws-item", { hasText: aName }).click();
   await B.locator(".th-item").first().click();
   await B.locator(".msg .tx", { hasText: "gateway or per-service" }).waitFor({ timeout: 20000 });
   await B.getByPlaceholder(/Message/).fill("gateway. @claude take the plan above"); await B.keyboard.press("Enter");

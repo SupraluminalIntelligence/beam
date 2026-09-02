@@ -28,13 +28,13 @@ try {
   await browser.getByRole("button", { name: "Approve" }).click();
   await browser.getByText("Approved. You can go back to Beam.").waitFor({ timeout: 10000 });
   const first = await Promise.race([
-    win.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 30000 }).then(() => "signed-in"),
+    win.getByText("+ New chat").waitFor({ timeout: 30000 }).then(() => "signed-in"),
     new Promise((r) => setTimeout(() => r("timeout"), 31000)),
   ]);
   const keys1 = await win.evaluate(() => Object.keys(localStorage));
   await win.reload();
   const after = await Promise.race([
-    win.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 15000 }).then(() => "signed-in"),
+    win.getByText("+ New chat").waitFor({ timeout: 15000 }).then(() => "signed-in"),
     win.getByRole("button", { name: "Continue with GitHub in your browser" }).waitFor({ timeout: 15000 }).then(() => "signed-out"),
   ]);
   const keys2 = await win.evaluate(() => Object.keys(localStorage));
