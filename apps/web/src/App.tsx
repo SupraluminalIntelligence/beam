@@ -1,11 +1,11 @@
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react";
+import { Authenticated, AuthLoading, Unauthenticated, useConvex, useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { bridge } from "./bridge";
 import { Shell } from "./components/Shell";
-import { Toast } from "./components/Toast";
+import { Toast, toast } from "./components/Toast";
 
 export function App() {
   return (
@@ -22,6 +22,7 @@ const siteUrl = () => (import.meta.env["VITE_CONVEX_URL"] as string).replace(".c
 
 function SignIn() {
   const { signIn } = useAuthActions();
+  const convex = useConvex();
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState<{ userCode: string; url: string } | null>(null);
   const b = bridge();
@@ -35,9 +36,16 @@ function SignIn() {
     setWaiting({ userCode: d.userCode, url: d.verifyUrl });
     await b!.openExternal(d.verifyUrl);
     const started = Date.now();
+    // Wait for the browser to approve, then sign in exactly once. A credentials sign-in
+    // resolves with signingIn:false when the code is not approved yet; it does not throw.
     while (Date.now() - started < 15 * 60_000) {
       await new Promise((res) => setTimeout(res, 2000));
-      try { await signIn("device", { deviceCode: d.deviceCode }); return; } catch { /* not approved yet */ }
+      const st = await convex.query(api.runnerAuth.pending, { userCode: d.userCode }).catch(() => null);
+      if (!st) { toast("That sign-in code expired. Try again."); break; }
+      if (st.status !== "approved") continue;
+      const r = await signIn("device", { deviceCode: d.deviceCode }).catch((e) => { toast(String((e as Error).message).slice(0, 120)); return { signingIn: false }; });
+      if (r.signingIn) return;
+      toast("Sign-in did not complete. Try again."); break;
     }
     setWaiting(null); setBusy(false);
   }

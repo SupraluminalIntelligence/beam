@@ -30,6 +30,14 @@ try {
   // desktop should now be signed in as that guest
   await desktop.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 30000 });
   await desktop.screenshot({ path: "/tmp/beam-shots/desktop-signed-in.png" });
+  const keysBefore = await desktop.evaluate(() => Object.keys(localStorage));
+  await desktop.reload({ waitUntil: "networkidle" });
+  const afterReload = await Promise.race([
+    desktop.getByRole("heading", { name: "Your first workspace" }).waitFor({ timeout: 15000 }).then(() => "signed-in"),
+    desktop.getByRole("button", { name: "Continue with GitHub in your browser" }).waitFor({ timeout: 15000 }).then(() => "signed-out"),
+  ]);
+  const keysAfter = await desktop.evaluate(() => Object.keys(localStorage));
+  console.log(JSON.stringify({ afterReload, keysBefore, keysAfter }));
   console.log(JSON.stringify({ ok: true, url, code, guest, errs }));
 } catch (e) { await desktop.screenshot({ path: "/tmp/beam-shots/ds-err-desktop.png" }); await browser.screenshot({ path: "/tmp/beam-shots/ds-err-browser.png" }); console.log(JSON.stringify({ ok: false, error: String(e).slice(0, 300), errs })); }
 finally { await b.close(); }

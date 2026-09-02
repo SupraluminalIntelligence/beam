@@ -38,6 +38,8 @@ function createWindow() {
     backgroundColor: "#0F1214",
     webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true },
   });
+  if (process.env["BEAM_DEV"]) { win.webContents.on("console-message", (_e, level, msg) => { if (level >= 2 || /convex|auth|beam/i.test(msg)) console.log(`[renderer] ${msg}`); }); }
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => console.log(`[renderer] failed to load ${url}: ${code} ${desc}`));
   if (process.env["BEAM_DEV"]) void win.loadURL("http://localhost:5173");
   else void win.loadFile(join(__dirname, "..", "..", "web", "dist", "index.html"));
   win.on("closed", () => { win = null; });
@@ -52,7 +54,7 @@ ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
   }
 });
 ipcMain.handle("beam:pickFolder", async () => { const r = await dialog.showOpenDialog({ properties: ["openDirectory"] }); return r.canceled ? null : (r.filePaths[0] ?? null); });
-ipcMain.handle("beam:openExternal", (_e, url: string) => shell.openExternal(url));
+ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
 ipcMain.handle("beam:runnerStatus", () => ({ running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
 ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRunner, 500); });
 
