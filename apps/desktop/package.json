@@ -1,0 +1,25 @@
+{
+  "name": "@beam/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
+    "dev": "pnpm build && BEAM_DEV=1 electron .",
+    "dist": "pnpm build && electron-builder --mac dmg",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.0"
+  },
+  "build": {
+    "appId": "ai.supraluminal.beam",
+    "productName": "Beam",
+    "directories": { "output": "release" },
+    "files": ["dist/**", "../web/dist/**"],
+    "mac": { "category": "public.app-category.developer-tools", "target": ["dmg"] }
+  }
+}

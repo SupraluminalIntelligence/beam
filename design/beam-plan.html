@@ -1,0 +1,193 @@
+<title>Beam Build Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#F4F5F2;--surface:#FFFFFF;--surface-2:#ECEEEA;--ink:#1B1F22;--ink-2:#5B6369;--ink-3:#8B949A;--line:#D8DCD7;--line-2:#C7CCC6;--claude:#1E7F7A;--claude-soft:#DDF0EE;--codex:#4A57C9;--warn:#C27A12;--ok:#2E8B4E;--bad:#C0392B}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141719;--surface:#1C2023;--surface-2:#23282B;--ink:#E4E7E4;--ink-2:#9AA3A8;--ink-3:#6E787D;--line:#2E3538;--line-2:#3A4245;--claude:#45B8B1;--claude-soft:#1B3634;--codex:#8A93F0;--warn:#E09A2E;--ok:#4FB870;--bad:#E0584A}}
+:root[data-theme="dark"]{--bg:#141719;--surface:#1C2023;--surface-2:#23282B;--ink:#E4E7E4;--ink-2:#9AA3A8;--ink-3:#6E787D;--line:#2E3538;--line-2:#3A4245;--claude:#45B8B1;--claude-soft:#1B3634;--codex:#8A93F0;--warn:#E09A2E;--ok:#4FB870;--bad:#E0584A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;margin:0;line-height:1.1;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:clamp(44px,7vw,72px);font-weight:700;letter-spacing:-.03em}
+h2{font-size:28px;font-weight:600}h3{font-size:17px;font-weight:600}
+p{margin:0}code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--surface-2);padding:.05em .35em}
+.mono{font-family:"IBM Plex Mono",monospace}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+.col{max-width:68ch}
+section{padding:52px 0;border-top:1px solid var(--line)}
+.head{display:grid;gap:10px;margin-bottom:26px}
+.lede{font-size:18px;color:var(--ink-2);max-width:62ch}
+.prose{display:grid;gap:14px}.prose ul{margin:0;padding-left:20px;display:grid;gap:8px}
+strong{font-weight:600}
+.hero{padding:64px 0 40px}
+.hero .meta{color:var(--ink-2);font-size:14px;margin-top:10px}
+.tbl{display:grid;gap:1px;background:var(--line);border:1px solid var(--line)}
+.tbl>div{background:var(--surface);display:grid;grid-template-columns:200px 1fr;gap:18px;padding:14px 18px}
+.tbl .q{font-weight:600;font-size:15px}
+.tbl .a{font-size:14.5px;color:var(--ink-2)}
+.tbl .a strong{color:var(--ink)}
+.tbl .a code{font-size:.85em}
+@media(max-width:640px){.tbl>div{grid-template-columns:1fr;gap:6px}}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.two h3{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+.two h3 i{width:10px;height:10px;display:inline-block}
+.two ul{margin:0;padding-left:18px;display:grid;gap:7px;font-size:15px}
+.two li span{color:var(--ink-3);font-size:13.5px}
+.diagram{border:1px solid var(--line);background:var(--surface);padding:18px;overflow-x:auto}
+.diagram svg{display:block;width:100%;max-width:860px;margin:0 auto;min-width:600px}
+.ms{display:grid;gap:1px;background:var(--line);border:1px solid var(--line)}
+.ms>div{background:var(--surface);display:grid;grid-template-columns:64px 1fr;gap:18px;padding:16px 18px}
+.ms .n{font-family:"Bricolage Grotesque",sans-serif;font-size:22px;font-weight:700;color:var(--ink-3)}
+.ms .t{font-weight:600;margin-bottom:4px}
+.ms .d{font-size:14.5px;color:var(--ink-2)}
+.ms .done{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--claude);margin-top:6px}
+.tree{font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.6;background:var(--surface);border:1px solid var(--line);padding:14px 18px;white-space:pre;overflow-x:auto;color:var(--ink-2)}
+.tree b{color:var(--ink);font-weight:500}
+.tree i{color:var(--ink-3);font-style:normal}
+footer{padding:32px 0 60px;color:var(--ink-3);font-size:13px;border-top:1px solid var(--line)}
+</style>
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">Supraluminal Intelligence · implementation plan · v0</div>
+  <h1>Beam Build Plan</h1>
+  <div class="meta">Apekshik &amp; Noah · 2 Sep 2026 · after reading T3 Code end to end</div>
+  <div class="prose col" style="margin-top:28px;font-size:18px">
+    <p>Beam is built fresh. T3 Code is a reference, not a base. It answered the hardest question, how to ride a person's own Claude Code and Codex subscription without ever touching their credentials, and it shows a clean shape for driving harnesses and recording what they do. Beam takes those ideas and leaves the rest.</p>
+  </div>
+</header>
+
+<section>
+  <div class="head"><div class="eyebrow">The must-have</div><h2>Your subscription, your CLI, nothing stored</h2>
+  <p class="lede">This is what T3 Code gets right and Beam reproduces exactly. Four mechanisms, all small.</p></div>
+  <div class="tbl">
+    <div><div class="q">Never log in for the user</div><div class="a">T3 Code never runs <code>claude auth login</code> or <code>codex login</code> and never captures an OAuth callback. It spawns the harness with the user's own config and lets the CLI find its credentials the way it always does. Beam does the same. The only thing Beam ever stores about a provider is a probe result.</div></div>
+    <div><div class="q">Point at the config dir, not HOME</div><div class="a">For Claude, set <code>CLAUDE_CONFIG_DIR</code> when you need isolation and leave <code>HOME</code> alone, because the macOS keychain lookup lives under HOME and moving it makes the CLI say "not logged in." For Codex, <code>CODEX_HOME</code> selects which <code>auth.json</code> the CLI reads. Multi-account is later; the env vars are the whole mechanism.</div></div>
+    <div><div class="q">Probe, don't assume</div><div class="a"><strong>Codex:</strong> spawn <code>codex app-server</code>, call <code>account/read</code> over JSON-RPC. The answer is a tagged union: <code>chatgpt</code> with email and <code>planType</code>, <code>apiKey</code>, or nothing, which means "run <code>codex login</code>." <strong>Claude:</strong> open an Agent SDK <code>query()</code> with a prompt generator that never yields, read <code>initializationResult().account</code> for <code>email</code>, <code>subscriptionType</code>, <code>tokenSource</code>, then abort. Never sends a message, never spends tokens. Plan labels map from <code>claudemax20xsubscription</code> and friends to "Max 20x," "Pro," "Team."</div></div>
+    <div><div class="q">Fix PATH before anything</div><div class="a">A desktop app launched from Finder does not inherit your shell PATH, so <code>claude</code> and <code>codex</code> from nvm or Homebrew are invisible. T3 Code spawns a login shell once at boot, reads its PATH, and merges it into the process. Beam does this first thing in the runner. Without it the "connected harnesses" screen lies.</div></div>
+    <div><div class="q">What the user sees</div><div class="a">Settings → Connected harnesses shows each harness with installed version, sign-in state, plan, and email, refreshed every few minutes and on window focus. Not signed in shows the exact command and a button that opens Terminal with it pasted. Live <code>account.updated</code> and rate-limit events from the harness update the row mid-run.</div></div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><div class="eyebrow">Borrow / skip</div><h2>What Beam takes from T3 Code</h2></div>
+  <div class="two">
+    <div><h3><i style="background:var(--ok)"></i>Borrow the idea, write our own</h3>
+      <ul>
+        <li><strong>The adapter interface.</strong> One shape per harness: start session, send turn, interrupt, respond to approval, respond to user input, stop, event stream, resume cursor. <span>T3's is 13 methods; ours starts at 7.</span></li>
+        <li><strong>A normalized event vocabulary.</strong> Every harness emits the same events: session started, turn started, item started/updated/completed, content delta, request opened/resolved, turn completed, account updated. <span>UI never sees a provider-specific shape.</span></li>
+        <li><strong>Claude via the Agent SDK.</strong> A long-lived <code>query()</code> with an async prompt queue. A steer is pushing a message into the live queue; the running turn continues. Resume is <code>resume</code> plus <code>resumeSessionAt</code>. Approvals are the <code>canUseTool</code> callback parked on a promise until someone in the chat answers.</li>
+        <li><strong>Codex via app-server.</strong> Spawn <code>codex app-server</code>, speak JSON-RPC: <code>thread/start</code>, <code>thread/resume</code>, <code>turn/start</code>, <code>turn/interrupt</code>. Approvals arrive as server-to-client requests and are answered by id. <span>Regenerate types from Codex's schema rather than vendoring T3's Effect versions.</span></li>
+        <li><strong>omp via rpc mode.</strong> Spawn <code>omp --mode rpc</code>, NDJSON over stdio. It has a native <code>steer</code> command, which is exactly Beam's steer, plus <code>follow_up</code>, <code>abort</code>, <code>set_model</code>, <code>switch_session</code>. Text arrives as <code>message_update</code> deltas, tools as <code>tool_execution_start</code>/<code>end</code>. Providers and logins are omp's own, stored in <code>~/.omp/agent</code>; Beam probes and never logs in, same as the other two. <span>Anthropic's policy bars Pro/Max OAuth outside Claude Code, so omp's Claude models run on an API key. Claude Code stays the only subscription route for Anthropic.</span></li>
+        <li><strong>Commands in, events out, one writer.</strong> Clients dispatch commands; a single serialized worker turns each into events and updates projections in one transaction; everyone subscribes to the event stream and folds it locally with a pure reducer. <span>In Beam the writer is Convex, which serializes mutations for free.</span></li>
+        <li><strong>Streaming as deltas, coalesced.</strong> Assistant text streams as append-deltas on one message, batched every ~100ms before hitting the shared store. <span>Convex charges per write; this is the difference between fine and expensive.</span></li>
+        <li><strong>Worktree per chat, stacked landing.</strong> <code>git worktree add</code> under a Beam directory on first dispatch, then commit → push → PR as one pipeline with per-phase progress. Checkpoints as hidden git refs, not file copies.</li>
+        <li><strong>Server is the execution boundary.</strong> The UI never touches git, files, or a harness. Only the runner does. <span>This is what lets a headless runner exist later without changing the UI.</span></li>
+        <li><strong>Capability flags in the contract.</strong> Older runner, newer app, or the reverse, must degrade rather than break.</li>
+        <li><strong>Electron shell pattern.</strong> Spawn the runner as a bundled Node entry via <code>ELECTRON_RUN_AS_NODE</code>; renderer served over a custom protocol; <code>electron-builder</code> for dmg; <code>electron-updater</code> later.</li>
+      </ul>
+    </div>
+    <div><h3><i style="background:var(--ink-3)"></i>Skip</h3>
+      <ul>
+        <li><strong>Effect.</strong> T3 is Effect end to end, server and client. It's coherent and it's a language of its own. Beam is plain TypeScript with zod schemas and small pure functions. <span>We borrow the architecture, not the library.</span></li>
+        <li><strong>Their sync layer.</strong> Custom WebSocket RPC, pairing tokens, DPoP, Cloudflare tunnel relay, Clerk. All of it exists to get one person's devices to one server. Beam's multiplayer is Convex, which every member's app and every runner connects to directly. <span>No relay, no tunnel, no pairing.</span></li>
+        <li><strong>Three extra providers, mobile, marketing, terminal.</strong> Two harnesses, one desktop app. Terminal output renders as text in the run log, not a PTY emulator.</li>
+        <li><strong>Their client.</strong> 21 routes and ~290 components built around a three-panel layout with a diff pane. Beam's UI is the prototype, ported to React. <span><code>@pierre/diffs</code> is a standalone MIT library worth using for the inline diff artifact.</span></li>
+        <li><strong>Themes, keybinding editor, usage dashboards, PR review UI.</strong> The PR is the review surface.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose col" style="margin-top:24px"><p><strong>License note.</strong> T3 Code is MIT. Where a specific piece is worth copying rather than rewriting, the login-shell PATH fix and the Windows npm-shim resolution for the Claude executable are the two candidates, keep the MIT notice with the file.</p></div>
+</section>
+
+<section>
+  <div class="head"><div class="eyebrow">Architecture</div><h2>Two planes</h2>
+  <p class="lede">A shared plane that is the record, and an execution plane that is whoever's laptop dispatched the run. Convex joins them.</p></div>
+  <div class="diagram">
+    <svg viewBox="0 0 900 400" role="img" aria-label="Beam architecture: two desktop apps and a runner all connect to Convex">
+      <g style="font-family:'IBM Plex Mono',monospace;font-size:12px">
+        <rect x="250" y="20" width="400" height="92" style="fill:var(--surface-2);stroke:var(--line-2)"/>
+        <text x="450" y="46" text-anchor="middle" style="fill:var(--ink);font-weight:500">Convex · shared plane</text>
+        <text x="450" y="68" text-anchor="middle" style="fill:var(--ink-2);font-size:11px">workspaces · members · chats · messages</text>
+        <text x="450" y="84" text-anchor="middle" style="fill:var(--ink-2);font-size:11px">runs · run events · presence · artifacts</text>
+        <text x="450" y="100" text-anchor="middle" style="fill:var(--ink-3);font-size:11px">GitHub sign-in</text>
+
+        <path d="M330 112 V150 H220 V200" style="fill:none;stroke:var(--line-2)"/>
+        <text x="206" y="140" text-anchor="end" style="fill:var(--ink-3);font-size:10.5px">app · subscribe chat</text>
+        <text x="206" y="156" text-anchor="end" style="fill:var(--claude);font-size:10.5px">runner · claim run · stream events</text>
+
+        <path d="M570 112 V150 H680 V200" style="fill:none;stroke:var(--line-2)"/>
+        <text x="694" y="140" style="fill:var(--ink-3);font-size:10.5px">app · subscribe chat</text>
+        <text x="694" y="156" style="fill:var(--ink-3);font-size:10.5px">steer · approve · react</text>
+
+        <rect x="40" y="200" width="360" height="180" style="fill:var(--surface);stroke:var(--line-2)"/>
+        <text x="220" y="224" text-anchor="middle" style="fill:var(--ink);font-weight:500">Apekshik's Mac</text>
+        <rect x="60" y="238" width="320" height="36" style="fill:var(--surface-2);stroke:var(--line)"/>
+        <text x="220" y="260" text-anchor="middle" style="fill:var(--ink-2);font-size:11px">Beam app · Electron + React</text>
+        <line x1="100" y1="274" x2="100" y2="304" style="stroke:var(--ink-3)"/>
+        <text x="108" y="293" style="fill:var(--ink-3);font-size:10px">local ipc</text>
+        <rect x="60" y="304" width="320" height="56" style="fill:var(--claude-soft);stroke:var(--claude)"/>
+        <text x="220" y="326" text-anchor="middle" style="fill:var(--ink);font-size:11px">runner · Node child process</text>
+        <text x="220" y="344" text-anchor="middle" style="fill:var(--ink-2);font-size:10.5px">claude sdk · codex app-server · git · worktrees</text>
+
+        <rect x="500" y="200" width="360" height="180" style="fill:var(--surface);stroke:var(--line-2)"/>
+        <text x="680" y="224" text-anchor="middle" style="fill:var(--ink);font-weight:500">Noah's Mac</text>
+        <rect x="520" y="238" width="320" height="36" style="fill:var(--surface-2);stroke:var(--line)"/>
+        <text x="680" y="260" text-anchor="middle" style="fill:var(--ink-2);font-size:11px">Beam app · Electron + React</text>
+        <line x1="560" y1="274" x2="560" y2="304" style="stroke:var(--line-2)"/>
+        <rect x="520" y="304" width="320" height="56" style="fill:var(--surface);stroke:var(--line-2);stroke-dasharray:4 3"/>
+        <text x="680" y="326" text-anchor="middle" style="fill:var(--ink-3);font-size:11px">runner · idle</text>
+        <text x="680" y="344" text-anchor="middle" style="fill:var(--ink-3);font-size:10.5px">his logins · used when he dispatches</text>
+      </g>
+    </svg>
+  </div>
+  <div class="tbl" style="margin-top:24px">
+    <div><div class="q">Shared plane</div><div class="a"><strong>Convex.</strong> The chat is the record: every human message, dispatch, steer, approval, agent reply, activity line, artifact, and landing card is a document. Members' apps subscribe to live queries. Runners are ordinary Convex clients too, signed in as the person whose machine they run on. Mutations serialize, so "one writer" is free.</div></div>
+    <div><div class="q">Execution plane</div><div class="a"><strong>The runner.</strong> A standalone Node process with its own identity: registered to a workspace, owned by a person, signed in to Convex as them. The desktop app happens to launch one at startup, but nothing about the runner assumes an app is attached. It hydrates PATH, probes harnesses, and watches Convex for runs assigned to it. A dispatch by you creates a run whose runner is your machine. The runner starts the harness in the chat's worktree, streams normalized events into Convex in coalesced batches, receives steers and approval answers as documents, and lands the branch and PR. When the run ends it writes the landing card.</div></div>
+    <div><div class="q">Why not a T3-style local server</div><div class="a">T3 needs one because its clients are phones and browsers reaching one machine. Beam's clients all reach Convex. The runner is a client, not a server. No open ports, no pairing, no relay, and Noah steering a run on your laptop is just a document write.</div></div>
+    <div><div class="q">Clients are thin</div><div class="a"><strong>Anything that can reach Convex is a client.</strong> Desktop today, web and mobile later. The lesson from T3 Code: keep contracts and the event reducer in shared packages, and keep every app to rendering plus a platform bridge. Their web and mobile state files are byte-identical apart from a label. Beam's <code>apps/web</code> never assumes Electron, so a browser build is a config change, and an Expo app reuses <code>packages/contracts</code> and <code>packages/reducer</code> untouched. Presence, reactions, dispatch, steer, and approvals are all just Convex writes, so a phone gets them for free.</div></div>
+    <div><div class="q">Desktop shell</div><div class="a"><strong>Electron + React + Vite, not native.</strong> The two things that make Beam work are JavaScript: the Claude Agent SDK is a TypeScript package, and the Convex client is JavaScript. A Swift app would still need a Node sidecar for both, so you would build the IPC anyway and get none of the UI reuse. Tauri has the same sidecar problem plus a Rust layer for a two-person team to carry. <strong>How T3 Code does it:</strong> Electron, main and preload written in Effect; the renderer is not bundled into the app but served through a custom <code>t3code://</code> protocol that proxies to the local server; the server is their published CLI, spawned by Electron itself with <code>ELECTRON_RUN_AS_NODE=1</code>; packaging via <code>electron-builder</code> for dmg, nsis, and AppImage; updates via <code>electron-updater</code> with stable and nightly channels. <strong>Beam:</strong> the same skeleton, smaller. Main process spawns <code>apps/runner</code> as a Node child with <code>ELECTRON_RUN_AS_NODE</code>, talks to it over stdio JSON lines, and exposes a small preload bridge for the renderer: harness status, open Terminal with a command, pick a folder, open external. Renderer is <code>apps/web</code> loaded from a bundled build in production and from Vite in dev. <code>electron-builder</code> for a signed, notarized dmg from day one, <code>electron-updater</code> in M5.</div></div>
+    <div><div class="q">Auth and membership</div><div class="a"><strong>GitHub sign-in</strong> through Convex Auth. A workspace is a team space with a set of connected repos. A chat attaches one repo, and the runner clones it once per machine and creates a worktree and branch on the first dispatch without the user doing anything. A new chat, team or private, starts with only its creator; inviting someone adds them to the workspace and, by default, to the current chat. The GitHub token also lets the runner open PRs via the API, with <code>gh</code> as a fallback.</div></div>
+    <div><div class="q">Runner assignment</div><div class="a">Every dispatch targets a runner. Default is the dispatcher's own online runner; otherwise the chat shows the workspace's online runners to pick from. A run stays bound to its runner for resume. If that runner goes offline the chat says so and offers to redispatch. <strong>Detached from day one:</strong> <code>beam-runner login</code> uses a device-code flow so a runner on a Mac mini or a server signs in without a desktop app. This is what makes a phone useful, since a phone can dispatch and steer but never runs anything.</div></div>
+    <div><div class="q">Cost control</div><div class="a">Content deltas batch at 100ms per message. Activity lines write once on completion, not on start, unless they last more than two seconds. Presence writes throttle to one per 20s per member.</div></div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><div class="eyebrow">Repo</div><h2>Layout</h2></div>
+  <div class="tree"><b>beam/</b>
+├── <b>apps/desktop</b>        <i>Electron main + preload, spawns runner, packaging</i>
+├── <b>apps/web</b>            <i>React UI (the prototype, componentized), Vite</i>
+├── <b>apps/runner</b>         <i>Node CLI: `beam-runner`, also the headless daemon later</i>
+├── <b>packages/contracts</b>  <i>zod schemas: chat, message, run, run event, harness event, capabilities</i>
+├── <b>packages/harness</b>    <i>adapter interface + claude adapter + codex adapter + probes</i>
+├── <b>packages/git</b>        <i>worktrees, checkpoints, commit→push→PR pipeline</i>
+├── <b>packages/reducer</b>    <i>pure fold of run events into a chat view (shared by app and tests)</i>
+├── <b>convex/</b>             <i>schema, auth, queries, mutations, run claiming, presence</i>
+└── <b>design/</b>             <i>the two design artifacts, exported</i></div>
+  <div class="prose col" style="margin-top:18px"><p><strong>Stack:</strong> pnpm workspace, TypeScript strict, Vite, React 19, Convex, zod, vitest. Electron 3x with <code>electron-builder</code>. The Claude adapter depends on <code>@anthropic-ai/claude-agent-sdk</code>; the Codex adapter depends on nothing but <code>child_process</code> and a JSON-RPC framing helper.</p></div>
+</section>
+
+<section>
+  <div class="head"><div class="eyebrow">Milestones</div><h2>Order of work</h2>
+  <p class="lede">Each one ends with something you and Noah can use. M2 is the bar from the design doc: one real change, done in Beam, preferred over Conductor.</p></div>
+  <div class="ms">
+    <div><div class="n">M0</div><div><div class="t">Two people in one chat</div><div class="d">Monorepo, Convex schema, GitHub sign-in, Electron shell loading the React app, workspaces with connected repos, chats that attach a repo, invite that adds to the chat, presence, reactions, tabs. No agents yet.</div><div class="done">done when: you and Noah argue in a chat on two laptops and it feels like the prototype</div></div></div>
+    <div><div class="n">M1</div><div><div class="t">Connected harnesses, detached runner</div><div class="d">Runner as its own process with its own identity and a device-code login, registered to a workspace, launched by the app or by hand. PATH hydration, binary discovery, Claude probe via SDK init, Codex probe via <code>account/read</code>, status rows with plan and email, the not-signed-in path that opens Terminal with the command, refresh on focus. Online runners visible in the workspace.</div><div class="done">done when: both of you see "Claude Code · signed in · Max" on your own machines with zero config</div></div></div>
+    <div><div class="n">M2</div><div><div class="t">@claude does the work</div><div class="d">Claude adapter: session per chat, worktree on first dispatch, normalized events streaming into the chat as "On it," folded activity, permission asks anyone can answer, final reply, branch push and draft PR, landing card. Steer by @mention mid-run with receipt. Interrupt. Resume on the next @mention.</div><div class="done">done when: a real PR lands from a chat, with Noah steering a run on your machine</div></div></div>
+    <div><div class="n">M3</div><div><div class="t">@codex, then @omp</div><div class="d">Codex adapter over app-server JSON-RPC with the same event vocabulary, approvals as request/answer pairs, resume via <code>thread/resume</code>. Then omp over its <code>--mode rpc</code> NDJSON protocol: <code>prompt</code>, <code>steer</code>, <code>abort</code>, <code>switch_session</code> map one-to-one onto the adapter, and its extension-UI confirmation frames are the approval channel. Per-agent settings: model, effort, permission mode, always-allow list.</div><div class="done">done when: Codex reviews a PR Claude opened, and omp on a Kimi or GPT model does the same, in the same chat</div></div></div>
+    <div><div class="n">M4</div><div><div class="t">Private chats and artifacts</div><div class="d">Private chats with pinned default agent and one-way share. Inline artifacts: diff from the PR via <code>@pierre/diffs</code>, run log, tables, diagrams as mermaid. Auto-title from the first message. Scope control in the header.</div><div class="done">done when: you work solo in a private chat and share it without anything looking different</div></div></div>
+    <div><div class="n">M5</div><div><div class="t">Always-on runner, then a phone</div><div class="d">Launchd service wrapper so a runner survives reboots on a Mac mini. Web build of <code>apps/web</code>. Expo app on the shared packages: read chats, dispatch, steer, approve, react. dmg with auto-update. Restyle onto the Supraluminal design language.</div><div class="done">done when: you dispatch from your phone on the train and the closet Mac mini opens the PR</div></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="head"><div class="eyebrow">Decide</div><h2>Three calls before scaffolding</h2></div>
+  <div class="tbl">
+    <div><div class="q">Convex as the shared plane</div><div class="a"><strong>Recommended yes.</strong> It removes the relay, pairing, and WebSocket server that make up a third of T3 Code, and you already run two products on it. The cost is per-write pricing, handled by coalescing. The alternative is our own WebSocket server per machine plus a relay, which is exactly the part of T3 we're skipping.</div></div>
+    <div><div class="q">No Effect</div><div class="a"><strong>Recommended.</strong> Plain TypeScript, zod at the edges, pure functions for the reducer and the decider. We lose T3's typed error channels and structured concurrency; we keep the ability to read our own code in six months.</div></div>
+    <div><div class="q">Runner as a separate, detached process from day one</div><div class="a"><strong>Decided.</strong> Its own identity, its own login, launched by the app or by hand. This is the thing that makes mobile possible later, because a phone can never run a harness; it can only talk to a runner that is already online somewhere.</div></div>
+  </div>
+</section>
+<footer>Beam · Supraluminal Intelligence · build plan v0 · sources: T3 Code at commit 14f15cf (2 Sep 2026), MIT</footer>
+</div>

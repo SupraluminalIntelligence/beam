@@ -1,0 +1,866 @@
+<title>Beam Prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#E9EBE7; --surface:#FFFFFF; --surface-2:#F1F2EF; --surface-3:#E2E5E0;
+  --ink:#1B1F22; --ink-2:#5B6369; --ink-3:#8B949A; --line:#D8DCD7; --line-2:#C7CCC6;
+  --claude:#1E7F7A; --claude-soft:#DDF0EE; --codex:#4A57C9; --codex-soft:#E3E6F8;
+  --me:#7A4E8E; --noah:#9C6A12; --noah-soft:#F5EAD2;
+  --ok:#2E8B4E; --warn:#C27A12; --bad:#C0392B;
+  --add:#2E8B4E; --del:#C0392B; --addbg:#E6F4EA; --delbg:#FBE9E7;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1214; --surface:#1C2023; --surface-2:#23282B; --surface-3:#2B3134;
+    --ink:#E4E7E4; --ink-2:#9AA3A8; --ink-3:#6E787D; --line:#2E3538; --line-2:#3A4245;
+    --claude:#45B8B1; --claude-soft:#1B3634; --codex:#8A93F0; --codex-soft:#25294A;
+    --me:#C08AD6; --noah:#E0A63A; --noah-soft:#3A2F17;
+    --ok:#4FB870; --warn:#E09A2E; --bad:#E0584A;
+    --add:#4FB870; --del:#E0584A; --addbg:#173124; --delbg:#3A1F1C;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1214; --surface:#1C2023; --surface-2:#23282B; --surface-3:#2B3134;
+  --ink:#E4E7E4; --ink-2:#9AA3A8; --ink-3:#6E787D; --line:#2E3538; --line-2:#3A4245;
+  --claude:#45B8B1; --claude-soft:#1B3634; --codex:#8A93F0; --codex-soft:#25294A;
+  --me:#C08AD6; --noah:#E0A63A; --noah-soft:#3A2F17;
+  --ok:#4FB870; --warn:#E09A2E; --bad:#E0584A;
+  --add:#4FB870; --del:#E0584A; --addbg:#173124; --delbg:#3A1F1C;
+}
+*{box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+code{font-family:"IBM Plex Mono",monospace;font-size:.9em;background:var(--surface-2);padding:.05em .35em}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--claude);outline-offset:-2px}
+.sq{width:7px;height:7px;background:var(--line-2);flex:none;display:inline-block}
+.sq.work{background:var(--warn);animation:pulse 1.6s infinite}.sq.ok{background:var(--ok)}.sq.idle{background:var(--line-2)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes blink{to{visibility:hidden}}
+.av{width:20px;height:20px;display:inline-grid;place-items:center;font-size:10px;font-weight:500;color:var(--surface);flex:none;font-family:"IBM Plex Mono",monospace}
+.av.me{background:var(--me)}.av.noah{background:var(--noah)}
+.av.claude,.av.codex,.av.omp,.av.gemini{background:var(--claude);color:transparent;font-size:0;-webkit-mask:var(--logo-a) center/80% no-repeat;mask:var(--logo-a) center/80% no-repeat}
+.av.codex{background:var(--codex);-webkit-mask-image:var(--logo-o);mask-image:var(--logo-o)}
+.av.omp{background:var(--ink-2);-webkit-mask:none;mask:none;color:var(--surface);font-size:10px}
+.av.gemini{background:var(--ink-2);-webkit-mask:none;mask:none;color:var(--surface);font-size:10px}
+.av.plus{background:transparent;border:1px dashed var(--line-2);color:var(--ink-3);font-size:12px}
+
+/* window */
+.app{position:fixed;inset:14px;background:var(--surface);border:1px solid var(--line-2);border-radius:10px;overflow:hidden;display:grid;grid-template-columns:240px 1fr;box-shadow:0 30px 80px rgba(0,0,0,.25)}
+.titlebar{height:42px;display:grid;grid-template-columns:1fr auto;align-items:center;background:var(--surface-2);border-bottom:1px solid var(--line);-webkit-app-region:drag}
+.lights{display:flex;gap:7px}.lights i{width:11px;height:11px;border-radius:50%;background:var(--line-2)}
+.tb-ws{display:flex;gap:10px;align-items:center;font-size:13px;padding-left:18px}
+.tb-ws b{font-weight:600}.tb-ws .mono{font-size:11px;color:var(--ink-3)}
+.tb-r{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding-right:14px}
+.pres{display:flex}.pres .av{margin-left:-5px;box-shadow:0 0 0 2px var(--surface-2)}
+.tb-k{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);border:1px solid var(--line-2);padding:2px 7px}
+
+/* sidebar */
+.side{border-right:1px solid var(--line);background:var(--surface-2);display:flex;flex-direction:column;min-height:0;font-size:13px}
+.sb-top{display:flex;align-items:center;gap:14px;padding:0 14px;height:42px;border-bottom:1px solid var(--line);flex:none;-webkit-app-region:drag}
+.sb-top .sb-brand{flex:1}
+.sb-brand{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;letter-spacing:.08em;font-size:13px}
+.sb-act{height:36px;padding:0 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-weight:500;flex:none;width:100%;text-align:left}
+.sb-act:hover{background:var(--surface)}
+.sb-scroll{overflow-y:auto;overflow-x:visible;flex:1;min-height:0;padding-bottom:12px;display:block}
+.sb-sec{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:14px 14px 6px;display:flex;justify-content:space-between;align-items:center}
+.sb-scroll>.sb-sec:first-child{height:46px;padding-top:0;padding-bottom:0;border-bottom:1px solid var(--line);margin-bottom:4px}
+.sb-sec button{color:var(--ink-2);font-size:14px;line-height:1;padding:0 2px}
+.sb-sec button:hover{color:var(--ink)}
+.k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
+.ws-item{display:flex;align-items:center;gap:8px;padding:6px 14px;color:var(--ink);font-weight:500;width:100%;text-align:left}
+.ws-item:hover{background:var(--surface)}
+.ws-item.on{background:var(--surface);box-shadow:inset 2px 0 0 var(--ink-2)}
+.ws-item .ic{color:var(--ink-3);font-size:11px}
+.ws-item .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th-item{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 30px;color:var(--ink-3);width:100%;text-align:left}
+.th-item:hover{background:var(--surface);color:var(--ink-2)}
+.th-item.open{color:var(--ink-2)}.th-item.on{color:var(--ink);background:var(--surface)}
+.th-item .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th-item .here{display:flex;flex:none}
+.th-item .here .av{width:14px;height:14px;font-size:7px;margin-left:-3px;box-shadow:0 0 0 1.5px var(--surface-2)}
+.th-item.on .here .av{box-shadow:0 0 0 1.5px var(--surface)}
+.ag-item{display:grid;grid-template-columns:1fr auto;column-gap:8px;row-gap:3px;align-items:center;padding:6px 14px;color:var(--ink)}
+.ag-item:hover{background:var(--surface)}
+.ag-name{display:flex;align-items:center;gap:8px;min-width:0;text-align:left}
+.ag-name:hover .nm{text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:3px}
+.ag-item .sub{display:flex;gap:4px;align-items:center;white-space:nowrap;overflow:visible}
+.sb-sel{padding:0;font-size:10.5px;color:var(--ink-3);border:0}
+.sb-sel:hover{color:var(--ink)}
+.sb-sel i{font-size:9px}
+.sb-sel .dd{min-width:150px;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.eff{display:inline-flex;align-items:flex-end;gap:1.5px;height:10px;padding:0 2px;margin-left:6px;color:var(--ink-3)}
+.eff i{display:block;width:3px;background:var(--line-2)}
+.eff i:nth-child(1){height:3px}.eff i:nth-child(2){height:5px}.eff i:nth-child(3){height:7px}.eff i:nth-child(4){height:10px}
+.eff[data-lv="1"] i:nth-child(-n+1),.eff[data-lv="2"] i:nth-child(-n+2),.eff[data-lv="3"] i:nth-child(-n+3),.eff[data-lv="4"] i:nth-child(-n+4){background:var(--ink-2)}
+.eff:hover i{background:var(--line-2)}
+.eff:hover[data-lv="1"] i:nth-child(-n+1),.eff:hover[data-lv="2"] i:nth-child(-n+2),.eff:hover[data-lv="3"] i:nth-child(-n+3),.eff:hover[data-lv="4"] i:nth-child(-n+4){background:var(--ink)}
+.ag-item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-item .sq{grid-column:2;justify-self:end}
+.ag-item>.sub{grid-column:1/3}
+.pp-item{display:grid;grid-template-columns:20px 1fr auto;column-gap:8px;row-gap:1px;align-items:center;padding:6px 14px;color:var(--ink);width:100%;text-align:left}
+.pp-item:hover{background:var(--surface)}
+.pp-item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pp-item .sq{grid-column:3;justify-self:end}
+.pp-item .sub{grid-column:2/4;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.sb-foot{position:relative;border-top:1px solid var(--line);flex:none}
+.acct{display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;text-align:left;color:var(--ink)}
+.acct:hover{background:var(--surface)}
+.acct .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.acct .k{font-size:14px}
+.menu{position:absolute;left:10px;right:10px;bottom:calc(100% + 6px);transition:opacity .14s ease,transform .14s ease;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:6;font-size:13px}
+.menu .mh{display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.menu .mn{font-weight:600}
+.menu button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:8px 12px;text-align:left;color:var(--ink)}
+.menu button:hover{background:var(--surface-2)}
+.menu button:last-child{border-top:1px solid var(--line);color:var(--ink-2)}
+.menu[hidden]{display:block;opacity:0;transform:translateY(4px);pointer-events:none}
+
+.ws-row{position:relative;display:flex;align-items:center}
+.ws-row.top{display:block}
+.ws-row.top .newpop{left:10px;right:10px}
+.ws-row .ws-item{flex:1}
+.ws-plus{position:absolute;right:10px;top:0;bottom:0;padding:0 6px;color:var(--ink-3);opacity:0;font-size:14px}
+.ws-row:hover .ws-plus,.ws-row.on .ws-plus{opacity:1}
+.ws-row:hover .ws-item .k,.ws-row.on .ws-item .k{visibility:hidden}
+.ws-plus:hover{color:var(--ink)}
+.newpop{position:absolute;left:14px;right:10px;top:calc(100% + 2px);background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:7;transition:opacity .14s ease,transform .14s ease}
+.newpop[hidden]{display:block;opacity:0;transform:translateY(-4px);pointer-events:none}
+.newpop button{display:flex;gap:10px;align-items:center;width:100%;padding:8px 12px;text-align:left;color:var(--ink);font-size:13px}
+.newpop button:hover{background:var(--surface-2)}
+.newpop button svg{color:var(--ink-2);flex:none}
+.newpop small,.kindpick small{display:block;font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.lk{display:inline-flex;color:var(--ink-3);flex:none}
+.th-item .lk{margin-left:2px}
+
+.float .sp{flex:1}
+.float:empty{display:none}
+.chip.lkc{display:inline-flex;align-items:center;gap:5px}
+.scope{position:relative;margin-left:auto}
+.scopebtn{display:flex;align-items:center;gap:8px;padding:4px 6px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;font-size:11px}
+.scopebtn:hover{color:var(--ink);background:var(--surface-2)}
+.scopebtn .pres .av{width:18px;height:18px;font-size:8px;margin-left:-4px;box-shadow:0 0 0 1.5px var(--surface)}
+.scopebtn .pres .av:first-child{margin-left:0}
+.scopebtn .sep{width:1px;height:14px;background:var(--line-2)}
+.scopepop{position:absolute;right:0;top:calc(100% + 6px);width:300px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:8;font-family:"IBM Plex Sans",sans-serif;font-size:13px;text-transform:none;letter-spacing:0;transition:opacity .14s ease,transform .14s ease}
+.scopepop[hidden]{display:block;opacity:0;transform:translateY(-4px);pointer-events:none}
+.sph{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600;color:var(--ink)}
+.sph svg{color:var(--ink-2)}
+.sps{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:10px 12px 4px}
+.spo{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;text-align:left;color:var(--ink-2)}
+.spo.on{color:var(--ink)}
+.spo:hover{background:var(--surface-2)}
+.spo[disabled]{cursor:default}
+.spo .chk{margin-left:auto;color:var(--claude);font-family:"IBM Plex Mono",monospace;width:12px}
+.spo.add{color:var(--ink-3)}
+.spf{padding:8px 12px 10px;border-top:1px solid var(--line);font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);margin-top:4px}
+.repopick{border:0;padding:0;background:none}
+.repopick .chip.addrepo{color:var(--ink-3);border-style:dashed}
+.repopick:hover .chip{color:var(--ink);border-color:var(--line-2)}
+.repopick .dd{font-family:"IBM Plex Mono",monospace;font-size:11.5px;text-transform:none;letter-spacing:0;min-width:240px}
+.dd .ddf{display:block;padding:6px 10px 8px;font-size:10.5px;color:var(--ink-3);border-top:1px solid var(--line)}
+.thead .share{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px}
+.thead .share:hover{color:var(--ink)}
+.pinsel{border:0;padding:0;color:var(--ink-3);font-size:11px}
+.pinsel:hover{color:var(--ink)}
+.pinsel .dd{bottom:calc(100% + 6px);top:auto;left:0}
+.kindpick{display:flex;gap:6px}
+.kindpick button{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);color:var(--ink-2);flex:1;text-align:left}
+.kindpick button svg{flex:none}
+.kindpick button.on{border-color:var(--ink);color:var(--ink);background:var(--surface-2)}
+
+/* pane + tabs */
+.pane{display:grid;grid-template-rows:42px 36px 1fr;min-width:0;min-height:0}
+.tabs-strip{display:flex;align-items:stretch;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:12.5px;overflow:visible}
+.tab{display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--ink-2);border-right:1px solid var(--line);white-space:nowrap;flex:none;max-width:220px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:500;position:relative;z-index:1;box-shadow:0 1px 0 0 var(--surface)}
+.tab .tn{overflow:hidden;text-overflow:ellipsis}
+.tab .tn.untitled,.th-item .nm.untitled{font-style:italic;color:var(--ink-3)}
+.tab .tx{color:var(--ink-3);font-size:12px;margin-left:2px;padding:2px 3px}
+.tab .tx:hover{color:var(--ink);background:var(--surface-3)}
+.tab.new{color:var(--ink-3);font-size:14px}
+.strip-sp{flex:1}
+.strip-k{align-self:center;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);padding:0 12px;white-space:nowrap}
+.pane-body{display:grid;grid-template-columns:1fr;min-width:0;min-height:0}
+
+/* thread */
+.thread{display:flex;flex-direction:column;min-width:0;min-height:0}
+.thead{height:46px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid var(--line);flex:none;font-family:"IBM Plex Mono",monospace;font-size:12.5px}
+.thead .t.untitled{font-style:italic;color:var(--ink-3);text-transform:none;letter-spacing:0}
+.thead .t{text-transform:uppercase;letter-spacing:.06em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:2px 7px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-2);white-space:nowrap}
+.thead .sp{flex:1}
+.thead .who{font-size:11.5px;color:var(--ink-3);white-space:nowrap;display:flex;gap:8px;align-items:center}
+.thead .who .sq{width:6px;height:6px}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:18px max(18px,calc((100% - 880px)/2)) 8px;display:grid;gap:14px;align-content:start}
+.empty{color:var(--ink-3);font-size:13.5px;max-width:52ch;padding:40px 0;display:grid;gap:8px}
+.empty b{color:var(--ink-2);font-weight:500}
+.msg{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:6px 10px;margin:0 -10px;transition:background .12s ease}
+.msg:hover{background:var(--surface-2)}
+.msg.cont{margin-top:-14px}.msg.cont .av{visibility:hidden}.msg.cont .hd{display:none}
+.msg .av{width:26px;height:26px;font-size:11px}
+.msg .hd{display:flex;gap:8px;align-items:baseline}
+.msg .nm{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.04em;font-size:11.5px;font-weight:600}
+.msg .tm{font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.msg .tx{color:var(--ink);max-width:76ch;white-space:pre-wrap}
+.nm.me{color:var(--me)}.nm.noah{color:var(--noah)}.nm.claude{color:var(--claude)}.nm.codex{color:var(--codex)}.nm.omp,.nm.gemini{color:var(--ink-2)}
+.mention{font-weight:600;padding:0 4px}
+.mention.claude{background:var(--claude-soft);color:var(--claude)}.mention.codex{background:var(--codex-soft);color:var(--codex)}
+.mention.noah{background:var(--noah-soft);color:var(--noah)}.mention.me{background:var(--surface-2);color:var(--me)}
+.msg.dispatch .tx,.msg.steer .tx{border-left:3px solid var(--claude);padding-left:10px}
+.rcpt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);margin-top:4px;padding-left:13px}
+.rcpt i{color:var(--claude);font-style:normal}
+.act{border:1px solid var(--line);max-width:680px;margin-top:8px;font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--surface)}
+.act .ah{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);color:var(--ink-2);cursor:pointer;user-select:none;font-size:11.5px;width:100%;text-align:left}
+.act .ah .tog{color:var(--ink-3);width:10px}
+.act .ah .st{margin-left:auto;display:flex;gap:6px;align-items:center;color:var(--ink-2);font-size:11px}
+.act .ah .st i{width:7px;height:7px;background:var(--warn);display:inline-block}
+.act .ah .st.work i{animation:pulse 1.6s infinite}.act .ah .st.done i{background:var(--ok)}
+.act .stepwrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows .26s ease}
+.act.closed .stepwrap{grid-template-rows:0fr}
+.act .stepwrap>.steps{min-height:0;overflow:hidden}
+.steps{border-top:1px solid var(--line);display:grid}
+.act.closed .steps{border-top-width:0}
+.step{display:grid;grid-template-columns:18px 1fr auto;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);color:var(--ink-2);align-items:center}
+.step:last-child{border-bottom:0}
+.step .ic{color:var(--ok);text-align:center}.step .ic.run{color:var(--warn)}
+.step .r{color:var(--ink-3);font-size:11px}
+.perm{display:flex;gap:6px;margin-top:8px;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.perm button{border:1px solid var(--line-2);padding:2px 8px;color:var(--ink-2);background:var(--surface)}
+.perm button:hover{color:var(--ink)}
+.perm .did{background:var(--ok);color:var(--surface);border-color:var(--ok)}
+.card{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;border:1px solid var(--line);padding:8px 12px;max-width:420px;margin-top:8px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+.card:hover{border-color:var(--line-2);background:var(--surface-2)}
+.card.on{border-color:var(--claude)}
+.card .ai{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);color:var(--claude);font-size:13px;font-family:"IBM Plex Mono",monospace}
+.card .ttl{font-weight:600;font-size:13px}
+.card .mt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap}
+.card .mt .add{color:var(--add)}.card .mt .del{color:var(--del)}
+.typing{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3);padding:6px 18px;flex:none}
+.typing .av{width:16px;height:16px}
+.composer{margin:0 auto 16px;width:min(880px,calc(100% - 36px));border:1px solid var(--line-2);background:var(--surface);position:relative;flex:none}
+.composer textarea{display:block;width:100%;resize:none;border:0;background:transparent;color:var(--ink);font:inherit;padding:10px 12px;min-height:40px;max-height:160px;outline:none}
+.composer textarea::placeholder{color:var(--ink-3)}
+.composer .ft{display:flex;gap:12px;padding:6px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;align-items:center}
+.composer .ft .sp{flex:1}
+.composer .ft button{color:var(--ink-3)}.composer .ft button:hover{color:var(--ink)}
+.composer .ft .warn{color:var(--warn)}
+.popover{position:absolute;left:12px;bottom:calc(100% + 6px);width:340px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:5}
+.popover .ph{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:8px 12px 4px}
+.popover .po{display:flex;gap:10px;align-items:center;padding:7px 12px;font-size:13px;width:100%;text-align:left}
+.popover .po.sel,.popover .po:hover{background:var(--surface-2)}
+.popover .po .d{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+
+.daysep{display:flex;align-items:center;gap:12px;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.daysep::before,.daysep::after{content:"";flex:1;height:1px;background:var(--line)}
+/* reactions */
+.msg{position:relative}
+.rbar{position:absolute;top:-8px;right:10px;display:flex;gap:2px;background:var(--surface);border:1px solid var(--line-2);padding:2px;opacity:0;pointer-events:none;transition:opacity .12s ease;z-index:2}
+.msg:hover .rbar,.rbar.open{opacity:1;pointer-events:auto}
+.rbar button{font-size:13px;line-height:1;padding:3px 5px;min-width:24px}
+.rbar button:hover{background:var(--surface-2)}
+.reacts{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.rc{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line-2);padding:1px 7px;font-size:12px;background:var(--surface);color:var(--ink-2);font-family:"IBM Plex Mono",monospace}
+.rc span{font-size:11px}
+.rc:hover{border-color:var(--ink-3)}
+.rc.mine{border-color:var(--claude);background:var(--claude-soft);color:var(--ink)}
+
+/* inline artifacts */
+.artwrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .28s ease;max-width:760px}
+.artwrap.open{grid-template-rows:1fr}
+.artwrap>.artbox{min-height:0;overflow:hidden;opacity:0;transition:opacity .2s ease}
+.artwrap.open>.artbox{opacity:1;overflow:auto}
+.artbox{border:1px solid var(--line);background:var(--surface-2);padding:10px;margin-top:6px;box-sizing:border-box}
+.artwrap:not(.open)>.artbox{border-width:0;padding-top:0;padding-bottom:0;margin-top:0}
+.artbox.diagram{width:max-content;max-width:100%}
+.artbox.diagram svg{display:block;background:var(--surface);border:1px solid var(--line);width:380px;max-width:100%}
+.artbox.table,.artbox.doc{width:max-content;max-width:100%}
+.artbox.doc .doc{max-width:64ch}
+.diff{background:var(--surface);border:1px solid var(--line);font-family:"IBM Plex Mono",monospace;font-size:11.5px;overflow-x:auto}
+.diff .fh{padding:6px 10px;border-bottom:1px solid var(--line);color:var(--ink-2);background:var(--surface-2);display:flex;justify-content:space-between}
+.diff .l{display:grid;grid-template-columns:34px 1fr;white-space:pre;color:var(--ink-2)}
+.diff .l span:first-child{color:var(--ink-3);text-align:right;padding-right:8px;user-select:none;font-size:10px}
+.diff .l.a{background:var(--addbg);color:var(--ink)}.diff .l.d{background:var(--delbg);color:var(--ink)}
+.diff .l.h{color:var(--ink-3);background:var(--surface-2)}
+.diff .l span:last-child{padding:1px 8px 1px 4px}
+table.tbl{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);font-size:12px}
+.tbl th,.tbl td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface-2);cursor:pointer;user-select:none;white-space:nowrap}
+.tbl th:hover{color:var(--ink)}
+.tbl td.n{font-family:"IBM Plex Mono",monospace;text-align:right;font-variant-numeric:tabular-nums}
+.tbl td.hot{color:var(--bad);font-weight:500}
+.tbl td.mono{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+.log{background:var(--ink);color:var(--bg);font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.55;padding:10px 12px;white-space:pre;overflow-x:auto}
+.log .dim{opacity:.55}.log .g{color:#7ED8A3}.log .y{color:#F2C46D}
+.doc{background:var(--surface);border:1px solid var(--line);padding:16px 18px;font-size:13.5px;line-height:1.55;display:grid;gap:10px}
+.doc h1{font-family:"Bricolage Grotesque",sans-serif;font-size:20px;margin:0;font-weight:600}
+.doc h2{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:8px 0 0;font-weight:500}
+.doc ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.doc .todo{list-style:none;padding-left:0}
+.doc .todo li::before{content:"☐ ";color:var(--ink-3)}
+.doc .todo li.done::before{content:"☑ ";color:var(--ok)}
+.doc .todo li.done{color:var(--ink-3);text-decoration:line-through}
+.doc em{color:var(--ink-2)}
+.doc .cm{border-left:2px solid var(--noah);padding-left:8px;font-size:12.5px;color:var(--ink-2)}
+.doc .cm b{color:var(--noah);font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase}
+.doc .cm.me{border-color:var(--me)}.doc .cm.me b{color:var(--me)}
+
+/* modals */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:20}
+.scrim.open{display:flex}
+.modal{width:520px;max-width:calc(100vw - 40px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--surface);border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--surface-3);font-size:13px}
+.m-h{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;background:var(--surface-2)}
+.m-h .k{margin-left:auto;font-weight:400}
+.m-h .tabs2{display:flex;gap:2px}
+.m-h .tabs2 button{display:inline-flex;align-items:center;gap:7px;padding:3px 8px;color:var(--ink-3);font-weight:500}
+.m-h .tabs2 button.on{color:var(--ink);background:var(--surface);box-shadow:inset 0 -2px 0 var(--ink)}
+.m-h .tabs2 .av{width:16px;height:16px}
+.row{display:grid;grid-template-columns:140px 1fr;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);align-items:center}
+.row>span:first-child{color:var(--ink-3);font-size:12.5px}
+.row .val{color:var(--ink)}
+.row input[type=text]{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line-2);padding:5px 8px;width:100%}
+.row .hint{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.sel{border:1px solid var(--line-2);padding:3px 8px;display:inline-flex;gap:8px;align-items:center;justify-self:start;font-family:"IBM Plex Mono",monospace;font-size:12px;cursor:pointer;position:relative;user-select:none}
+.sel i{font-style:normal;color:var(--ink-3);font-size:10px}
+.dd{position:absolute;top:calc(100% + 4px);left:-1px;min-width:200px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:3;opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity .14s ease,transform .14s ease}
+.sel.open .dd{opacity:1;transform:none;pointer-events:auto}
+.dd .ddh{display:block;padding:6px 10px 3px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.dd button{display:block;width:100%;text-align:left;padding:5px 10px;color:var(--ink)}
+.dd button:hover{background:var(--surface-2)}.dd button.on{background:var(--ink);color:var(--surface)}
+.seg{display:inline-flex;border:1px solid var(--line-2);justify-self:start;font-family:"IBM Plex Mono",monospace;font-size:11px;flex-wrap:wrap}
+.seg button{padding:3px 9px;color:var(--ink-3);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--ink);color:var(--surface)}
+.m-f{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);gap:10px}
+.btn{background:var(--ink);color:var(--surface);padding:5px 12px;font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;font-weight:500}
+.btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--line-2)}
+.list{display:grid}
+.list button{display:grid;grid-template-columns:24px 1fr auto;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line);text-align:left;width:100%}
+.list button:hover{background:var(--surface-2)}
+.list .d{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.list .nm{font-weight:500}
+.list .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:12px}
+.pal{width:560px}
+.pal input{font:inherit;font-size:15px;width:100%;border:0;border-bottom:1px solid var(--line);padding:12px 14px;background:transparent;color:var(--ink);outline:none}
+.pal .list button{grid-template-columns:auto 1fr auto}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:8px 14px;font-size:12.5px;font-family:"IBM Plex Mono",monospace;z-index:30;display:none}
+.toast.show{display:block}
+@media (prefers-reduced-motion: reduce){.sq.work,.st.work i{animation:none}.artwrap,.artwrap>.artbox,.act .stepwrap,.dd,.menu,.msg{transition:none}}
+@media(max-width:1100px){@media(max-width:900px){.body{grid-template-columns:1fr}.side{display:none}.titlebar{grid-template-columns:80px 1fr 120px}</style>
+
+<div class="app" id="app">
+  <aside class="side">
+    <div class="sb-top"><div class="lights"><i></i><i></i><i></i></div><span class="sb-brand">BEAM</span><button class="k" id="sbsearch" title="Jump">⌕</button></div>
+    <div class="ws-row top"><button class="sb-act" id="newthread" data-act="topplus">+ New chat <span class="k">⌘T</span></button><div class="newpop" id="newpop-top" hidden></div></div>
+    <div class="sb-scroll" id="sb"></div>
+    <div class="sb-foot">
+      <div class="menu" id="acctmenu" hidden>
+        <div class="mh"><span class="av me" style="width:26px;height:26px;font-size:11px">AP</span><div><div class="mn">Apekshik Panigrahi</div><div class="k">apekshik · Supraluminal</div></div></div>
+        <button data-act="menu-usage"><span>Usage this month</span><span class="k">Claude 62% · Codex 18%</span></button>
+        <button data-act="menu-harness"><span>Connected harnesses</span><span class="k">2 of 2 signed in</span></button>
+        <button data-act="invite"><span>Invite a teammate</span></button>
+        <button data-act="menu-settings"><span>Settings</span><span class="k">⌘,</span></button>
+        <button data-act="menu-logout"><span>Log out</span></button>
+      </div>
+      <button class="acct" data-act="acct" aria-haspopup="menu" aria-expanded="false"><span class="av me">AP</span><span class="nm">Apekshik Pa…</span><span class="k">⚙</span></button>
+    </div>
+  </aside>
+  <div class="pane">
+    <div class="titlebar">
+      <div class="tb-ws" id="tbws"></div>
+      <div class="tb-r"><div class="pres"><span class="av me">AP</span><span class="av noah">NB</span></div><button class="tb-k" id="palbtn" title="Jump to chat">⌘K</button></div>
+    </div>
+    <div class="tabs-strip" id="tabs"></div>
+    <div class="pane-body" id="panebody">
+      <main class="thread" id="thread"></main>
+    </div>
+  </div>
+</div>
+<div class="scrim" id="scrim"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+/* ---------- logos ---------- */
+var A='M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z';
+var O='M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z';
+function uri(d){return 'url("data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="'+d+'"/></svg>')+'")'}
+document.documentElement.style.setProperty('--logo-a',uri(A));
+document.documentElement.style.setProperty('--logo-o',uri(O));
+
+/* ---------- data ---------- */
+var people={me:{n:'Apekshik',i:'AP',host:'MacBook Pro'},noah:{n:'Noah',i:'NB',host:'Mac Studio'}};
+var harnesses={
+  claude:{n:'Claude Code',vendor:'Anthropic',models:['Fable 5.1','Fable 5.0','Opus 5.0','Sonnet 5.0'],min:'Claude Code ≥ 2.4',files:'CLAUDE.md, AGENTS.md'},
+  codex:{n:'Codex',vendor:'OpenAI',models:['GPT-5.6 Sol','GPT-5.6 Terra','GPT-5.6 Luna'],min:'Codex CLI ≥ 0.9',files:'AGENTS.md'},
+  omp:{n:'omp',vendor:'via omp · pick a provider',models:['GPT-5.6 Sol','Kimi K3','Gemini 3.5 Pro','Claude Opus 5 (API key)'],min:'omp ≥ 1.0',files:'AGENTS.md, .omp/'},
+  gemini:{n:'Gemini CLI',vendor:'Google',models:['Gemini 3.5 Pro','Gemini 3.5 Flash'],min:'Gemini CLI ≥ 0.20',files:'GEMINI.md, AGENTS.md'}
+};
+var agents=[
+  {id:'claude',h:'claude',handle:'claude',model:'Fable 5.1',effort:'high',perm:'ask',allow:'pnpm test, pnpm lint, git status, git diff',ctx:'since'},
+  {id:'codex',h:'codex',handle:'codex',model:'GPT-5.6 Sol',effort:'medium',perm:'ask',allow:'pnpm test, git status',ctx:'since'}
+];
+function agentById(id){for(var i=0;i<agents.length;i++)if(agents[i].id===id)return agents[i];return null}
+function agentByHandle(h){for(var i=0;i<agents.length;i++)if(agents[i].handle===h)return agents[i];return null}
+var members=['me','noah'];
+
+var AUTHSVG='<svg viewBox="0 0 300 330" role="img" aria-label="Auth flow diagram"><g style="font-family:\'IBM Plex Mono\',monospace;font-size:11px">'
++'<rect x="90" y="12" width="120" height="34" style="fill:var(--surface);stroke:var(--line-2)"/><text x="150" y="33" text-anchor="middle" style="fill:var(--ink)">client</text>'
++'<line x1="150" y1="46" x2="150" y2="78" style="stroke:var(--line-2)"/><text x="158" y="66" style="fill:var(--ink-3);font-size:10px">Bearer JWT</text>'
++'<rect x="40" y="80" width="220" height="70" style="fill:var(--surface);stroke:var(--claude)"/><text x="150" y="101" text-anchor="middle" style="fill:var(--ink);font-weight:500">gateway</text>'
++'<text x="150" y="118" text-anchor="middle" style="fill:var(--ink-2);font-size:10px">validate JWT once · JWKS cache</text><text x="150" y="134" text-anchor="middle" style="fill:var(--ink-2);font-size:10px">strip bearer · sign x-internal-user</text>'
++'<line x1="95" y1="150" x2="95" y2="196" style="stroke:var(--line-2)"/><line x1="205" y1="150" x2="205" y2="196" style="stroke:var(--line-2)"/>'
++'<text x="12" y="176" style="fill:var(--ink-3);font-size:10px">x-internal-user</text><text x="212" y="176" style="fill:var(--ink-3);font-size:10px">x-internal-user</text>'
++'<rect x="30" y="198" width="130" height="64" style="fill:var(--surface);stroke:var(--line-2)"/><text x="95" y="219" text-anchor="middle" style="fill:var(--ink);font-weight:500">auth-service</text>'
++'<text x="95" y="236" text-anchor="middle" style="fill:var(--claude);font-size:10px">flag on: verify sig</text><text x="95" y="250" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">flag off: full JWT</text>'
++'<rect x="170" y="198" width="110" height="64" style="fill:var(--surface);stroke:var(--line-2);stroke-dasharray:4 3"/><text x="225" y="219" text-anchor="middle" style="fill:var(--ink-2);font-weight:500">billing-service</text>'
++'<text x="225" y="236" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">untouched</text><text x="225" y="250" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">still full JWT</text>'
++'<text x="150" y="296" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">TRUST_GATEWAY_AUTH · default off · one release</text>'
++'<text x="150" y="314" text-anchor="middle" style="fill:var(--bad);font-size:10px">open: reject if header already present?</text></g></svg>';
+
+var DIFF412='<div class="diff"><div class="fh"><span>gateway/src/middleware/trustAuth.ts</span><span><span style="color:var(--add)">+118</span> <span style="color:var(--del)">−0</span></span></div>'
++'<div class="l h"><span></span><span>@@ -0,0 +1,118 @@</span></div>'
++'<div class="l a"><span>1</span><span>+import { createHmac, timingSafeEqual } from "node:crypto";</span></div>'
++'<div class="l a"><span>2</span><span>+import { verifyJwt } from "../auth/jwks";</span></div>'
++'<div class="l a"><span>3</span><span>+</span></div>'
++'<div class="l a"><span>4</span><span>+const HEADER = process.env.INTERNAL_USER_HEADER ?? "x-internal-user";</span></div>'
++'<div class="l a"><span>5</span><span>+</span></div>'
++'<div class="l a"><span>6</span><span>+export async function trustAuth(req, res, next) {</span></div>'
++'<div class="l a"><span>7</span><span>+  if (req.headers[HEADER]) return res.status(400).end(); // never trust inbound</span></div>'
++'<div class="l a"><span>8</span><span>+  const claims = await verifyJwt(req.headers.authorization);</span></div>'
++'<div class="l a"><span>9</span><span>+  delete req.headers.authorization;</span></div>'
++'<div class="l a"><span>10</span><span>+  req.headers[HEADER] = sign(claims.sub);</span></div>'
++'<div class="l a"><span>11</span><span>+  next();</span></div>'
++'<div class="l a"><span>12</span><span>+}</span></div>'
++'<div class="fh"><span>auth-service/src/auth/verify.ts</span><span><span style="color:var(--add)">+41</span> <span style="color:var(--del)">−33</span></span></div>'
++'<div class="l h"><span></span><span>@@ -14,9 +14,17 @@</span></div>'
++'<div class="l"><span>14</span><span> export async function authenticate(req) {</span></div>'
++'<div class="l d"><span>15</span><span>-  return verifyJwt(req.headers.authorization);</span></div>'
++'<div class="l a"><span>15</span><span>+  if (config.TRUST_GATEWAY_AUTH) {</span></div>'
++'<div class="l a"><span>16</span><span>+    return verifyInternal(req.headers[config.INTERNAL_USER_HEADER]);</span></div>'
++'<div class="l a"><span>17</span><span>+  }</span></div>'
++'<div class="l a"><span>18</span><span>+  return verifyJwt(req.headers.authorization); // flag off: unchanged</span></div>'
++'<div class="l"><span>19</span><span> }</span></div></div>';
+
+var LOG412='<div class="log"><span class="dim">$ git worktree add ~/.beam/acme-platform/auth-split -b feat/auth-split</span>\n<span class="dim">$ claude -p --output-format stream-json --input-format stream-json</span>\n<span class="y">▸</span> read gateway/src/middleware (6 files)\n<span class="y">▸</span> write gateway/src/middleware/trustAuth.ts\n<span class="y">▸</span> edit auth-service/src/config.ts\n<span class="dim">← steer (noah): make the header name configurable too</span>\n<span class="y">▸</span> edit gateway/src/middleware/trustAuth.ts\n<span class="y">▸</span> write gateway/test/trustAuth.test.ts\n<span class="dim">? permission: pnpm -w test --filter gateway auth-service</span>\n<span class="dim">← allowed (noah)</span>\n<span class="dim">$ pnpm -w test --filter gateway auth-service</span>\n<span class="g">✓</span> gateway        42 passed  (2.1s)\n<span class="g">✓</span> auth-service   19 passed  (1.4s)\n<span class="dim">$ git push -u origin feat/auth-split</span>\n<span class="dim">$ gh pr create --draft --base main …</span>\nhttps://github.com/acme/platform/pull/412\n<span class="dim">session 9f2c… saved · resumable</span></div>';
+
+var FLAKY=[['checkout/coupon.spec.ts','applies coupon and updates total',11,'races cart total refresh','2h ago'],['checkout/address.spec.ts','validates postcode on blur',4,'deploy banner covers input','1d ago'],['cart/quantity.spec.ts','decrements below 1 removes item',2,'animation timing','3d ago'],['auth/login.spec.ts','rejects expired token',1,'clock skew on runner','6d ago'],['search/results.spec.ts','filters by category',0,'—','—']];
+function flakyTable(sortIdx,desc){
+  var rows=FLAKY.slice().sort(function(a,b){var x=a[sortIdx],y=b[sortIdx];if(typeof x==='number')return desc?y-x:x-y;return desc?(''+y).localeCompare(''+x):(''+x).localeCompare(''+y)});
+  var h='<table class="tbl"><thead><tr>'+['Spec','Test','Fails /100','Likely cause','Last'].map(function(c,i){return '<th data-i="'+i+'">'+c+(i===sortIdx?(desc?' ↓':' ↑'):'')+'</th>'}).join('')+'</tr></thead><tbody>';
+  rows.forEach(function(r){h+='<tr><td class="mono">'+r[0]+'</td><td>'+r[1]+'</td><td class="n'+(r[2]>=4?' hot':'')+'">'+r[2]+'</td><td>'+r[3]+'</td><td class="mono">'+r[4]+'</td></tr>'});
+  return h+'</tbody></table>';
+}
+var DIFF409='<div class="diff"><div class="fh"><span>e2e/checkout/coupon.spec.ts</span><span><span style="color:var(--add)">+9</span> <span style="color:var(--del)">−4</span></span></div>'
++'<div class="l h"><span></span><span>@@ -31,8 +31,13 @@</span></div>'
++'<div class="l"><span>31</span><span>   await page.fill("[name=coupon]", "SAVE10");</span></div>'
++'<div class="l"><span>32</span><span>   await page.click("text=Apply");</span></div>'
++'<div class="l d"><span>33</span><span>-  expect(await page.textContent(".total")).toBe("$90.00");</span></div>'
++'<div class="l a"><span>33</span><span>+  // total updates async after the cart PATCH resolves; wait on the state, not a sleep</span></div>'
++'<div class="l a"><span>34</span><span>+  await expect(page.locator(".total")).toHaveText("$90.00");</span></div>'
++'<div class="l a"><span>35</span><span>+  await expect(page.locator(".cart-status")).toHaveAttribute("data-state", "idle");</span></div>'
++'<div class="fh"><span>e2e/checkout/address.spec.ts</span><span><span style="color:var(--add)">+22</span> <span style="color:var(--del)">−8</span></span></div>'
++'<div class="l h"><span></span><span>@@ -8,6 +8,12 @@</span></div>'
++'<div class="l a"><span>8</span><span>+test.beforeEach(async ({ page }) => {</span></div>'
++'<div class="l a"><span>9</span><span>+  // after a deploy the banner overlays the form for ~3s; wait for it to clear</span></div>'
++'<div class="l a"><span>10</span><span>+  await page.locator("[data-deploy-banner]").waitFor({ state: "hidden" });</span></div>'
++'<div class="l a"><span>11</span><span>+});</span></div></div>';
+
+var CRONDOC='<div class="doc"><h1>Cron → workers migration</h1><p><em>Noah · draft · edits are in the chat</em></p>'
++'<h2>Why</h2><p>The cron box is a single Ubuntu 20.04 VM. Cert renewal broke it twice this quarter. Nothing on it is monitored beyond "did the job exit 0".</p>'
++'<h2>Jobs today</h2><table class="tbl"><thead><tr><th>Job</th><th>Schedule</th><th>Runtime</th><th>Fits 15 min?</th></tr></thead><tbody>'
++'<tr><td class="mono">invoice-rollup</td><td class="mono">02:00 daily</td><td class="n">38 min</td><td class="hot">no · split by tenant</td></tr>'
++'<tr><td class="mono">stale-carts</td><td class="mono">*/30</td><td class="n">2 min</td><td>yes</td></tr>'
++'<tr><td class="mono">search-reindex</td><td class="mono">04:00 daily</td><td class="n">11 min</td><td>yes, barely</td></tr>'
++'<tr><td class="mono">email-digest</td><td class="mono">07:00 daily</td><td class="n">6 min</td><td>yes</td></tr></tbody></table>'
++'<h2>Open</h2><ul class="todo"><li>Queue: workers-native cron vs. a real queue (Upstash)</li><li class="done">Inventory of jobs</li><li>Who owns the invoice rollup split</li><li>Cutover order and how we run both for a week</li></ul>'
++'<div class="cm me"><b>Apekshik</b> split invoice-rollup by tenant and it fits. That is the only blocker I see.</div>'
++'<div class="cm"><b>Noah</b> agree, but the queue question first. workers cron has no retries.</div></div>';
+
+var workspaces=[
+ {id:'acme',name:'acme',repos:['acme/platform','acme/web','acme/billing'],threads:[
+  {id:'auth',day:0,title:'auth-service split',repo:'acme/platform',branch:'feat/auth-split',status:'working',here:['me','noah'],runner:'me',pr:{n:412,state:'draft',checks:'running'},typing:'codex',
+   artifacts:[
+    {id:'a1',kind:'diagram',title:'Auth flow',by:'claude',t:'14:06',html:AUTHSVG},
+    {id:'a2',kind:'diff',title:'PR #412',by:'claude',t:'14:10',html:DIFF412,meta:'6 files · +214 −38'},
+    {id:'a3',kind:'log',title:'Run log',by:'claude',t:'14:06',html:LOG412}],
+   expanded:{a1:true},
+   msgs:[
+    {who:'noah',t:'14:02',tx:"I still think session validation belongs in the gateway. Right now every service re-checks the JWT and needs its own JWKS cache. That's the thing that bit us on Friday."},
+    {who:'me',t:'14:04',tx:"Agree on gateway. But I don't want a flag day. Keep the per-service check behind a flag for one release so we can roll back if the gateway header gets spoofed somewhere."},
+    {who:'noah',t:'14:05',rx:[{e:'👍',by:['me']}],tx:"Fine. Flag is `TRUST_GATEWAY_AUTH`, default off. Gateway validates once, strips the bearer, forwards a signed `x-internal-user` header. Services verify the signature instead of the JWT when the flag is on."},
+    {who:'me',t:'14:06',kind:'dispatch',tx:"@claude take the plan above. Start with the gateway middleware and the flag in auth-service. Draft PR against main. Don't touch billing-service yet."},
+    {who:'claude',t:'14:06',runner:'me',tx:"On it. Here's the flow as I read it, shout if it's wrong. Gateway middleware first, then the flag in auth-service. Draft PR against main, billing-service stays untouched.",art:'a1',
+     act:{title:'Working in',chip:'feat/auth-split',status:'work',open:true,steps:[['✓','Read gateway/src/middleware (6 files), auth-service/src/config.ts','3s'],['✓','Wrote gateway/src/middleware/trustAuth.ts','+118'],['✓','Edited auth-service/src/config.ts · added TRUST_GATEWAY_AUTH','+9 −1']]}},
+    {who:'noah',t:'14:08',kind:'steer',tx:"@claude make the header name configurable too, we'll rename it later.",rcpt:'Claude picked this up at 14:08:31, between steps'},
+    {who:'claude',t:'14:08',tx:"Got it. Header name comes from `INTERNAL_USER_HEADER`, default `x-internal-user`.",
+     act:{title:'1 edit · then tests',status:'done',time:'52s',open:false,steps:[['✓','Edited trustAuth.ts · header from INTERNAL_USER_HEADER','+6 −2'],['✓','Wrote gateway/test/trustAuth.test.ts','+36']]}},
+    {who:'claude',t:'14:09',kind:'ask',tx:"Can I run `pnpm -w test --filter gateway auth-service`? Takes about a minute.",perm:{by:'Noah',t:'14:09'},
+     act:{title:'tests · push · PR',status:'done',time:'1m 04s',open:false,steps:[['✓','pnpm -w test · 61 passed, 0 failed','48s'],['✓','Pushed feat/auth-split','4s'],['✓','Opened draft PR #412','2s']]}},
+    {who:'claude',t:'14:10',rx:[{e:'🔥',by:['noah']},{e:'👀',by:['me','noah']}],tx:"Done, take a look at #412. Gateway validates the JWT once and forwards `x-internal-user` signed with the shared secret. auth-service verifies that signature when `TRUST_GATEWAY_AUTH` is on and falls back to full JWT validation when off. billing-service untouched.\n\nTwo things I need from you: where the shared secret lives in prod, and whether the gateway should reject requests that already carry the internal header.",
+     landing:{n:412,title:'Gateway-side auth behind TRUST_GATEWAY_AUTH',state:'Draft',add:214,del:38,files:6,checks:'checks running',art:'a2'}},
+    {who:'noah',t:'14:11',kind:'dispatch',tx:"Reject if the header is already present, obviously. @codex review #412, specifically whether the JWKS cache warmup still runs when the flag is on."}
+   ]},
+  {id:'flaky',day:1,title:'flaky e2e on CI',repo:'acme/platform',branch:'fix/flaky-checkout',status:'landed',runner:'noah',pr:{n:409,state:'merged',checks:'passed'},
+   artifacts:[
+    {id:'f1',kind:'table',title:'Flaky specs',by:'codex',t:'09:19',table:true,meta:'last 100 runs on main'},
+    {id:'f2',kind:'diff',title:'PR #409',by:'claude',t:'09:31',html:DIFF409,meta:'2 files · +31 −12'}],
+   expanded:{f1:true},
+   msgs:[
+    {who:'me',t:'09:12',tx:"checkout e2e failed 3 times this week on main, all in the same spec. anyone seen it?"},
+    {who:'noah',t:'09:15',kind:'dispatch',tx:"it's the coupon test, it races the cart total update. @codex look at the CI history for the last 100 e2e runs on main and tell us which specs are actually flaky before we go fixing one thing"},
+    {who:'codex',t:'09:15',runner:'noah',tx:"On it. Pulling the last 100 e2e runs on main and grouping failures by spec.",
+     act:{title:'Working in',chip:'main (read-only)',status:'done',time:'3m 40s',open:false,steps:[['✓','gh run list --workflow e2e --branch main --limit 100','4s'],['✓','Downloaded 23 failed-run logs','1m 12s'],['✓','Grouped failures by spec and first failing assertion','2m 10s']]}},
+    {who:'codex',t:'09:19',tx:"Three specs, not one. The coupon test is the loudest, but address.spec fails 4% of the time too and always right after a deploy. Table's in the pane, sorted by failures.",art:'f1'},
+    {who:'me',t:'09:22',kind:'dispatch',tx:"ok so the retry-on-deploy thing is real. @claude fix the top two: await the cart total in coupon.spec instead of reading it, and make address.spec wait for the deploy banner to clear. PR against main."},
+    {who:'claude',t:'09:22',runner:'me',tx:"On it. Two spec changes, no app code.",
+     act:{title:'Working in',chip:'fix/flaky-checkout',status:'done',time:'8m 51s',open:false,steps:[['✓','Read e2e/checkout/coupon.spec.ts, address.spec.ts, e2e/helpers','5s'],['✓','Edited coupon.spec.ts · wait on total and cart state','+9 −4'],['✓','Edited address.spec.ts · beforeEach waits for deploy banner','+22 −8'],['✓','Ran both specs 20× locally · 40/40 passed','7m 30s'],['✓','Pushed fix/flaky-checkout · opened PR #409','6s']]}},
+    {who:'claude',t:'09:31',rx:[{e:'✅',by:['noah','me']}],tx:"Done, #409 is up. Both specs now wait on the state they were racing instead of reading it once. Ran each 20 times locally, zero failures. quantity.spec is the next one on the list if you want it, it's an animation timing thing.",
+     landing:{n:409,title:'Wait on cart state and deploy banner in checkout e2e',state:'Merged',add:31,del:12,files:2,checks:'checks passed',art:'f2'}},
+    {who:'noah',t:'09:40',tx:"merged. nice. leave quantity.spec, it's 2%."}
+   ]},
+  {id:'cron',day:5,title:'migrate cron to workers',repo:'acme/platform',branch:'',status:'idle',runner:null,pr:null,
+   artifacts:[{id:'c1',kind:'doc',title:'Migration plan',by:'noah',t:'16:07',html:CRONDOC}],expanded:{c1:true},
+   msgs:[
+    {who:'noah',t:'16:02',tx:"cron box is a single point of failure and it's on ubuntu 20.04. we should move the nightly jobs to workers before the cert renewal thing bites us again"},
+    {who:'me',t:'16:05',tx:"agree in principle. which jobs though? some of those are 40 min and workers have a 15 min cap"},
+    {who:'noah',t:'16:07',tx:"wrote up what I know. table of jobs and runtimes is in there.",art:'c1'},
+    {who:'me',t:'16:15',rx:[{e:'💯',by:['noah']}],tx:"the invoice rollup is the problem child. split it by tenant and it fits. let's not dispatch anything until we agree on the queue though"},
+    {who:'noah',t:'16:18',tx:"workers cron has no retries. if the rollup dies halfway we'd never know. I want a real queue."}
+   ]},
+  {id:'scratch',day:2,title:'perf ideas',repo:null,branch:'',status:'idle',runner:null,pr:null,private:true,pin:'claude',artifacts:[],expanded:{},here:[],
+   msgs:[{who:'me',t:'Mon',tx:"thinking about whether the JWKS cache should be shared across services via redis or just per-process. what does the gateway do today?"},{who:'claude',t:'Mon',runner:'me',tx:"Per-process today, 10 minute TTL, cold-started on first request. Sharing via redis saves the warmup but adds a dependency to the hot path. If the gateway becomes the only validator, the question mostly goes away.",act:{title:'read only',status:'done',time:'14s',open:false,steps:[['✓','Read gateway/src/auth/jwks.ts, auth-service/src/auth/jwks.ts','2s']]}}]},
+  {id:'rate',day:8,title:'rate limit per tenant',repo:'acme/platform',branch:'feat/tenant-rate-limit',status:'landed',runner:'me',pr:{n:398,state:'merged',checks:'passed'},artifacts:[],expanded:{},
+   msgs:[{who:'me',t:'Mon',tx:"landed last week, keeping the chat for the follow-up on burst limits."}]}
+ ]},
+ {id:'sli',name:'supraluminal',repos:['SupraluminalAI/supraluminal','SupraluminalAI/research'],threads:[
+  {id:'hero',day:0,title:'hero video autoplay on safari',repo:'SupraluminalAI/supraluminal',branch:'',status:'idle',runner:null,pr:null,artifacts:[],expanded:{},
+   msgs:[{who:'noah',t:'11:20',tx:"safari 26 blocks the hero autoplay unless muted is set before src. we set it after."},{who:'me',t:'11:24',tx:"that's a one-line fix but I want to check the poster frame too, it flashes."}]},
+  {id:'pricing',day:6,title:'pricing page copy',repo:'SupraluminalAI/supraluminal',branch:'copy/pricing-q4',status:'landed',runner:'noah',pr:{n:88,state:'merged',checks:'passed'},artifacts:[],expanded:{},
+   msgs:[{who:'noah',t:'Tue',tx:"shipped. #88."}]}
+ ]},
+ {id:'lab',name:"noah's lab",repos:['noahb/infra'],threads:[
+  {id:'drift',day:4,title:'terraform drift on staging',repo:'noahb/infra',branch:'',status:'idle',runner:null,pr:null,artifacts:[],expanded:{},
+   msgs:[{who:'noah',t:'Fri',tx:"plan shows 14 changes nobody made. someone clicked around the console again."}]}
+ ]}
+];
+
+/* ---------- state ---------- */
+var prefs={addToChat:'auto'};
+var state={ws:'acme',tabs:{'acme':['auth','flaky','cron'],'sli':['hero'],'lab':['drift']},active:{'acme':'auth','sli':'hero','lab':'drift'}};
+function ws(){for(var i=0;i<workspaces.length;i++)if(workspaces[i].id===state.ws)return workspaces[i]}
+function thread(id,w){w=w||ws();for(var i=0;i<w.threads.length;i++)if(w.threads[i].id===id)return w.threads[i];return null}
+function cur(){return thread(state.active[state.ws])}
+function art(th,id){for(var i=0;i<th.artifacts.length;i++)if(th.artifacts[i].id===id)return th.artifacts[i];return null}
+
+var ICO={omp:'',team:'<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="5.5" cy="5.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="11" cy="6.5" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 13.5c0-2.5 2-4 4-4s4 1.5 4 4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10 13.5c0-2 1.5-3.2 3-3.2s2.5 1.2 2.5 3.2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+ lock:'<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>'};
+/* ---------- helpers ---------- */
+function esc(s){return s.replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fmt(s){
+  var h=esc(s);
+  h=h.replace(/`([^`]+)`/g,'<code>$1</code>');
+  h=h.replace(/(^|\s)@(claude|codex|omp|gemini|noah|apekshik|me)\b/g,function(m,pre,w){var c=w==='apekshik'?'me':w;return pre+'<span class="mention '+c+'">@'+w+'</span>'});
+  return h;
+}
+function dayLabel(d){if(d==null)return '';if(d===0)return 'Today';if(d===1)return 'Yesterday';var x=new Date();x.setDate(x.getDate()-d);var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],mons=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return days[x.getDay()]+' '+x.getDate()+' '+mons[x.getMonth()]+(d>6?'':'')}
+function now(){var d=new Date();return (d.getHours()<10?'0':'')+d.getHours()+':'+(d.getMinutes()<10?'0':'')+d.getMinutes()}
+function nowS(){var d=new Date();return now()+':'+(d.getSeconds()<10?'0':'')+d.getSeconds()}
+function nameOf(who){if(people[who])return people[who].n;var a=agentById(who);return a?harnesses[a.h].n:who}
+function avHtml(who,cls){if(people[who])return '<span class="av '+who+' '+(cls||'')+'">'+people[who].i+'</span>';var a=agentById(who);return '<span class="av '+(a?a.h:who)+' '+(cls||'')+'">'+(who==='omp'?'π':who==='gemini'?'G':'C')+'</span>'}
+function toast(t){var el=document.getElementById('toast');el.textContent=t;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(function(){el.classList.remove('show')},2200)}
+function threadStatus(th){return th.status==='working'?'work':th.status==='landed'?'ok':'idle'}
+
+/* ---------- render ---------- */
+function renderTitle(){var w=ws();document.getElementById('tbws').innerHTML='<b>'+esc(w.name)+'</b><span class="mono">'+w.repos.length+' repo'+(w.repos.length===1?'':'s')+' · '+members.length+' people</span>'}
+function renderSidebar(){
+  var h='<div class="sb-sec">Workspaces <button data-act="newws" title="New workspace: pick a GitHub repo">+</button></div>';
+  workspaces.forEach(function(w){
+    var on=w.id===state.ws;
+    h+='<div class="ws-row'+(on?' on':'')+'"><button class="ws-item'+(on?' on':'')+'" data-act="ws" data-id="'+w.id+'"><span class="ic">'+(on?'▣':'▢')+'</span><span class="nm">'+esc(w.name)+'</span><span class="k">'+w.threads.length+'</span></button><button class="ws-plus" data-act="wsplus" data-id="'+w.id+'" title="New chat in '+esc(w.name)+'">+</button><div class="newpop" id="newpop-'+w.id+'" hidden><button data-act="newchat" data-ws="'+w.id+'" data-kind="team">'+ICO.team+'<span>Team chat<small>everyone in '+esc(w.name)+'</small></span></button><button data-act="newchat" data-ws="'+w.id+'" data-kind="private">'+ICO.lock+'<span>Private chat<small>just you · pin a default agent</small></span></button></div></div>';
+    if(on){w.threads.forEach(function(t){
+      var open=state.tabs[w.id].indexOf(t.id)>=0,act=state.active[w.id]===t.id;
+      h+='<button class="th-item'+(open?' open':'')+(act?' on':'')+(t.private?' priv':'')+'" data-act="thread" data-id="'+t.id+'"><span class="sq '+threadStatus(t)+'"></span><span class="nm'+(t.untitled?' untitled':'')+'">'+esc(t.title)+'</span>'+(t.private?'<span class="lk" title="Private · only you">'+ICO.lock+'</span>':'')+'<span class="here" title="'+(t.here||[]).map(function(m){return people[m].n+(m==='me'?' (you)':'')}).join(', ')+(t.here&&t.here.length?' focused here':'')+'">'+(t.here||[]).map(function(m){return avHtml(m,'xs')}).join('')+'</span></button>';
+    })}
+  });
+  h+='<div class="sb-sec">Agents <button data-act="addagent" title="Add an agent: omp, Gemini CLI, or any harness with a JSON stream">+</button></div>';
+  agents.forEach(function(a){
+    var busy=false;workspaces.forEach(function(w){w.threads.forEach(function(t){if(t.status==='working'&&t.runAgent===a.id)busy=true})});
+    if(a.id==='claude'&&thread('auth',workspaces[0])&&thread('auth',workspaces[0]).status==='working')busy=true;
+    var hh=harnesses[a.h];
+    h+='<div class="ag-item"><button class="ag-name" data-act="agent" data-id="'+a.id+'" title="Agent settings">'+avHtml(a.id)+'<span class="nm">'+esc(hh.n)+(a.handle!==a.h?' <span class="k">@'+esc(a.handle)+'</span>':'')+'</span></button><span class="sq '+(busy?'work':'idle')+'"></span>'
+      +'<span class="sub"><span class="sel sb-sel" tabindex="0"><span>'+esc(a.model)+'</span><i>▾</i><span class="dd"><span class="ddh">'+esc(hh.vendor)+'</span>'+hh.models.map(function(m){return '<button data-act="sbmodel" data-id="'+a.id+'" data-v="'+esc(m)+'" class="'+(m===a.model?'on':'')+'">'+esc(m)+'</button>'}).join('')+'</span></span>'
+      +'<button class="eff" data-act="cycleeff" data-id="'+a.id+'" data-lv="'+(['low','medium','high','max'].indexOf(a.effort)+1)+'" title="Reasoning effort: '+a.effort+' · click to change"><i></i><i></i><i></i><i></i></button></span></div>';
+  });
+  h+='<div class="sb-sec">People <button data-act="invite" title="Invite a member by GitHub login">+</button></div>';
+  members.forEach(function(m){var p=people[m];h+='<button class="pp-item" data-act="person" data-id="'+m+'">'+avHtml(m)+'<span class="nm">'+esc(p.n)+'</span><span class="sq ok"></span><span class="sub">runner · '+esc(p.host)+'</span></button>'});
+  document.getElementById('sb').innerHTML=h;
+}
+function renderTabs(){
+  var w=ws(),h='';
+  state.tabs[w.id].forEach(function(id){var t=thread(id,w);if(!t)return;var on=state.active[w.id]===id;
+    h+='<div class="tab'+(on?' on':'')+'" data-act="tab" data-id="'+id+'" role="button" tabindex="0"><span class="sq '+threadStatus(t)+'"></span>'+(t.private?'<span class="lk">'+ICO.lock+'</span>':'')+'<span class="tn'+(t.untitled?' untitled':'')+'">'+esc(t.title)+'</span><button class="tx" data-act="closetab" data-id="'+id+'" title="Close tab (⌘W)">×</button></div>';
+  });
+  h+='<button class="tab new" data-act="newthread" title="New chat (⌘T) · ⌘⇧T private">+</button><span class="strip-sp"></span><span class="strip-k">⌘T new chat · ⌘K jump · ⌘W close</span>';
+  document.getElementById('tabs').innerHTML=h;
+}
+function actHtml(a,idx){
+  var st=a.status==='work'?'<span class="st work"><i></i><span class="rt">'+(a.time||'')+'</span></span>':'<span class="st done"><i></i>'+esc(a.time||'')+'</span>';
+  var h='<div class="act'+(a.open?'':' closed')+'" data-idx="'+idx+'"><button class="ah" data-act="togact"><span class="tog">'+(a.open?'▾':'▸')+'</span><span>'+esc(a.title)+'</span>'+(a.chip?'<span class="chip">'+esc(a.chip)+'</span>':'')+st+'</button><div class="stepwrap"><div class="steps">';
+  a.steps.forEach(function(s){h+='<div class="step"><span class="ic'+(s[0]==='…'?' run':'')+'">'+s[0]+'</span><span>'+esc(s[1])+'</span><span class="r">'+esc(s[2]||'')+'</span></div>'});
+  return h+'</div></div></div>';
+}
+function artBody(a){return a.table?flakyTable(a.sort==null?2:a.sort,a.desc==null?true:a.desc):a.html}
+function cardHtml(th,id){var a=art(th,id);if(!a)return '';var icon={diagram:'◫',diff:'±',table:'▤',log:'▮',doc:'≡'}[a.kind]||'◫';var ex=!!th.expanded[id];
+  return '<button class="card'+(ex?' on':'')+'" data-act="togart" data-id="'+id+'" aria-expanded="'+ex+'"><span class="ai">'+icon+'</span><div><div class="ttl">'+esc(a.title)+'</div><div class="mt"><span>'+a.kind+'</span>'+(a.meta?'<span>'+esc(a.meta)+'</span>':'')+'<span class="hint">'+(ex?'collapse':'expand')+'</span></div></div></button><div class="artwrap'+(ex?' open':'')+'" data-aid="'+id+'"><div class="artbox '+a.kind+'">'+artBody(a)+'</div></div>'}
+function landingHtml(th,l){var ex=l.art&&th.expanded[l.art];var a=l.art?art(th,l.art):null;
+  return '<button class="card'+(ex?' on':'')+'" data-act="togart" data-id="'+(l.art||'')+'" aria-expanded="'+!!ex+'"><span class="ai">⎇</span><div><div class="ttl">#'+l.n+' '+esc(l.title)+'</div><div class="mt"><span>'+l.state+'</span><span class="add">+'+l.add+'</span><span class="del">−'+l.del+'</span><span>'+l.files+' files</span><span>'+l.checks+'</span>'+(a?'<span class="hint">'+(ex?'collapse':'expand diff')+'</span>':'')+'</div></div></button>'+(a?'<div class="artwrap'+(ex?' open':'')+'" data-aid="'+l.art+'"><div class="artbox '+a.kind+'">'+artBody(a)+'</div></div>':'')}
+function reactHtml(m,i){if(!m.rx||!m.rx.length)return '';return '<div class="reacts">'+m.rx.map(function(r){var mine=r.by.indexOf('me')>=0;return '<button class="rc'+(mine?' mine':'')+'" data-act="react" data-i="'+i+'" data-e="'+r.e+'" title="'+r.by.map(function(b){return people[b]?people[b].n:b}).join(', ')+'">'+r.e+' <span>'+r.by.length+'</span></button>'}).join('')+'</div>'}
+function react(i,e){var th=cur(),m=th.msgs[i];m.rx=m.rx||[];var r=null;for(var k=0;k<m.rx.length;k++)if(m.rx[k].e===e)r=m.rx[k];
+  if(!r){m.rx.push({e:e,by:['me']})}else{var j=r.by.indexOf('me');if(j>=0){r.by.splice(j,1);if(!r.by.length)m.rx=m.rx.filter(function(x){return x!==r})}else r.by.push('me')}
+  var ms=document.getElementById('msgs'),top=ms.scrollTop;renderThread();document.getElementById('msgs').scrollTop=top}
+function scopePop(th){
+  var mem=th.private?['me']:(th.members||members.slice());var ags=th.agents||agents.map(function(a){return a.id});
+  var h='<div class="scopepop" id="scopepop" hidden>';
+  h+='<div class="sph">'+(th.private?ICO.lock+'<span>Private · just you</span>':ICO.team+'<span>Who is in this chat</span>')+'</div>';
+  h+='<div class="sps">People</div>';
+  members.forEach(function(m){var on=mem.indexOf(m)>=0;h+='<button class="spo'+(on?' on':'')+'" data-act="scope-person" data-id="'+m+'"'+(m==='me'?' disabled':'')+'>'+avHtml(m)+'<span>'+esc(people[m].n)+(m==='me'?' <span class="k">you</span>':'')+'</span><span class="chk">'+(on?'✓':'')+'</span></button>'});
+  h+='<button class="spo add" data-act="invite">'+'<span class="av plus">+</span><span>Invite someone new</span></button>';
+  h+='<div class="sps">Agents</div>';
+  agents.forEach(function(a){var on=ags.indexOf(a.id)>=0;h+='<button class="spo'+(on?' on':'')+'" data-act="scope-agent" data-id="'+a.id+'">'+avHtml(a.id)+'<span>'+esc(harnesses[a.h].n)+' <span class="k">@'+esc(a.handle)+'</span></span><span class="chk">'+(on?'✓':'')+'</span></button>'});
+  h+='<div class="spf">'+(th.private?'Adding a person shares the whole history. That cannot be undone.':'Unchecked agents cannot be @mentioned here.')+'</div></div>';
+  return h;
+}
+function renderThread(){
+  var th=cur(),el=document.getElementById('thread');
+  if(!th){el.innerHTML='<div class="thead"><span class="t">No chat open</span></div><div class="msgs"><div class="empty"><b>Pick a chat on the left, or start one.</b><span>⌘T starts a new chat. It gets its own branch when the first agent is dispatched.</span></div></div>';return}
+  var who='';
+  var mem=th.private?['me']:(th.members||members);var ags=th.agents||agents.map(function(a){return a.id});
+  var artbtn='<div class="scope"><button class="scopebtn" data-act="scope" data-id="'+th.id+'" title="'+(th.private?'Private · just you':'Members and agents')+'">'+(th.private?'<span class="k">private</span>':'')+'<span class="pres">'+mem.map(function(m){return avHtml(m)}).join('')+'</span><span class="sep"></span><span class="pres">'+ags.map(function(a){return avHtml(a)}).join('')+'</span><span class="k">+</span></button>'+scopePop(th)+'</div>';
+  var w=ws();
+  var repoctl='<span class="sel repopick" tabindex="0">'+(th.repo?'<span class="chip">'+esc(th.repo)+'</span>':'<span class="chip addrepo">+ repo</span>')+'<span class="dd"><span class="ddh">Repos in '+esc(w.name)+'</span>'+w.repos.map(function(r){return '<button data-act="setrepo" data-v="'+esc(r)+'" class="'+(r===th.repo?'on':'')+'">'+esc(r)+'</button>'}).join('')+'<button data-act="addrepo">+ connect another repo</button>'+(th.repo&&!th.branch?'<span class="ddf">Worktree and branch are created automatically on the first dispatch.</span>':'')+'</span></span>';
+  var h='<div class="thead">'+(th.private?'<span class="lk" title="Private · only you">'+ICO.lock+'</span>':'')+'<span class="t'+(th.untitled?' untitled':'')+'">'+esc(th.title)+'</span>'+repoctl+(th.branch?'<span class="chip">'+esc(th.branch)+'</span>':'')+'<span class="sp"></span>'+artbtn+'</div>';
+  h+='<div class="msgs" id="msgs">';
+  if(th.msgs.length){var first=th.msgs[0];h+='<div class="daysep"><span>Started '+dayLabel(th.day)+(/^\d/.test(first.t)?' · '+esc(first.t):'')+(th.private?' · private':'')+'</span></div>'}
+  if(!th.msgs.length)h+=th.private?'<div class="empty"><b>Just you'+(th.pin?' and '+esc(harnesses[agentById(th.pin).h].n):'')+'.</b><span>Your first message names the chat. '+(th.pin?'Plain messages go straight to the pinned agent.':'@mention an agent when you want one.')+' Share it from the header whenever it turns into something.</span></div>':'<div class="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. '+(th.repo?'Attached to '+esc(th.repo)+'; a worktree and branch appear on the first dispatch.':'Attach a repo from the header when you want an agent to work.')+' Your first message names the chat.</span></div>';
+  var prev=null;
+  th.msgs.forEach(function(m,i){
+    var cont=m.who===prev;prev=m.who;
+    var cls='msg'+(cont?' cont':'')+(m.kind?' '+m.kind:'');
+    h+='<div class="'+cls+'">'+avHtml(m.who)+'<div><div class="hd"><span class="nm '+(people[m.who]?m.who:agentById(m.who)?agentById(m.who).h:m.who)+'">'+esc(nameOf(m.who))+'</span><span class="tm">'+esc(m.t)+'</span>'+(m.runner?'<span class="tm">running on '+esc(people[m.runner].n.toLowerCase())+"'s machine</span>":'')+'</div>';
+    h+='<div class="tx">'+fmt(m.tx)+'</div>';
+    if(m.rcpt)h+='<div class="rcpt"><i>↳</i> '+esc(m.rcpt)+'</div>';
+    if(m.perm)h+='<div class="perm">'+(m.perm.by?'<button class="did">Allowed · '+esc(m.perm.by)+' · '+esc(m.perm.t)+'</button><button>Deny</button>':'<button data-act="allow" data-i="'+i+'">Allow</button><button data-act="deny" data-i="'+i+'">Deny</button>')+'</div>';
+    if(m.art)h+=cardHtml(th,m.art);
+    if(m.act)h+=actHtml(m.act,i);
+    if(m.landing)h+=landingHtml(th,m.landing);
+    h+=reactHtml(m,i);
+    h+='<div class="rbar">'+['👍','🔥','👀','✅'].map(function(e){return '<button data-act="react" data-i="'+i+'" data-e="'+e+'" title="React '+e+'">'+e+'</button>'}).join('')+'<button data-act="reactmore" data-i="'+i+'" title="More">+</button></div>';
+    h+='</div></div>';
+  });
+  h+='</div>';
+  var working='<span>'+(th.branch?'chat → '+esc(th.branch):'no branch until first dispatch')+'</span>';
+  if(th.private){var pa=th.pin?agentById(th.pin):null;working='<span class="sel pinsel" tabindex="0"><span>'+(pa?'→ '+esc(harnesses[pa.h].n)+' · plain messages dispatch':'pin a default agent')+'</span><i>▾</i><span class="dd"><span class="ddh">Default agent</span>'+agents.map(function(a){return '<button data-act="pin" data-v="'+a.id+'" class="'+(th.pin===a.id?'on':'')+'">'+esc(harnesses[a.h].n)+'</button>'}).join('')+'<button data-act="pin" data-v="" class="'+(!th.pin?'on':'')+'">none · @mention only</button></span></span>'}
+  h+='<div class="composer"><div class="popover" id="pop" hidden></div><textarea id="input" rows="1" placeholder="'+(th.private&&th.pin?'Message '+esc(harnesses[agentById(th.pin).h].n)+', or @mention another agent':'Message '+esc(th.title)+', or @mention an agent')+'"></textarea><div class="ft"><span>⏎ send</span><button data-act="atbtn">@ mention</button><span class="sp"></span>'+working+'</div></div>';
+  el.innerHTML=h;
+  var ms=document.getElementById('msgs');ms.scrollTop=ms.scrollHeight;
+}
+function renderAll(){renderTitle();renderSidebar();renderTabs();renderThread()}
+
+/* ---------- actions ---------- */
+function openThread(id){var w=ws();if(state.tabs[w.id].indexOf(id)<0)state.tabs[w.id].push(id);state.active[w.id]=id;workspaces.forEach(function(x){x.threads.forEach(function(t){t.here=(t.here||[]).filter(function(m){return m!=='me'})})});var tt=thread(id,w);if(tt){tt.here=tt.here||[];tt.here.unshift('me')}renderAll();document.getElementById('input')&&document.getElementById('input').focus()}
+function closeTab(id){var w=ws(),t=state.tabs[w.id],i=t.indexOf(id);if(i<0)return;t.splice(i,1);if(state.active[w.id]===id)state.active[w.id]=t[Math.max(0,i-1)]||null;renderAll()}
+function newThread(kind){
+  var k=kind||(members.length>1?'team':'private'),w=ws(),priv=k==='private',id='t'+Date.now();
+  w.threads.unshift({id:id,day:0,title:'Untitled',untitled:true,repo:w.repos.length===1?w.repos[0]:null,branch:'',status:'idle',runner:null,pr:null,private:priv,pin:priv?agents[0].id:null,members:priv?['me']:['me'],artifacts:[],expanded:{},here:[],msgs:[]});
+  closeModal();openThread(id);
+}
+function autoTitle(th,text){
+  var t=text.replace(/@\w+/g,'').replace(/`/g,'').replace(/\s+/g,' ').trim();
+  var words=t.split(' ').filter(Boolean).slice(0,6).join(' ');
+  if(words.length>42)words=words.slice(0,42).replace(/\s+\S*$/,'');
+  th.title=words?words.replace(/[.,;:!?]+$/,'').toLowerCase():'Untitled';th.untitled=false;
+}
+function post(text){
+  var th=cur();if(!th)return;text=text.trim();if(!text)return;
+  if(th.untitled){autoTitle(th,text);renderSidebar();renderTabs();var tt=document.querySelector('.thead .t');if(tt){tt.textContent=th.title;tt.classList.remove('untitled')}toast('Named it "'+th.title+'" · rename from the tab');}
+  var mention=(text.match(/@(claude|codex|omp|gemini)\b/)||[])[1];
+  var m={who:'me',t:now(),tx:text};
+  if(mention){var ag=agentByHandle(mention)||agentById(mention);if(!ag){toast('No agent called @'+mention+' in this workspace');mention=null}else if(th.agents&&th.agents.indexOf(ag.id)<0){toast(harnesses[ag.h].n+' is not in this chat · add it from the header');mention=null}}
+  if(mention&&th.status==='working'&&th.runAgent===mention){m.kind='steer';th.msgs.push(m);renderThread();simulateSteer(th,m,mention);return}
+  if(mention&&th.status==='working'){m.kind='dispatch';th.msgs.push(m);renderThread();toast('Queued: one run at a time per chat. '+nameOf(mention)+' will start when the current run lands.');return}
+  if((mention||(th.private&&th.pin))&&!th.repo&&th.status!=='working'){th.msgs.push(m);renderThread();toast('Attach a repo first so the agent has somewhere to work');var rp=document.querySelector('.repopick');if(rp)rp.classList.add('open');return}
+  if(mention){m.kind='dispatch';th.msgs.push(m);renderThread();simulateDispatch(th,mention,text);return}
+  if(th.private&&th.pin&&th.status!=='working'){m.kind='dispatch';th.msgs.push(m);renderThread();simulateDispatch(th,th.pin,text);return}
+  if(th.private&&th.pin&&th.status==='working'){m.kind='steer';th.msgs.push(m);renderThread();simulateSteer(th,m,th.pin);return}
+  th.msgs.push(m);renderThread();
+}
+function simulateSteer(th,m,ag){
+  setTimeout(function(){m.rcpt=nameOf(ag).split(' ')[0]+' picked this up at '+nowS()+', between steps';renderThread()},1100);
+  setTimeout(function(){th.msgs.push({who:ag,t:now(),tx:"Got it. Folding that in before I run the tests.",act:{title:'1 edit',status:'done',time:'14s',open:false,steps:[['✓','Applied: '+m.tx.replace(/@\w+\s*/,'').slice(0,70),'']]}});renderThread()},2600);
+}
+function simulateDispatch(th,ag,text){
+  if(!th.branch)th.branch='feat/'+th.title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40);
+  th.status='working';th.runner='me';th.runAgent=ag;
+  var act={title:'Working in',chip:th.branch,status:'work',time:'0s',open:true,steps:[]};
+  var reply={who:ag,t:now(),runner:'me',tx:"On it. I'll keep it to what the chat asked for and open a draft PR against main.",act:act};
+  var t0=Date.now(),tick=setInterval(function(){var s=Math.round((Date.now()-t0)/1000);act.time=(s>59?Math.floor(s/60)+'m ':'')+(s%60)+'s';var el=document.querySelector('.act .st.work .rt');if(el)el.textContent=act.time},1000);
+  setTimeout(function(){th.msgs.push(reply);renderAll()},900);
+  var steps=[['✓','Created worktree ~/.beam/'+th.repo.replace('/','-')+'/'+th.branch.replace(/^feat\//,''),'1s'],['✓','Read the files the chat points at','2s'],['✓','Edited 3 files','+64 −18'],['✓','Ran the affected tests · passed','41s'],['✓','Pushed '+th.branch+' · opened draft PR #'+(431+(th.msgs.length%7)),'3s']];
+  steps.forEach(function(s,i){setTimeout(function(){act.steps.push(s);renderThread()},2000+i*1300)});
+  setTimeout(function(){
+    clearInterval(tick);act.status='done';act.open=false;
+    var n=431+(th.msgs.length%7);th.status='landed';th.pr={n:n,state:'draft',checks:'running'};th.runAgent=null;
+    var aid='d'+Date.now();th.artifacts.push({id:aid,kind:'diff',title:'PR #'+n,by:ag,t:now(),html:'<div class="diff"><div class="fh"><span>3 files changed</span><span><span style="color:var(--add)">+64</span> <span style="color:var(--del)">−18</span></span></div><div class="l h"><span></span><span>@@ prototype: the real diff renders here from the PR @@</span></div><div class="l a"><span>1</span><span>+ // change scoped to: '+esc(text.replace(/@\w+\s*/,'').slice(0,60))+'</span></div></div>',meta:'3 files · +64 −18'});
+    th.msgs.push({who:ag,t:now(),tx:"Done, take a look at #"+n+". Changes are limited to what you asked for and the tests for the touched packages pass. Anything else, ping me here.",landing:{n:n,title:th.title,state:'Draft',add:64,del:18,files:3,checks:'checks running',art:aid}});
+    renderAll();
+  },2000+steps.length*1300+600);
+}
+function togArt(id){var th=cur();if(!id||!art(th,id))return;var ex=th.expanded[id]=!th.expanded[id];
+  document.querySelectorAll('.artwrap[data-aid="'+id+'"]').forEach(function(w){w.classList.toggle('open',ex);var c=w.previousElementSibling;if(c&&c.classList.contains('card')){c.classList.toggle('on',ex);c.setAttribute('aria-expanded',ex);var h=c.querySelector('.hint');if(h)h.textContent=ex?'collapse':(h.textContent.indexOf('diff')>=0?'expand diff':'expand')}})}
+
+/* ---------- modals ---------- */
+function openModal(h,cls){var m=document.getElementById('modal');m.className='modal'+(cls?' '+cls:'');m.innerHTML=h;document.getElementById('scrim').classList.add('open')}
+function closeModal(){document.getElementById('scrim').classList.remove('open')}
+function agentSettings(id){
+  var a=agentById(id),tabs='<span class="tabs2">'+agents.map(function(x){return '<button data-act="agtab" data-id="'+x.id+'" class="'+(x.id===id?'on':'')+'">'+avHtml(x.id)+esc(harnesses[x.h].n)+'</button>'}).join('')+'</span>';
+  var hh=harnesses[a.h];
+  var h='<div class="m-h">'+tabs+'<span class="k hint">workspace agent · needs '+esc(hh.min)+' locally</span></div>';
+  h+='<div class="row"><span>Name in chat</span><span class="val">@<input type="text" id="ag-handle" value="'+esc(a.handle)+'" style="width:140px;display:inline-block;margin-left:2px"></span></div>';
+  h+='<div class="row"><span>Model</span><span class="sel" id="ag-model" tabindex="0"><span id="ag-model-v">'+esc(a.model)+'</span><i>▾</i><span class="dd"><span class="ddh">'+esc(hh.vendor)+'</span>'+hh.models.map(function(m){return '<button data-act="pickmodel" data-v="'+esc(m)+'" class="'+(m===a.model?'on':'')+'">'+esc(m)+'</button>'}).join('')+'</span></span></div>';
+  h+='<div class="row"><span>Reasoning effort</span><span class="seg" id="ag-effort">'+['low','medium','high','max'].map(function(e){return '<button data-act="seg" data-k="effort" data-v="'+e+'" class="'+(e===a.effort?'on':'')+'">'+e+'</button>'}).join('')+'</span></div>';
+  h+='<div class="row"><span>Permissions</span><span class="seg">'+[['ask','ask in chat'],['list','auto-allow list'],['auto','full auto']].map(function(p){return '<button data-act="seg" data-k="perm" data-v="'+p[0]+'" class="'+(p[0]===a.perm?'on':'')+'">'+p[1]+'</button>'}).join('')+'</span></div>';
+  h+='<div class="row"><span>Always allow</span><input type="text" id="ag-allow" value="'+esc(a.allow)+'"></div>';
+  h+='<div class="row"><span>Context on dispatch</span><span class="seg">'+[['last','last landing'],['since','since last landing + summary'],['all','whole chat']].map(function(p){return '<button data-act="seg" data-k="ctx" data-v="'+p[0]+'" class="'+(p[0]===a.ctx?'on':'')+'">'+p[1]+'</button>'}).join('')+'</span></div>';
+  h+='<div class="row"><span>Instructions</span><span class="hint">'+esc(hh.files)+' from repo root</span></div>';
+  h+='<div class="row"><span>Worktrees</span><span class="hint">~/.beam/'+esc(ws().id)+'/&lt;chat&gt;</span></div>';
+  h+='<div class="m-f"><span>Changes apply to the next run, on whichever runner it lands</span><span><button class="btn ghost" data-act="removeagent" data-id="'+id+'">Remove</button> <button class="btn" data-act="saveagent" data-id="'+id+'">Save</button></span></div>';
+  openModal(h);modalDraft={effort:a.effort,perm:a.perm,ctx:a.ctx,model:a.model};
+}
+var modalDraft={};
+function addAgentModal(){
+  var h='<div class="m-h">Add an agent<span class="k hint">a harness plus its settings</span></div><div class="list">';
+  [['claude','Claude Code','Anthropic · headless stream-json'],['codex','Codex','OpenAI · app-server protocol'],['omp','omp','Stencil · rpc mode over stdio · 60+ providers'],['gemini','Gemini CLI','Google · JSON stream']].forEach(function(x){
+    var n=agents.filter(function(a){return a.h===x[0]}).length;
+    h+='<button data-act="pickharness" data-id="'+x[0]+'">'+avHtml(x[0])+'<span class="nm">'+x[1]+'<small>'+x[2]+'</small></span><span class="d">'+(n?n+' in workspace':'')+'</span></button>'});
+  h+='</div><div class="m-f"><span>A second Claude Code with a different model is a second agent with its own @name.</span></div>';openModal(h);
+}
+function addAgent(h){var hh=harnesses[h],n=agents.filter(function(a){return a.h===h}).length,id=h+(n?'-'+(n+1):''),handle=n?h+(n+1):h;
+  agents.push({id:id,h:h,handle:handle,model:hh.models[0],effort:'medium',perm:'ask',allow:'git status, git diff',ctx:'since'});closeModal();renderSidebar();agentSettings(id)}
+function closeAcct(){var mn=document.getElementById('acctmenu');if(mn){mn.hidden=true;var a=document.querySelector('.acct');if(a)a.setAttribute('aria-expanded','false')}}
+function settingsModal(){openModal('<div class="m-h">Settings<span class="k hint">⌘,</span></div>'
+ +'<div class="row"><span>Account</span><span class="val">Apekshik Panigrahi <span class="hint">· GitHub apekshik</span></span></div>'
+ +'<div class="row"><span>This machine</span><span class="seg"><button class="on" data-act="seg" data-k="runner" data-v="on">runner while Beam is open</button><button data-act="seg" data-k="runner" data-v="off">never a runner</button></span></div>'
+ +'<div class="row"><span>Worktrees</span><input type="text" value="~/.beam/&lt;workspace&gt;/&lt;chat&gt;"></div>'
+ +'<div class="row"><span>Appearance</span><span class="seg"><button class="on" data-act="seg" data-k="theme" data-v="system">system</button><button data-act="seg" data-k="theme" data-v="light">light</button><button data-act="seg" data-k="theme" data-v="dark">dark</button></span></div>'
+ +'<div class="row"><span>Adding people</span><span class="seg"><button class="'+(prefs.addToChat==='auto'?'on':'')+'" data-act="pref" data-k="addToChat" data-v="auto">add to the chat right away</button><button class="'+(prefs.addToChat==='ask'?'on':'')+'" data-act="pref" data-k="addToChat" data-v="ask">ask me first</button></span></div>'
+ +'<div class="row"><span>Notifications</span><span class="seg"><button class="on" data-act="seg" data-k="notif" data-v="mine">runs I dispatched</button><button data-act="seg" data-k="notif" data-v="all">all runs</button><button data-act="seg" data-k="notif" data-v="off">off</button></span></div>'
+ +'<div class="row"><span>Shortcuts</span><span class="hint">⌘T chat · ⌘W close · ⌘K jump · ⌘⏎ interrupt</span></div>'
+ +'<div class="m-f"><span>Per-agent settings live on each agent in the sidebar.</span><span><button class="btn" data-act="closemodal">Done</button></span></div>')}
+function harnessModal(){var h='<div class="m-h">Connected harnesses<span class="k hint">your own subscriptions, on this machine</span></div><div class="list">';
+ [['claude','Claude Code','signed in · Max plan · v2.4.1'],['codex','Codex','signed in · ChatGPT Pro · v0.9.3'],['omp','omp','installed · providers: openai ✓ kimi ✓ anthropic (api key)'],['gemini','Gemini CLI','not installed']].forEach(function(x){h+='<button data-act="closemodal">'+avHtml(x[0])+'<span class="nm">'+x[1]+'<small>'+x[2]+'</small></span><span class="d">'+(x[2].indexOf('signed')===0?'sign out':'install')+'</span></button>'});
+ h+='</div><div class="m-f"><span>Beam never sees your credentials. Each harness keeps its own login.</span></div>';openModal(h)}
+function shareModal(id){var th=thread(id);openModal('<div class="m-h">'+ICO.team+' Share this chat</div><div class="row"><span>With</span><span class="seg"><button class="on" data-act="seg" data-k="with" data-v="ws">everyone in '+esc(ws().name)+'</button>'+members.filter(function(m){return m!=='me'}).map(function(m){return '<button data-act="seg" data-k="with" data-v="'+m+'">'+esc(people[m].n)+'</button>'}).join('')+'</span></div><div class="row"><span>History</span><span class="hint">all '+th.msgs.length+' messages become visible from the first one. This cannot be undone.</span></div><div class="row"><span>Default agent</span><span class="hint">'+(th.pin?'unpinned on share · team chats dispatch by @mention only':'none pinned')+'</span></div><div class="m-f"><span>Shared chats never go private again.</span><span><button class="btn ghost" data-act="closemodal">Cancel</button> <button class="btn" data-act="doshare" data-id="'+id+'">Share</button></span></div>')}
+function inviteModal(){openModal('<div class="m-h">Invite to '+esc(ws().name)+'</div><div class="row"><span>GitHub login</span><input type="text" id="inv" placeholder="octocat"></div><div class="row"><span>Access</span><span class="hint">follows repo access · they connect their own harnesses</span></div><div class="m-f"><span>Their machine becomes a runner while Beam is open.</span><span><button class="btn ghost" data-act="closemodal">Cancel</button> <button class="btn" data-act="sendinvite">Invite</button></span></div>');document.getElementById('inv').focus()}
+function newWsModal(){var h='<div class="m-h">New workspace<span class="k hint">a team space · repos attach to chats</span></div><div class="row"><span>Name</span><input type="text" id="ws-name" placeholder="acme"></div><div class="sb-sec" style="padding:10px 14px 4px">Start with a repo</div><div class="list">';
+  [['acme/billing','private · TypeScript','2h ago'],['acme/mobile','private · Swift','yesterday'],['apekshik/anvil','public · Swift','3d ago'],['noahb/dotfiles','public · shell','2w ago']].forEach(function(r){h+='<button data-act="pickrepo" data-id="'+r[0]+'">'+'<span class="k">▢</span><span class="nm">'+r[0]+'<small>'+r[1]+'</small></span><span class="d">'+r[2]+'</span></button>'});
+  h+='</div><div class="m-f"><span>You can add more repos any time. People join by invite.</span></div>';openModal(h)}
+function palette(){openModal('<input id="pal-q" placeholder="Jump to a chat…"><div class="list" id="pal-list"></div>','pal');var q=document.getElementById('pal-q');q.focus();palRender('');q.addEventListener('input',function(){palRender(q.value)});q.addEventListener('keydown',function(e){if(e.key==='Enter'){var b=document.querySelector('#pal-list button');if(b)b.click()}})}
+function palRender(q){q=q.toLowerCase();var h='';workspaces.forEach(function(w){w.threads.forEach(function(t){if(q&&(t.title+' '+w.name).toLowerCase().indexOf(q)<0)return;h+='<button data-act="jump" data-ws="'+w.id+'" data-id="'+t.id+'"><span class="sq '+threadStatus(t)+'"></span><span class="nm">'+esc(t.title)+'<small>'+esc(w.name)+'</small></span><span class="d">'+(t.pr?'#'+t.pr.n:'')+'</span></button>'})});document.getElementById('pal-list').innerHTML=h||'<div class="empty" style="padding:16px 14px">Nothing matches.</div>'}
+
+/* ---------- mention popover ---------- */
+function popItems(q){q=(q||'').toLowerCase();var h='',any=false;
+  var ag=agents.filter(function(a){return !q||a.handle.indexOf(q)===0||harnesses[a.h].n.toLowerCase().indexOf(q)===0});
+  if(ag.length){h+='<div class="ph">Agents</div>';ag.forEach(function(a,i){any=true;h+='<button class="po'+(i===0?' sel':'')+'" data-act="pick" data-v="'+a.handle+'">'+avHtml(a.id)+'<span>'+esc(harnesses[a.h].n)+(a.handle!==a.h?' <span class="k">@'+a.handle+'</span>':'')+'</span><span class="d">'+esc(a.model)+' · '+a.effort+'</span></button>'})}
+  var pp=members.filter(function(m){return m!=='me'&&(!q||people[m].n.toLowerCase().indexOf(q)===0)});
+  if(pp.length){h+='<div class="ph">People</div>';pp.forEach(function(m){h+='<button class="po'+(!any?' sel':'')+'" data-act="pick" data-v="'+people[m].n.toLowerCase()+'">'+avHtml(m)+'<span>'+esc(people[m].n)+'</span><span class="d">online</span></button>'})}
+  return h}
+function updatePop(){var inp=document.getElementById('input'),pop=document.getElementById('pop');if(!inp||!pop)return;var v=inp.value.slice(0,inp.selectionStart),m=v.match(/(?:^|\s)@(\w*)$/);if(m){pop.innerHTML=popItems(m[1]);pop.hidden=!pop.innerHTML}else pop.hidden=true}
+function pickMention(v){var inp=document.getElementById('input'),pop=document.getElementById('pop');var pos=inp.selectionStart,before=inp.value.slice(0,pos).replace(/@\w*$/,'@'+v+' '),after=inp.value.slice(pos);inp.value=before+after;inp.selectionStart=inp.selectionEnd=before.length;pop.hidden=true;inp.focus()}
+
+/* ---------- events ---------- */
+document.addEventListener('click',function(e){
+  var b=e.target.closest('[data-act]');if(!b){var sel=e.target.closest('.sel');document.querySelectorAll('.sel.open').forEach(function(s){if(s!==sel)s.classList.remove('open')});if(sel)sel.classList.toggle('open');return}
+  var act=b.getAttribute('data-act'),id=b.getAttribute('data-id');
+  switch(act){
+    case 'ws':state.ws=id;renderAll();break;
+    case 'thread':openThread(id);break;
+    case 'tab':openThread(id);break;
+    case 'closetab':e.stopPropagation();closeTab(id);break;
+    case 'newthread':newThread();break;
+    case 'topplus':{e.stopPropagation();var tp=document.getElementById('newpop-top');tp.innerHTML='<button data-act="newchat" data-ws="'+ws().id+'" data-kind="team">'+ICO.team+'<span>Team chat<small>everyone in '+esc(ws().name)+'</small></span></button><button data-act="newchat" data-ws="'+ws().id+'" data-kind="private">'+ICO.lock+'<span>Private chat<small>just you · pin a default agent</small></span></button>';document.querySelectorAll('.newpop').forEach(function(x){if(x!==tp)x.hidden=true});tp.hidden=!tp.hidden;break}
+    case 'wsplus':{e.stopPropagation();var np=document.getElementById('newpop-'+id);document.querySelectorAll('.newpop').forEach(function(x){if(x!==np)x.hidden=true});np.hidden=!np.hidden;break}
+    case 'newchat':{state.ws=b.getAttribute('data-ws');renderAll();newThread(b.getAttribute('data-kind'));break}
+    case 'pin':{var pt=cur();pt.pin=b.getAttribute('data-v')||null;renderThread();toast(pt.pin?harnesses[agentById(pt.pin).h].n+' pinned · plain messages go to it':'Unpinned · @mention to dispatch');break}
+    case 'scope':{e.stopPropagation();var sp=document.getElementById('scopepop');sp.hidden=!sp.hidden;break}
+    case 'scope-person':{e.stopPropagation();var tp=cur();if(tp.private){shareModal(tp.id);break}tp.members=tp.members||members.slice();var ix=tp.members.indexOf(id);if(ix>=0){if(tp.members.length<=1){toast('A chat needs at least one member');break}tp.members.splice(ix,1);toast(people[id].n+' removed from this chat')}else{tp.members.push(id);toast(people[id].n+' added · they see the whole history')}renderThread();document.getElementById('scopepop').hidden=false;break}
+    case 'scope-agent':{e.stopPropagation();var ta=cur();ta.agents=ta.agents||agents.map(function(a){return a.id});var ai=ta.agents.indexOf(id);if(ai>=0)ta.agents.splice(ai,1);else ta.agents.push(id);renderThread();document.getElementById('scopepop').hidden=false;break}
+    case 'share':shareModal(id);break;
+    case 'doshare':{var sh=thread(id);sh.private=false;sh.pin=null;sh.members=members.slice();closeModal();renderAll();toast('Shared · everyone can see it now');break}
+    case 'newws':newWsModal();break;
+    case 'pickrepo':{var wn=((document.getElementById('ws-name')||{}).value||'').trim()||id.split('/')[0];var wid='w'+Date.now();workspaces.push({id:wid,name:wn,repos:[id],threads:[]});state.tabs[wid]=[];state.active[wid]=null;state.ws=wid;closeModal();renderAll();toast('Workspace '+wn+' created with '+id);break}
+    case 'agent':agentSettings(id);break;
+    case 'sbmodel':{var sa=agentById(id);sa.model=b.getAttribute('data-v');renderSidebar();toast(harnesses[sa.h].n+' → '+sa.model+' · next run');break}
+    case 'cycleeff':{var ca=agentById(id),ord=['low','medium','high','max'];ca.effort=ord[(ord.indexOf(ca.effort)+1)%ord.length];b.setAttribute('data-lv',ord.indexOf(ca.effort)+1);b.title='Reasoning effort: '+ca.effort+' · click to change';toast(harnesses[ca.h].n+' effort → '+ca.effort);break}
+    case 'agtab':agentSettings(id);break;
+    case 'addagent':addAgentModal();break;
+    case 'pickharness':addAgent(id);break;
+    case 'pickmodel':modalDraft.model=b.getAttribute('data-v');document.getElementById('ag-model-v').textContent=modalDraft.model;b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b)});b.closest('.sel').classList.remove('open');e.stopPropagation();break;
+    case 'pref':prefs[b.getAttribute('data-k')]=b.getAttribute('data-v');b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b)});break;
+    case 'seg':modalDraft[b.getAttribute('data-k')]=b.getAttribute('data-v');b.parentNode.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b)});break;
+    case 'saveagent':{var a=agentById(id);a.model=modalDraft.model||a.model;a.effort=modalDraft.effort||a.effort;a.perm=modalDraft.perm||a.perm;a.ctx=modalDraft.ctx||a.ctx;var hv=document.getElementById('ag-handle').value.replace(/^@/,'').trim();if(hv)a.handle=hv;a.allow=document.getElementById('ag-allow').value;closeModal();renderAll();toast('Saved · applies to the next run');break}
+    case 'removeagent':{if(agents.length<=1){toast('Keep at least one agent');break}agents=agents.filter(function(x){return x.id!==id});closeModal();renderAll();toast('Agent removed from workspace');break}
+    case 'invite':closeAcct();inviteModal();break;
+    case 'acct':{var mn=document.getElementById('acctmenu');mn.hidden=!mn.hidden;b.setAttribute('aria-expanded',!mn.hidden);break}
+    case 'menu-settings':closeAcct();settingsModal();break;
+    case 'menu-usage':closeAcct();toast('Usage: Claude 62% of plan · Codex 18% · resets in 9 days');break;
+    case 'menu-harness':closeAcct();harnessModal();break;
+    case 'menu-logout':closeAcct();toast('Logged out (prototype)');break;
+    case 'sendinvite':{var v=(document.getElementById('inv').value||'').trim();if(!v){toast('Need a GitHub login');break}var ci=cur();if(ci&&!ci.private&&prefs.addToChat==='auto'){ci.members=ci.members||members.slice();toast('Invited '+v+' · added to this chat too')}else toast('Invited '+v+' · they appear when they sign in');closeModal();renderThread();break}
+    case 'person':toast(people[id].n+' · runner while Beam is open · '+people[id].host);break;
+    case 'closemodal':closeModal();break;
+    case 'togact':{var box=b.parentNode,th=cur(),m=th.msgs[+box.getAttribute('data-idx')];m.act.open=!m.act.open;box.classList.toggle('closed',!m.act.open);b.querySelector('.tog').textContent=m.act.open?'▾':'▸';break}
+    case 'setrepo':{var tr=cur();if(tr.branch&&tr.repo!==b.getAttribute('data-v')){toast('This chat already has a branch on '+tr.repo);break}tr.repo=b.getAttribute('data-v');renderThread();toast(tr.repo+' attached · worktree on first dispatch');break}
+    case 'addrepo':closeModal();openModal('<div class="m-h">Connect a repo to '+esc(ws().name)+'</div><div class="list">'+[['acme/mobile','private · Swift'],['apekshik/anvil','public · Swift'],['noahb/dotfiles','public · shell']].map(function(r){return '<button data-act="connectrepo" data-id="'+r[0]+'"><span class="k">▢</span><span class="nm">'+r[0]+'<small>'+r[1]+'</small></span><span class="d">clone</span></button>'}).join('')+'</div><div class="m-f"><span>Cloned once per runner, then worktrees per chat.</span></div>');break;
+    case 'connectrepo':{ws().repos.push(id);var tc=cur();if(tc&&!tc.repo)tc.repo=id;closeModal();renderAll();toast(id+' connected');break}
+    case 'togart':togArt(id);break;
+    case 'react':react(+b.getAttribute('data-i'),b.getAttribute('data-e'));break;
+    case 'reactmore':{var ri=+b.getAttribute('data-i'),pk=b.parentNode;pk.innerHTML=['👍','🔥','👀','✅','💯','🚀','🤔','😂','🙏','👎'].map(function(e){return '<button data-act="react" data-i="'+ri+'" data-e="'+e+'">'+e+'</button>'}).join('');pk.classList.add('open');break}
+    case 'atbtn':{var inp2=document.getElementById('input');inp2.value+=(inp2.value&&!/\s$/.test(inp2.value)?' ':'')+'@';inp2.focus();inp2.selectionStart=inp2.selectionEnd=inp2.value.length;updatePop();break}
+    case 'pick':pickMention(b.getAttribute('data-v'));break;
+    case 'allow':{var mm=cur().msgs[+b.getAttribute('data-i')];mm.perm={by:'Apekshik',t:now()};renderThread();break}
+    case 'deny':toast('Denied · the agent will pick another route or ask again');break;
+    case 'jump':{state.ws=b.getAttribute('data-ws');closeModal();openThread(id);break}
+    case 'palbtn':case 'sbsearch':palette();break;
+  }
+});
+document.getElementById('palbtn').setAttribute('data-act','palbtn');
+document.getElementById('sbsearch').setAttribute('data-act','sbsearch');
+document.getElementById('scrim').addEventListener('click',function(e){if(e.target===this)closeModal()});
+document.addEventListener('click',function(e){if(!e.target.closest('.scope')){var spx=document.getElementById('scopepop');if(spx)spx.hidden=true}if(!e.target.closest('.sb-foot'))closeAcct();if(!e.target.closest('.ws-row'))document.querySelectorAll('.newpop').forEach(function(x){x.hidden=true})});
+document.addEventListener('input',function(e){if(e.target.id==='input'){e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px';updatePop()}});
+document.addEventListener('keydown',function(e){
+  var inp=document.getElementById('input'),pop=document.getElementById('pop');
+  if(e.key==='Escape'){closeModal();closeAcct();var spe=document.getElementById('scopepop');if(spe)spe.hidden=true;if(pop)pop.hidden=true;return}
+  if((e.metaKey||e.ctrlKey)&&e.key===','){e.preventDefault();settingsModal();return}
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();palette();return}
+  if((e.metaKey||e.ctrlKey)&&e.key==='t'){e.preventDefault();newThread(e.shiftKey?'private':undefined);return}
+  if((e.metaKey||e.ctrlKey)&&e.key==='w'){e.preventDefault();var w=ws();if(state.active[w.id])closeTab(state.active[w.id]);return}
+  if(e.target===inp){
+    if(pop&&!pop.hidden&&(e.key==='Enter'||e.key==='Tab')){e.preventDefault();var s=pop.querySelector('.po.sel')||pop.querySelector('.po');if(s)pickMention(s.getAttribute('data-v'));return}
+    if(pop&&!pop.hidden&&(e.key==='ArrowDown'||e.key==='ArrowUp')){e.preventDefault();var items=Array.prototype.slice.call(pop.querySelectorAll('.po')),i=items.findIndex(function(x){return x.classList.contains('sel')});items.forEach(function(x){x.classList.remove('sel')});items[(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length].classList.add('sel');return}
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if((e.metaKey||e.ctrlKey)&&cur().status==='working'){toast('Interrupt: current tool call cancelled, your message delivered now');}var v=inp.value;inp.value='';inp.style.height='auto';post(v);return}
+  }
+  if(e.target.classList&&e.target.classList.contains('tab')&&e.key==='Enter'){openThread(e.target.getAttribute('data-id'))}
+});
+document.addEventListener('click',function(e){var th=e.target.closest('th[data-i]');if(!th)return;var box=th.closest('.artbox');if(!box)return;var a=art(cur(),box.getAttribute('data-aid'));if(!a||!a.table)return;var i=+th.getAttribute('data-i');if(a.sort===i)a.desc=!a.desc;else{a.sort=i;a.desc=i===2}box.innerHTML=artBody(a)});
+document.addEventListener('keyup',function(e){if(e.target.id==='input'&&['ArrowLeft','ArrowRight','Home','End'].indexOf(e.key)>=0)updatePop()});
+
+/* live timer on the auth thread */
+(function(){var t0=Date.now()-252000;setInterval(function(){var el=document.querySelector('.act .st.work .rt');if(!el)return;var th=cur();if(!th||th.id!=='auth')return;var s=Math.round((Date.now()-t0)/1000);el.textContent=Math.floor(s/60)+'m '+(s%60<10?'0':'')+(s%60)+'s'},1000)})();
+
+renderAll();
+})();
+</script>

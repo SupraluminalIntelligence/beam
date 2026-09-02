@@ -1,0 +1,27 @@
+{
+  "name": "beam",
+  "private": true,
+  "packageManager": "pnpm@10.29.1",
+  "engines": { "node": ">=22.16" },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @beam/web --filter @beam/runner dev",
+    "dev:web": "pnpm --filter @beam/web dev",
+    "dev:runner": "pnpm --filter @beam/runner dev",
+    "dev:desktop": "pnpm --filter @beam/desktop dev",
+    "convex": "convex dev",
+    "convex:deploy": "convex deploy -y",
+    "probe": "pnpm --filter @beam/runner probe",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@types/node": "^22.10.0"
+  },
+  "dependencies": {
+    "convex": "^1.43.0"
+  }
+}

@@ -1,0 +1,11 @@
+export * from "./adapter.ts";
+export * from "./path.ts";
+export { claudeAdapter } from "./claude/index.ts";
+export { codexAdapter } from "./codex/index.ts";
+export { ompAdapter } from "./omp/index.ts";
+import type { HarnessKind } from "@beam/contracts";
+import type { HarnessAdapter } from "./adapter.ts";
+import { claudeAdapter } from "./claude/index.ts";
+import { codexAdapter } from "./codex/index.ts";
+import { ompAdapter } from "./omp/index.ts";
+export const adapters: Record<HarnessKind, HarnessAdapter> = { claude: claudeAdapter, codex: codexAdapter, omp: ompAdapter };

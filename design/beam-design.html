@@ -1,0 +1,881 @@
+<title>Beam</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F4F5F2; --surface:#FFFFFF; --surface-2:#ECEEEA; --surface-3:#E2E5E0;
+  --ink:#1B1F22; --ink-2:#5B6369; --ink-3:#8B949A; --line:#D8DCD7; --line-2:#C7CCC6;
+  --claude:#1E7F7A; --claude-soft:#DDF0EE; --codex:#4A57C9; --codex-soft:#E3E6F8;
+  --me:#7A4E8E; --me-soft:#EFE4F3; --noah:#9C6A12; --noah-soft:#F5EAD2;
+  --ok:#2E8B4E; --warn:#C27A12; --bad:#C0392B;
+  --shadow:0 20px 60px rgba(27,31,34,.14), 0 2px 6px rgba(27,31,34,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141719; --surface:#1C2023; --surface-2:#23282B; --surface-3:#2B3134;
+    --ink:#E4E7E4; --ink-2:#9AA3A8; --ink-3:#6E787D; --line:#2E3538; --line-2:#3A4245;
+    --claude:#45B8B1; --claude-soft:#1B3634; --codex:#8A93F0; --codex-soft:#25294A;
+    --me:#C08AD6; --me-soft:#33253A; --noah:#E0A63A; --noah-soft:#3A2F17;
+    --ok:#4FB870; --warn:#E09A2E; --bad:#E0584A;
+    --shadow:0 20px 60px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141719; --surface:#1C2023; --surface-2:#23282B; --surface-3:#2B3134;
+  --ink:#E4E7E4; --ink-2:#9AA3A8; --ink-3:#6E787D; --line:#2E3538; --line-2:#3A4245;
+  --claude:#45B8B1; --claude-soft:#1B3634; --codex:#8A93F0; --codex-soft:#25294A;
+  --me:#C08AD6; --me-soft:#33253A; --noah:#E0A63A; --noah-soft:#3A2F17;
+  --ok:#4FB870; --warn:#E09A2E; --bad:#E0584A;
+  --shadow:0 20px 60px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.6;margin:0;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;text-wrap:balance;margin:0;line-height:1.1;letter-spacing:-.01em}
+h1{font-size:clamp(56px,9vw,104px);font-weight:700;font-variation-settings:"opsz" 96;letter-spacing:-.03em}
+h2{font-size:32px;font-weight:600}
+h3{font-size:19px;font-weight:600}
+p{margin:0}
+a{color:var(--claude)}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+code{font-size:.9em;background:var(--surface-2);padding:.1em .35em;border-radius:4px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 28px}
+.col{max-width:66ch}
+section{padding:56px 0;border-top:1px solid var(--line)}
+section .head{display:grid;gap:10px;margin-bottom:28px}
+.lede{font-size:19px;color:var(--ink-2);max-width:60ch}
+.prose{display:grid;gap:16px}
+.prose ul{margin:0;padding-left:20px;display:grid;gap:8px}
+strong{font-weight:600}
+
+/* hero */
+.hero{padding:72px 0 48px}
+.hero .top{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.hero .tag{font-family:"Bricolage Grotesque",sans-serif;font-size:clamp(22px,3vw,32px);font-weight:400;color:var(--ink-2);margin-top:6px;letter-spacing:-.01em}
+.hero .meta{display:grid;gap:4px;font-size:14px;color:var(--ink-2);text-align:right}
+.pitch{margin-top:36px;max-width:64ch;font-size:19px;color:var(--ink);display:grid;gap:14px}
+.pitch em{font-style:italic;color:var(--ink-2)}
+
+/* loop */
+.loop{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--line);border-radius:0;overflow:hidden;background:var(--surface)}
+.loop > div{padding:20px 22px;border-right:1px solid var(--line);display:grid;gap:8px;align-content:start}
+.loop > div:last-child{border-right:0}
+.loop .k{font-family:"Bricolage Grotesque",sans-serif;font-size:22px;font-weight:600}
+.loop .who{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.loop p{font-size:14.5px;color:var(--ink-2)}
+.loop .h .who{color:var(--me)}
+.loop .a .who{color:var(--claude)}
+@media(max-width:820px){.loop{grid-template-columns:1fr 1fr}.loop>div:nth-child(2){border-right:0}.loop>div:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+
+/* app mock */
+.appwrap{margin-top:8px;width:min(1480px,calc(100vw - 48px));margin-left:calc(50% - min(1480px,calc(100vw - 48px))/2)}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.toolbar .note{font-size:14px;color:var(--ink-2)}
+button.replay{font:inherit;font-size:14px;font-weight:500;background:var(--ink);color:var(--bg);border:0;border-radius:6px;padding:8px 14px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+button.replay:hover{opacity:.9}
+button.replay:focus-visible,.app button:focus-visible{outline:2px solid var(--claude);outline-offset:2px}
+.app{background:var(--surface);border:1px solid var(--line-2);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;font-size:14px;line-height:1.45;min-width:0}
+.app .titlebar{height:42px;display:grid;grid-template-columns:70px 1fr 120px;align-items:center;padding:0 14px;background:var(--surface-2)}
+.ws{display:flex;align-items:center;gap:8px;font-size:13px}
+.ws .wsn{font-weight:600;color:var(--ink)}
+.ws .wsc{color:var(--ink-3);font-size:11px}
+.ws .wsb{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);margin-left:4px}
+.tabs-strip{display:flex;align-items:stretch;background:var(--surface-2);border-bottom:1px solid var(--line);padding:0 10px 0 0;height:36px;font-size:12.5px}
+.tab{display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--ink-2);border-right:1px solid var(--line);position:relative;white-space:nowrap}
+.tab.home,.tab.new{padding:0 12px;color:var(--ink-3);font-size:14px}
+.tab.new{border-right:0}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:500;margin-bottom:-1px;border-bottom:1px solid var(--surface)}
+.tab.on+.tab,.tab:first-child{border-left:0}
+.tab .tn{overflow:hidden;text-overflow:ellipsis}
+.tab .tx{color:var(--ink-3);font-size:12px;margin-left:2px}
+.tab .dot{width:7px;height:7px;border-radius:0;background:var(--line-2)}
+.tab .dot.work{background:var(--warn);animation:pulse 1.6s infinite}
+.tab .dot.ok{background:var(--ok)}
+.strip-sp{flex:1}
+.strip-k{align-self:center;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+@media(max-width:700px){.strip-k{display:none}.tab .tn{max-width:110px}}
+.lights{display:flex;gap:7px}
+.lights i{width:11px;height:11px;border-radius:50%;background:var(--line-2);display:block}
+.titlebar .center{text-align:center;color:var(--ink-2);font-size:12.5px}
+.titlebar .center b{color:var(--ink);font-weight:500}
+.titlebar .right{display:flex;justify-content:flex-end;gap:6px}
+.pres{display:flex}
+.pres .av{margin-left:-6px;box-shadow:0 0 0 2px var(--surface-2)}
+.body{display:grid;grid-template-columns:1fr 320px;height:760px;min-height:0}
+@media(max-width:980px){.body{grid-template-columns:1fr}.right{display:none}}
+.item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;color:var(--ink-2)}
+.item.on{background:var(--surface);color:var(--ink);font-weight:500}
+.item .dot{width:7px;height:7px;border-radius:50%;background:var(--line-2);flex:none}
+.item .dot.work{background:var(--warn);animation:pulse 1.6s infinite}
+.item .dot.ok{background:var(--ok)}
+.item .sub{margin-left:auto;font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.item .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.av{width:20px;height:20px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:600;color:#fff;flex:none;font-family:"IBM Plex Mono",monospace}
+.av.me{background:var(--me)}.av.noah{background:var(--noah)}.av.claude{background:var(--claude);border-radius:5px}.av.codex{background:var(--codex);border-radius:5px}
+.chat{display:flex;flex-direction:column;min-width:0;min-height:0}
+.thead{height:46px;display:flex;align-items:center;gap:10px;padding:0 18px;border-bottom:1px solid var(--line);flex:none}
+.thead .t{font-weight:600}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:11px;padding:2px 7px;border-radius:4px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+.thead .sp{flex:1}
+.thead .who{font-size:12px;color:var(--ink-3)}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:18px max(18px,calc((100% - 880px)/2)) 8px;display:grid;gap:14px;align-content:start;scroll-behavior:smooth}
+.msg{display:grid;grid-template-columns:28px 1fr;gap:10px;transition:opacity .35s ease}
+[data-t]{transition:opacity .35s ease}
+[data-t].hide{opacity:0;visibility:hidden;height:0;padding:0;margin:0;border:0;overflow:hidden}
+.msg .av{width:26px;height:26px;font-size:11px}
+.msg .hd{display:flex;gap:8px;align-items:baseline}
+.msg .nm{font-weight:600;font-size:13px}
+.msg .tm{font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.msg .tx{color:var(--ink);max-width:72ch}
+.msg .nm.me{color:var(--me)}.msg .nm.noah{color:var(--noah)}.msg .nm.claude{color:var(--claude)}.msg .nm.codex{color:var(--codex)}
+.mention{font-weight:600;padding:1px 5px;border-radius:4px}
+.mention.claude{background:var(--claude-soft);color:var(--claude)}
+.mention.codex{background:var(--codex-soft);color:var(--codex)}
+.mention.noah{background:var(--noah-soft);color:var(--noah)}
+.msg.dispatch .tx{border-left:2px solid var(--claude);padding-left:10px}
+.card{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface);max-width:680px;margin-top:4px}
+.card .ch{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:12.5px}
+.card .ch .st{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-2);display:flex;gap:6px;align-items:center}
+.card .ch .st i{width:7px;height:7px;border-radius:0;background:var(--warn);display:inline-block}
+.card .ch .st.done i{background:var(--ok);animation:none}
+.card .ch .st.work i{animation:pulse 1.6s infinite}
+.steps{display:grid;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.step{display:grid;grid-template-columns:18px 1fr auto;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);color:var(--ink-2);align-items:center;transition:opacity .3s ease}
+.step:last-child{border-bottom:0}
+.step .ic{color:var(--ink-3);text-align:center}
+.step .r{color:var(--ink-3);font-size:11px}
+.step.ok .ic{color:var(--ok)}
+.step.perm{background:var(--noah-soft);color:var(--ink);grid-template-columns:18px 1fr auto}
+.step.perm .ic{color:var(--warn)}
+.step.perm .r{display:flex;gap:6px}
+.step.perm .r span{border:1px solid var(--line-2);border-radius:4px;padding:1px 7px;font-size:11px;color:var(--ink-2);background:var(--surface)}
+.step.perm .r span.did{background:var(--ok);color:#fff;border-color:var(--ok)}
+.step.steer{background:var(--claude-soft);color:var(--ink)}
+.step.steer .ic{color:var(--claude)}
+.summary{padding:10px 12px;font-family:"IBM Plex Sans",sans-serif;font-size:13px;color:var(--ink);border-top:1px solid var(--line);display:grid;gap:6px}
+.pr{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);max-width:680px;align-items:center;margin-top:4px}
+.pr .ico{width:28px;height:28px;border-radius:6px;background:var(--surface);display:grid;place-items:center;border:1px solid var(--line)}
+.pr .ttl{font-weight:600}
+.pr .mt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-2);display:flex;gap:10px;flex-wrap:wrap}
+.pr .mt .add{color:var(--ok)}.pr .mt .del{color:var(--bad)}
+.typing{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3);padding:6px 18px 6px;flex:none}
+.composer{flex:none}
+.composer{margin:0 auto 16px;width:min(880px,calc(100% - 36px));border:1px solid var(--line-2);border-radius:8px;background:var(--surface);position:relative}
+.composer.open .popover{display:block}
+.composer .in{padding:10px 12px;color:var(--ink);cursor:text}
+.composer .in .ph{color:var(--ink-3)}
+.composer .ft button{font:inherit;background:none;border:0;color:inherit;padding:0;cursor:pointer}
+.composer.open .ft button{color:var(--claude)}
+.composer .in .caret{display:inline-block;width:1px;height:14px;background:var(--ink);vertical-align:-2px;animation:blink 1s steps(2) infinite}
+.composer .ft{display:flex;gap:10px;padding:6px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.composer .ft .sp{flex:1}
+.popover{display:none;position:absolute;left:12px;bottom:calc(100% + 6px);width:340px;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;box-shadow:var(--shadow);overflow:hidden;z-index:2}
+.popover .ph{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:8px 12px 4px}
+.popover .po{display:flex;gap:10px;align-items:center;padding:7px 12px;font-size:13px}
+.popover .po.sel{background:var(--surface-2)}
+.popover .po .d{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.right{border-left:1px solid var(--line);background:var(--surface-2);display:grid;grid-template-rows:auto auto 1fr;min-width:0;min-height:0;overflow-y:auto}
+.hosts{padding:12px 14px;border-bottom:1px solid var(--line);display:grid;gap:6px}
+.hosts .lbl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding-bottom:2px}
+.host{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.host .sub{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.right .tabs{display:flex;height:46px;border-bottom:1px solid var(--line);font-size:12.5px}
+.right .tabs span{padding:0 14px;display:flex;align-items:center;color:var(--ink-3)}
+.right .tabs span.on{color:var(--ink);font-weight:500;box-shadow:inset 0 -2px 0 var(--ink)}
+.kv{padding:12px 14px;display:grid;gap:6px;border-bottom:1px solid var(--line);font-size:12.5px}
+.kv div{display:flex;justify-content:space-between;gap:10px}
+.kv div span:first-child{color:var(--ink-3)}
+.kv .mono{font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.files{padding:8px 0;font-family:"IBM Plex Mono",monospace;font-size:11.5px;display:grid;align-content:start}
+.files .lbl{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:4px 14px 6px}
+.files div.f{display:grid;grid-template-columns:14px 1fr auto;gap:8px;padding:4px 14px;color:var(--ink-2);align-items:center}
+.files .f b{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.files .f .n{color:var(--ok)}.files .f .m{color:var(--warn)}
+.files .f .c{font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.term{margin:8px 14px 14px;background:var(--ink);color:var(--bg);border-radius:6px;padding:10px 12px;font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1.55;overflow:hidden;white-space:pre;align-self:end}
+.term .dim{opacity:.55}.term .g{color:#7ED8A3}
+:root{--logo-anthropic:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M17.3041%203.541h-3.6718l6.696%2016.918H24Zm-10.6082%200L0%2020.459h3.7442l1.3693-3.5527h7.0052l1.3693%203.5528h3.7442L10.5363%203.5409Zm-.3712%2010.2232%202.2914-5.9456%202.2914%205.9456Z%22%2F%3E%3C%2Fsvg%3E");--logo-openai:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M22.2819%209.8211a5.9847%205.9847%200%200%200-.5157-4.9108%206.0462%206.0462%200%200%200-6.5098-2.9A6.0651%206.0651%200%200%200%204.9807%204.1818a5.9847%205.9847%200%200%200-3.9977%202.9%206.0462%206.0462%200%200%200%20.7427%207.0966%205.98%205.98%200%200%200%20.511%204.9107%206.051%206.051%200%200%200%206.5146%202.9001A5.9847%205.9847%200%200%200%2013.2599%2024a6.0557%206.0557%200%200%200%205.7718-4.2058%205.9894%205.9894%200%200%200%203.9977-2.9001%206.0557%206.0557%200%200%200-.7475-7.0729zm-9.022%2012.6081a4.4755%204.4755%200%200%201-2.8764-1.0408l.1419-.0804%204.7783-2.7582a.7948.7948%200%200%200%20.3927-.6813v-6.7369l2.02%201.1686a.071.071%200%200%201%20.038.052v5.5826a4.504%204.504%200%200%201-4.4945%204.4944zm-9.6607-4.1254a4.4708%204.4708%200%200%201-.5346-3.0137l.142.0852%204.783%202.7582a.7712.7712%200%200%200%20.7806%200l5.8428-3.3685v2.3324a.0804.0804%200%200%201-.0332.0615L9.74%2019.9502a4.4992%204.4992%200%200%201-6.1408-1.6464zM2.3408%207.8956a4.485%204.485%200%200%201%202.3655-1.9728V11.6a.7664.7664%200%200%200%20.3879.6765l5.8144%203.3543-2.0201%201.1685a.0757.0757%200%200%201-.071%200l-4.8303-2.7865A4.504%204.504%200%200%201%202.3408%207.872zm16.5963%203.8558L13.1038%208.364%2015.1192%207.2a.0757.0757%200%200%201%20.071%200l4.8303%202.7913a4.4944%204.4944%200%200%201-.6765%208.1042v-5.6772a.79.79%200%200%200-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759%200%200%200-.7854%200L9.409%209.2297V6.8974a.0662.0662%200%200%201%20.0284-.0615l4.8303-2.7866a4.4992%204.4992%200%200%201%206.6802%204.66zM8.3065%2012.863l-2.02-1.1638a.0804.0804%200%200%201-.038-.0567V6.0742a4.4992%204.4992%200%200%201%207.3757-3.4537l-.142.0805L8.704%205.459a.7948.7948%200%200%200-.3927.6813zm1.0976-2.3654l2.602-1.4998%202.6069%201.4998v2.9994l-2.5974%201.4997-2.6067-1.4997Z%22%2F%3E%3C%2Fsvg%3E")}
+.av.claude,.av.codex{border-radius:0;color:transparent;font-size:0;-webkit-mask:var(--logo-anthropic) center/78% no-repeat;mask:var(--logo-anthropic) center/78% no-repeat}
+.av.codex{-webkit-mask-image:var(--logo-openai);mask-image:var(--logo-openai)}
+.wire .agent .t i.claude,.wire .agent .t i.codex{width:13px;height:13px;border-radius:0;-webkit-mask:var(--logo-anthropic) center/contain no-repeat;mask:var(--logo-anthropic) center/contain no-repeat}
+.wire .agent .t i.codex{-webkit-mask-image:var(--logo-openai);mask-image:var(--logo-openai)}
+
+/* sidebar */
+.side{border-right:1px solid var(--hard);background:var(--surface-2);display:grid;align-content:start;font-size:13px;min-width:0;overflow-y:auto}
+.sb-top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;height:36px;border-bottom:1px solid var(--line)}
+.sb-brand{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;letter-spacing:.08em;font-size:13px}
+.sb-ic{color:var(--ink-3)}
+.sb-act{height:46px;padding:0 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:var(--ink);font-weight:500}
+.sb-act .k,.th-item .k,.ag-item .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);margin-left:auto}
+.sb-sec{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:14px 14px 6px}
+.ws-item{display:flex;align-items:center;gap:8px;padding:6px 14px;color:var(--ink);font-weight:500}
+.ws-item.on{background:var(--surface);box-shadow:inset 2px 0 0 var(--ink-2)}
+.ws-item .ws-ic{color:var(--ink-3);font-size:11px}
+.ws-item .cnt{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
+.th-item{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 30px;color:var(--ink-3)}
+.th-item.open{color:var(--ink-2)}
+.th-item.on{color:var(--ink);background:var(--surface)}
+.th-item .nm,.ws-item .nm,.ag-item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th-item .dot,.ag-item .dot{width:6px;height:6px;background:var(--line-2);flex:none}
+.th-item .dot.work,.ag-item .dot.work{background:var(--warn);animation:pulse 1.6s infinite}
+.th-item .dot.ok,.ag-item .dot.ok{background:var(--ok)}
+.sb-new{height:auto;padding:8px 14px;border-top:1px solid var(--line);border-bottom:0;margin-top:4px;color:var(--ink-2);font-weight:400}
+.ag-item{display:grid;grid-template-columns:20px 1fr auto;column-gap:8px;row-gap:1px;align-items:center;padding:6px 14px;color:var(--ink)}
+.ag-item .av{grid-row:1}
+.ag-item .dot{grid-column:3;justify-self:end}
+.ag-item .sub{grid-column:2/4;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-item.on{background:var(--surface)}
+.ag-item.add{color:var(--ink-2)}
+.ag-item.add .sub{white-space:normal;line-height:1.35}
+.av.plus{background:transparent;border:1px dashed var(--line-2);color:var(--ink-3);font-size:12px}
+.sb-sec .sb-plus{float:right;color:var(--ink-2);font-size:13px;letter-spacing:0;cursor:pointer}
+/* brutalist pass */
+:root{--hard:var(--line)}
+.card,.pr,.composer,.popover,.chip,.term,.av,.tab,.item,button.replay,.pr .ico,.step.perm .r span,code{border-radius:0!important}
+.app{border-radius:10px!important}
+.app{border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--surface-3)}
+.app .titlebar{border-bottom:1px solid var(--line)}
+.tabs-strip{border-bottom:1px solid var(--hard)}
+.tab.on{border-right:1px solid var(--hard);border-bottom:1px solid var(--surface)}
+.thead{border-bottom:1px solid var(--hard);font-family:"IBM Plex Mono",monospace;font-size:12.5px}
+.thead .t{text-transform:uppercase;letter-spacing:.06em}
+.chip{border-color:var(--line-2);color:var(--ink-2)}
+.card{border:1px solid var(--hard)}
+.card .ch{border-bottom:1px solid var(--hard);text-transform:uppercase;letter-spacing:.06em;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.pr{border:1px solid var(--hard)}
+.pr .ico{border-color:var(--hard)}
+.composer{border:1px solid var(--hard)}
+.composer .ft{border-top:1px solid var(--hard)}
+.popover{border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3)}
+.right{border-left:1px solid var(--hard)}
+.right .tabs{border-bottom:1px solid var(--hard);font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.right .tabs span.on{box-shadow:inset 0 -1px 0 var(--ink)}
+.kv{border-bottom:1px solid var(--hard)}
+.term{border:0}
+.av{font-weight:500}
+.av.me,.av.noah{color:var(--surface)}
+.msg .av{width:26px;height:26px}
+.msg .nm{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.04em;font-size:11.5px}
+.mention{border-radius:0;padding:0 4px}
+.msg.dispatch .tx{border-left:3px solid var(--claude)}
+.step.perm .r span.did{color:var(--surface)}
+.body{grid-template-columns:232px 1fr}
+.pane{display:grid;grid-template-rows:auto 1fr;min-width:0;min-height:0}
+.pane-body{display:grid;grid-template-columns:1fr;min-width:0;min-height:0}
+@media(max-width:980px){.body{grid-template-columns:1fr}.pane-body{grid-template-columns:1fr}.side,.right{display:none}}
+
+/* coworker-style agent turns */
+.msg.cont{margin-top:-6px}
+.msg.cont .av{visibility:hidden}
+.msg.cont .hd{display:none}
+
+
+
+.act{border:1px solid var(--line);max-width:680px;margin-top:8px;font-family:"IBM Plex Mono",monospace;font-size:12px;background:var(--surface)}
+.act .ah{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-2);color:var(--ink-2);cursor:pointer;user-select:none;font-size:11.5px}
+.act .ah .tog{color:var(--ink-3);width:10px}
+.act .ah .st{margin-left:auto;display:flex;gap:6px;align-items:center;color:var(--ink-2);font-size:11px}
+.act .ah .st i{width:7px;height:7px;background:var(--warn);display:inline-block}
+.act .ah .st.work i{animation:pulse 1.6s infinite}
+.act .ah .st.done i{background:var(--ok)}
+.act.closed .steps{display:none}
+.act .steps{border-top:1px solid var(--line)}
+.msg.steer .tx{border-left:3px solid var(--claude);padding-left:10px}
+.rcpt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);margin-top:4px;padding-left:13px}
+.rcpt .ic{color:var(--claude)}
+.perm{display:flex;gap:6px;margin-top:8px;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.perm span{border:1px solid var(--line-2);padding:2px 8px;color:var(--ink-2);background:var(--surface)}
+.perm span.did{background:var(--ok);color:var(--surface);border-color:var(--ok)}
+
+/* agent settings mock */
+.cfg-wrap{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:32px;margin-top:32px;align-items:start}
+@media(max-width:900px){.cfg-wrap{grid-template-columns:1fr}}
+.cfg{border:1px solid var(--line-2);background:var(--surface);font-size:13px;box-shadow:8px 8px 0 var(--surface-3)}
+.cfg-h{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;background:var(--surface-2)}
+.cfg-h .k{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);font-weight:400}
+.cfg-row{display:grid;grid-template-columns:130px 1fr;gap:12px;padding:9px 14px;border-bottom:1px solid var(--line);align-items:center}
+.cfg-row>span:first-child{color:var(--ink-3);font-size:12.5px}
+.cfg-row .val{color:var(--ink)}
+.cfg-row .val.sel{border:1px solid var(--line-2);padding:3px 8px;display:inline-flex;gap:8px;align-items:center;justify-self:start;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.cfg-row .val.sel i{font-style:normal;color:var(--ink-3);font-size:10px}
+.cfg-row .val.mono{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2)}
+.seg{display:inline-flex;border:1px solid var(--line-2);justify-self:start;font-family:"IBM Plex Mono",monospace;font-size:11px}
+.seg b{font-weight:400;padding:3px 9px;color:var(--ink-3);border-right:1px solid var(--line)}
+.seg b:last-child{border-right:0}
+.seg b.on{background:var(--ink);color:var(--surface)}
+.cfg-f{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.cfg-f .btn{background:var(--ink);color:var(--surface);padding:5px 12px;font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;font-weight:500}
+
+.cfg-tabs{display:flex;gap:2px}
+.cfg-tabs .ct{display:inline-flex;align-items:center;gap:7px;padding:3px 8px;color:var(--ink-3);cursor:pointer;font-weight:500}
+.cfg-tabs .ct.on{color:var(--ink);background:var(--surface);box-shadow:inset 0 -2px 0 var(--ink)}
+.cfg-tabs .ct .av{width:16px;height:16px}
+.ddwrap{position:relative;justify-self:start}
+.cfg-row .val.sel{cursor:pointer;user-select:none}
+.dd{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:180px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--surface-3);z-index:3;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.ddwrap.open .dd{display:block}
+.dd .ddh{display:block;padding:6px 10px 3px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.dd .ddo{display:block;padding:5px 10px;color:var(--ink);cursor:pointer}
+.dd .ddo:hover{background:var(--surface-2)}
+.dd .ddo.on{background:var(--ink);color:var(--surface)}
+
+/* inline artifacts */
+.artbox{width:max-content;max-width:100%;margin-top:6px;border:1px solid var(--line);background:var(--surface-2);padding:10px}
+.artbox svg{display:block;background:var(--surface);border:1px solid var(--line);width:360px;max-width:100%}
+/* artifact pane (unused) */
+.right{display:grid;grid-template-rows:auto 1fr}
+.right .tabs .sp{flex:1}
+.right .tabs .x{color:var(--ink-3)}
+.art{padding:14px;display:grid;gap:10px;align-content:start;background:var(--surface-2)}
+.art-h{display:flex;justify-content:space-between;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.art-h .k{text-transform:none;letter-spacing:0;color:var(--ink-3)}
+.art svg{display:block;background:var(--surface);border:1px solid var(--line)}
+.art-f{display:flex;gap:6px;font-size:11.5px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.art-f .sp{flex:1}
+.artcard{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;border:1px solid var(--line);padding:8px 12px;max-width:360px;margin-top:8px;background:var(--surface)}
+.artcard.on{border-color:var(--claude)}
+.artcard .ai{width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);color:var(--claude);font-size:14px}
+.artcard .ttl{font-weight:600;font-size:13px}
+.artcard .mt{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes blink{to{visibility:hidden}}
+
+/* legend */
+.legend{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:0;overflow:hidden}
+.legend > div{background:var(--surface);padding:18px 20px;display:grid;gap:8px;align-content:start}
+.legend h3{font-size:16px}
+.legend p{font-size:14px;color:var(--ink-2)}
+.legend .sw{width:34px;height:4px;border-radius:2px}
+@media(max-width:820px){.legend{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.legend{grid-template-columns:1fr}}
+
+/* names */
+.names{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:0;overflow:hidden;max-width:760px}
+.names > div{background:var(--surface);display:grid;grid-template-columns:150px 1fr;gap:16px;padding:14px 18px;align-items:baseline}
+.names .n{font-family:"Bricolage Grotesque",sans-serif;font-size:20px;font-weight:600}
+.names p{font-size:14.5px;color:var(--ink-2)}
+.names > div.pick{background:var(--claude-soft)}
+.names > div.pick .n{color:var(--claude)}
+.names > div.pick p{color:var(--ink)}
+@media(max-width:560px){.names>div{grid-template-columns:1fr;gap:4px}}
+
+/* wiring diagram */
+.wire{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:stretch}
+.wire .box{border:1px solid var(--line);border-radius:0;background:var(--surface);padding:16px 18px;display:grid;gap:10px;align-content:start}
+.wire .box h3{font-size:15px}
+.wire .box ul{margin:0;padding-left:16px;font-size:13.5px;color:var(--ink-2);display:grid;gap:5px}
+.wire .box .mono{font-size:12px;color:var(--ink)}
+.wire .arrow{display:grid;place-items:center;padding:0 10px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:center;line-height:1.3}
+.wire .arrow b{display:block;width:34px;height:1px;background:var(--line-2);margin:6px auto}
+.wire .stack{display:grid;gap:10px}
+.wire .agent{border:1px solid var(--line);border-radius:0;padding:10px 12px;display:grid;gap:4px;background:var(--surface)}
+.wire .agent .t{font-weight:600;font-size:14px;display:flex;gap:8px;align-items:center}
+.wire .agent .t i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.wire .agent .mono{font-size:11.5px;color:var(--ink-2)}
+@media(max-width:820px){.wire{grid-template-columns:1fr}.wire .arrow{padding:10px 0}.wire .arrow b{width:1px;height:20px}}
+
+/* scope table */
+.scope{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.scope h3{margin-bottom:12px;display:flex;gap:10px;align-items:center}
+.scope h3 i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.scope ul{margin:0;padding-left:18px;display:grid;gap:7px;font-size:15px}
+.scope li span{color:var(--ink-3);font-size:13.5px}
+@media(max-width:700px){.scope{grid-template-columns:1fr}}
+
+/* decisions */
+.dec{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:0;overflow:hidden}
+.dec > div{background:var(--surface);display:grid;grid-template-columns:minmax(180px,.8fr) 2fr;gap:20px;padding:16px 20px}
+.dec .q{font-weight:600;font-size:15px}
+.dec .a{font-size:14.5px;color:var(--ink-2)}
+.dec .a strong{color:var(--ink)}
+@media(max-width:640px){.dec>div{grid-template-columns:1fr;gap:6px}}
+footer{padding:36px 0 60px;color:var(--ink-3);font-size:13px;border-top:1px solid var(--line)}
+@media (prefers-reduced-motion: reduce){.msg,.step{transition:none}.dot.work,.st.work i,.caret{animation:none}}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="top">
+    <div>
+      <div class="eyebrow">Product design · v0 · desktop</div>
+      <h1>Beam</h1>
+      <div class="tag">Argue it out. Then beam it.</div>
+    </div>
+    <div class="meta">
+      <div>Apekshik &amp; Noah</div>
+      <div>1 Sep 2026 · working draft</div>
+    </div>
+  </div>
+  <div class="pitch">
+    <p>A desktop app where your team and your coding agents share one chat chat. You and your teammates discuss an architectural change in the open, disagree, converge. Then someone types <span class="mention claude">@claude</span> or <span class="mention codex">@codex</span> in that same chat and the agent goes and does it, live, where everyone can watch, steer, and approve.</p>
+    <p><em>Today every coding agent is a one-on-one conversation. Beam makes it a room.</em></p>
+  </div>
+</header>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">The paradigm</div>
+    <h2>The chat is the workspace</h2>
+    <p class="lede">The thing that felt new in Conductor was not the agent. It was that the argument and the execution happened in the same place. Beam builds the whole product around that one loop.</p>
+  </div>
+  <div class="loop">
+    <div class="h"><div class="who">humans</div><div class="k">Discuss</div><p>Talk like you would in Slack. Paste stack traces, link files, disagree. Nothing here goes to an agent until someone asks.</p></div>
+    <div class="h"><div class="who">humans</div><div class="k">Decide</div><p>The plan emerges from the conversation. No separate spec document: the last few messages are the spec.</p></div>
+    <div class="a"><div class="who">agent</div><div class="k">Dispatch</div><p>An @mention sends the chat's context to Claude Code or Codex. It works in a branch, in the open. Anyone can steer it mid-run.</p></div>
+    <div class="a"><div class="who">agent → humans</div><div class="k">Land</div><p>The run ends as a pushed branch and a PR card in the chat. The discussion picks up right where it left off, now about the diff.</p></div>
+  </div>
+  <div class="prose col" style="margin-top:28px">
+    <p><strong>Not a chat client.</strong> A workspace is a repo and the collection of chats about it. The sidebar is where workspaces live: create one, switch between them, see each one's chats nested underneath with what is running. You open a few chats as tabs, the way you open files in an editor, and close them when they land. There are no channels and no unread badges nagging you. The chrome is flat, hard-edged, and mostly monospace, so it reads as a tool, not a lounge.</p>
+    <p><strong>Three rules keep it honest.</strong></p>
+    <ul>
+      <li><strong>Agents only speak when spoken to.</strong> Humans chat freely. An agent reads the chat only when mentioned, and it sees everything above the mention, so "take the plan above" just works.</li>
+      <li><strong>Git is the shared filesystem.</strong> Beam never syncs files between laptops. Every run happens in a git worktree on one machine and lands as a branch. Everyone else pulls.</li>
+      <li><strong>One chat, one active branch, one run at a time.</strong> A chat works on one branch until its PR merges, then rotates to a fresh branch off main for the next piece, in the same worktree with the same chat as context. Two agents never edit the same branch concurrently. Parallel work means parallel chats.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">The app</div>
+    <h2>One chat, start to finish</h2>
+    <p class="lede">A real scenario: you and Noah settling where JWT validation should live, then sending Claude Code to build it. Press replay to watch the chat unfold.</p>
+  </div>
+  <div class="appwrap">
+    <div class="toolbar">
+      <div class="note">Left: workspaces and their chats. Top: the chats you have open. Everything else happens in the chat.</div>
+      <button class="replay" id="replay" type="button">▶ Replay the scenario</button>
+    </div>
+    <div class="app" aria-label="Beam desktop app mock">
+      <div class="titlebar">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="ws"><span class="wsn">acme/platform</span><span class="wsb">main ↑2</span></div>
+        <div class="right"><div class="pres"><span class="av me">AP</span><span class="av noah">NB</span></div></div>
+      </div>
+            <div class="body">
+        <aside class="side">
+          <div class="sb-top"><span class="sb-brand">BEAM</span><span class="sb-ic">⌕</span></div>
+          <div class="sb-act">+ New chat <span class="k">⌘T</span></div>
+          <div class="sb-sec">Workspaces</div>
+          <div class="ws-item on"><span class="ws-ic">▣</span><span class="nm">acme/platform</span><span class="cnt">4</span></div>
+          <div class="th-item open on"><span class="dot work"></span><span class="nm">auth-service split</span><span class="k">#412</span></div>
+          <div class="th-item open"><span class="dot ok"></span><span class="nm">flaky e2e on CI</span><span class="k">#409</span></div>
+          <div class="th-item open"><span class="dot"></span><span class="nm">migrate cron to workers</span></div>
+          <div class="th-item"><span class="dot"></span><span class="nm">rate limit per tenant</span><span class="k">landed</span></div>
+          <div class="ws-item"><span class="ws-ic">▢</span><span class="nm">acme/web</span><span class="cnt">2</span></div>
+          <div class="ws-item"><span class="ws-ic">▢</span><span class="nm">noahb/infra</span><span class="cnt">1</span></div>
+          <div class="sb-act sb-new">+ New workspace</div>
+          <div class="sb-sec">Agents <span class="sb-plus" title="Add an agent: Kimi CLI, Gemini CLI, or any harness with a JSON stream">+</span></div>
+          <div class="ag-item on"><span class="av claude">C</span><span class="nm">Claude Code</span><span class="dot work"></span><span class="sub">Fable 5.1 · high</span></div>
+          <div class="ag-item"><span class="av codex">X</span><span class="nm">Codex</span><span class="dot"></span><span class="sub">GPT-5.6 Sol · medium</span></div>
+          <div class="sb-sec">People <span class="sb-plus" title="Invite a member by GitHub login">+</span></div>
+          <div class="ag-item"><span class="av me">AP</span><span class="nm">Apekshik</span><span class="dot ok"></span><span class="sub">host · MacBook Pro</span></div>
+          <div class="ag-item"><span class="av noah">NB</span><span class="nm">Noah</span><span class="dot ok"></span><span class="sub">host · Mac Studio</span></div>
+        </aside>
+
+        <div class="pane">
+        <div class="tabs-strip">
+                <div class="tab on"><span class="dot work" id="dotwork"></span><span class="tn">auth-service split</span><span class="tx">×</span></div>
+        <div class="tab"><span class="dot ok"></span><span class="tn">flaky e2e on CI</span><span class="tx">×</span></div>
+        <div class="tab"><span class="dot"></span><span class="tn">migrate cron to workers</span><span class="tx">×</span></div>
+        <div class="tab new">+</div>
+        <div class="strip-sp"></div>
+        <div class="strip-k">⌘T new chat · ⌘K jump</div>
+      </div>
+        <div class="pane-body">
+        <main class="chat">
+          <div class="thead">
+            <span class="t">auth-service split</span>
+            <span class="chip">feat/auth-split</span>
+            <span class="sp"></span>
+            
+          </div>
+          <div class="msgs" id="msgs">
+            <div class="msg" data-t="0">
+              <span class="av noah">NB</span>
+              <div><div class="hd"><span class="nm noah">Noah</span><span class="tm">14:02</span></div>
+              <div class="tx">I still think session validation belongs in the gateway. Right now every service re-checks the JWT and needs its own JWKS cache. That's the thing that bit us on Friday.</div></div>
+            </div>
+            <div class="msg" data-t="1400">
+              <span class="av me">AP</span>
+              <div><div class="hd"><span class="nm me">Apekshik</span><span class="tm">14:04</span></div>
+              <div class="tx">Agree on gateway. But I don't want a flag day. Keep the per-service check behind a flag for one release so we can roll back if the gateway header gets spoofed somewhere.</div></div>
+            </div>
+            <div class="msg" data-t="2800">
+              <span class="av noah">NB</span>
+              <div><div class="hd"><span class="nm noah">Noah</span><span class="tm">14:05</span></div>
+              <div class="tx">Fine. Flag is <code>TRUST_GATEWAY_AUTH</code>, default off. Gateway validates once, strips the bearer, forwards a signed <code>x-internal-user</code> header. Services verify the signature instead of the JWT when the flag is on.</div></div>
+            </div>
+            <div class="msg dispatch" data-t="4200">
+              <span class="av me">AP</span>
+              <div><div class="hd"><span class="nm me">Apekshik</span><span class="tm">14:06</span></div>
+              <div class="tx"><span class="mention claude">@claude</span> take the plan above. Start with the gateway middleware and the flag in auth-service. Draft PR against main. Don't touch billing-service yet.</div></div>
+            </div>
+
+            <div class="msg" data-t="5200">
+              <span class="av claude">C</span>
+              <div><div class="hd"><span class="nm claude">Claude Code</span><span class="tm">14:06</span><span class="tm">running on apekshik's machine</span></div>
+              <div class="tx">On it. Here's the flow as I read it, shout if it's wrong. Gateway middleware first, then the flag in auth-service. Draft PR against main, billing-service stays untouched.</div>
+              <div class="artcard on"><span class="ai">◫</span><div><div class="ttl">Auth flow</div><div class="mt">diagram · click to collapse</div></div></div>
+              <div class="artbox"><svg viewBox="0 0 300 330"  role="img" aria-label="Auth flow diagram">
+              <g style="font-family:'IBM Plex Mono',monospace;font-size:11px">
+                <rect x="90" y="12" width="120" height="34" style="fill:var(--surface);stroke:var(--line-2)"/>
+                <text x="150" y="33" text-anchor="middle" style="fill:var(--ink)">client</text>
+                <line x1="150" y1="46" x2="150" y2="78" style="stroke:var(--line-2)"/>
+                <text x="158" y="66" style="fill:var(--ink-3);font-size:10px">Bearer JWT</text>
+                <rect x="40" y="80" width="220" height="70" style="fill:var(--surface);stroke:var(--claude)"/>
+                <text x="150" y="101" text-anchor="middle" style="fill:var(--ink);font-weight:500">gateway</text>
+                <text x="150" y="118" text-anchor="middle" style="fill:var(--ink-2);font-size:10px">validate JWT once · JWKS cache</text>
+                <text x="150" y="134" text-anchor="middle" style="fill:var(--ink-2);font-size:10px">strip bearer · sign x-internal-user</text>
+                <line x1="95" y1="150" x2="95" y2="196" style="stroke:var(--line-2)"/>
+                <line x1="205" y1="150" x2="205" y2="196" style="stroke:var(--line-2)"/>
+                <text x="12" y="176" style="fill:var(--ink-3);font-size:10px">x-internal-user</text>
+                <text x="212" y="176" style="fill:var(--ink-3);font-size:10px">x-internal-user</text>
+                <rect x="30" y="198" width="130" height="64" style="fill:var(--surface);stroke:var(--line-2)"/>
+                <text x="95" y="219" text-anchor="middle" style="fill:var(--ink);font-weight:500">auth-service</text>
+                <text x="95" y="236" text-anchor="middle" style="fill:var(--claude);font-size:10px">flag on: verify sig</text>
+                <text x="95" y="250" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">flag off: full JWT</text>
+                <rect x="170" y="198" width="110" height="64" style="fill:var(--surface);stroke:var(--line-2);stroke-dasharray:4 3"/>
+                <text x="225" y="219" text-anchor="middle" style="fill:var(--ink-2);font-weight:500">billing-service</text>
+                <text x="225" y="236" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">untouched</text>
+                <text x="225" y="250" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">still full JWT</text>
+                <text x="150" y="296" text-anchor="middle" style="fill:var(--ink-3);font-size:10px">TRUST_GATEWAY_AUTH · default off · one release</text>
+                <text x="150" y="314" text-anchor="middle" style="fill:var(--bad);font-size:10px">open: reject if header already present?</text>
+              </g>
+            </svg></div>
+              <div class="act">
+                <div class="ah"><span class="tog">▾</span><span>Working in</span><span class="chip">feat/auth-split</span><span class="st work" id="runst"><i></i><span id="runtime">4m 12s</span></span></div>
+                <div class="steps">
+                  <div class="step ok" data-t="5800"><span class="ic">✓</span><span>Read gateway/src/middleware (6 files), auth-service/src/config.ts</span><span class="r">3s</span></div>
+                  <div class="step ok" data-t="6600"><span class="ic">✓</span><span>Wrote gateway/src/middleware/trustAuth.ts</span><span class="r">+118</span></div>
+                  <div class="step ok" data-t="7400"><span class="ic">✓</span><span>Edited auth-service/src/config.ts · added TRUST_GATEWAY_AUTH</span><span class="r">+9 −1</span></div>
+                </div>
+              </div>
+              </div>
+            </div>
+
+            <div class="msg steer" data-t="8200">
+              <span class="av noah">NB</span>
+              <div><div class="hd"><span class="nm noah">Noah</span><span class="tm">14:08</span></div>
+              <div class="tx"><span class="mention claude">@claude</span> make the header name configurable too, we'll rename it later.</div>
+              <div class="rcpt"><span class="ic">↳</span> Claude picked this up at 14:08:31, between steps</div></div>
+            </div>
+
+            <div class="msg" data-t="9000">
+              <span class="av claude">C</span>
+              <div><div class="hd"><span class="nm claude">Claude Code</span><span class="tm">14:08</span></div>
+              <div class="tx">Got it. Header name comes from <code>INTERNAL_USER_HEADER</code>, default <code>x-internal-user</code>.</div>
+              <div class="act closed">
+                <div class="ah"><span class="tog">▸</span><span>1 edit · then tests</span><span class="st done"><i></i>52s</span></div>
+                <div class="steps">
+                  <div class="step ok"><span class="ic">✓</span><span>Edited trustAuth.ts · header from INTERNAL_USER_HEADER</span><span class="r">+6 −2</span></div>
+                  <div class="step ok"><span class="ic">✓</span><span>Wrote gateway/test/trustAuth.test.ts</span><span class="r">+36</span></div>
+                </div>
+              </div>
+              </div>
+            </div>
+
+            <div class="msg ask" data-t="9800">
+              <span class="av claude">C</span>
+              <div><div class="hd"><span class="nm claude">Claude Code</span><span class="tm">14:09</span></div>
+              <div class="tx">Can I run <code>pnpm -w test --filter gateway auth-service</code>? Takes about a minute.</div>
+              <div class="perm"><span class="did">Allowed · Noah · 14:09</span><span>Deny</span></div>
+              <div class="act closed">
+                <div class="ah"><span class="tog">▸</span><span>tests · push · PR</span><span class="st done"><i></i>1m 04s</span></div>
+                <div class="steps">
+                  <div class="step ok"><span class="ic">✓</span><span>pnpm -w test · 61 passed, 0 failed</span><span class="r">48s</span></div>
+                  <div class="step ok"><span class="ic">✓</span><span>Pushed feat/auth-split</span><span class="r">4s</span></div>
+                  <div class="step ok"><span class="ic">✓</span><span>Opened draft PR #412</span><span class="r">2s</span></div>
+                </div>
+              </div>
+              </div>
+            </div>
+
+            <div class="msg" data-t="11600">
+              <span class="av claude">C</span>
+              <div><div class="hd"><span class="nm claude">Claude Code</span><span class="tm">14:10</span></div>
+              <div class="tx">Done, take a look at #412. Gateway validates the JWT once and forwards <code>x-internal-user</code> signed with the shared secret. auth-service verifies that signature when <code>TRUST_GATEWAY_AUTH</code> is on and falls back to full JWT validation when off. billing-service untouched.</div>
+              <div class="tx" style="margin-top:6px">Two things I need from you: where the shared secret lives in prod, and whether the gateway should reject requests that already carry the internal header.</div>
+              <div class="pr" data-t="12400">
+                <div class="ico">⎇</div>
+                <div><div class="ttl">#412 Gateway-side auth behind TRUST_GATEWAY_AUTH</div>
+                <div class="mt"><span>Draft</span><span class="add">+214</span><span class="del">−38</span><span>6 files</span><span>checks running</span></div></div>
+              </div>
+              </div>
+            </div>
+
+            <div class="msg" data-t="13600">
+              <span class="av noah">NB</span>
+              <div><div class="hd"><span class="nm noah">Noah</span><span class="tm">14:11</span></div>
+              <div class="tx">Reject if the header is already present, obviously. <span class="mention codex">@codex</span> review #412, specifically whether the JWKS cache warmup still runs when the flag is on.</div></div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="popover" id="pop">
+              <div class="ph">Agents</div>
+              <div class="po sel"><span class="av claude">C</span><span>Claude Code</span><span class="d">Fable 5.1 · high</span></div>
+              <div class="po"><span class="av codex">X</span><span>Codex</span><span class="d">GPT-5.6 Sol · medium</span></div>
+              <div class="ph">People</div>
+              <div class="po"><span class="av noah">NB</span><span>Noah</span><span class="d">online</span></div>
+            </div>
+            <div class="in" id="cin" role="button" tabindex="0" aria-expanded="false" aria-controls="pop"><span class="ph">Message auth-service split, or @mention an agent</span><span class="caret"></span></div>
+            <div class="ft"><span>⏎ send</span><button type="button" id="atbtn">@ mention</button><span class="sp"></span><span>chat → feat/auth-split</span></div>
+          </div>
+        </main>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:36px">
+    <div class="eyebrow" style="margin-bottom:14px">What each kind of message is</div>
+    <div class="legend">
+      <div><div class="sw" style="background:var(--noah)"></div><h3>Human message</h3><p>Plain chat, colored per person. Never sent to an agent on its own, even while one is working in the chat.</p></div>
+      <div><div class="sw" style="background:var(--claude)"></div><h3>Dispatch</h3><p>A message that @mentions an idle agent. It gets a left rule. The agent receives the chat above it as context and this message as the ask.</p></div>
+      <div><div class="sw" style="background:var(--claude)"></div><h3>Agent reply</h3><p>The agent talks like a teammate who picked up the ticket: "On it", "Got it", "Done, take a look at #412." Its words are the message. Consecutive turns from one sender share a header, human or agent, and the header comes back whenever the sender changes.</p></div>
+      <div><div class="sw" style="background:var(--ink-3)"></div><h3>Activity</h3><p>Folded under each agent reply: the tool calls that happened, one line each, expandable to raw output. It is the receipt, not the conversation. Only the live one starts open.</p></div>
+      <div><div class="sw" style="background:var(--claude)"></div><h3>Steer</h3><p>An @mention of an agent that is already working. A normal message from a normal person. It queues, lands at the agent's next turn, and shows a receipt for when it was picked up. The agent answers in its own words, then continues.</p></div>
+      <div><div class="sw" style="background:var(--warn)"></div><h3>Ask</h3><p>The harness's permission prompt, phrased as a question from the agent. Anyone in the chat can answer. The message records who did.</p></div>
+      <div><div class="sw" style="background:var(--claude)"></div><h3>Artifact</h3><p>Anything that doesn't fit a chat bubble: a plan, a diagram, a diff, a table, the run log. Posted as a card in the chat. Click the card and it expands in place, click again and it folds. Humans and agents both post them.</p></div>
+      <div><div class="sw" style="background:var(--ink-3)"></div><h3>Landing card</h3><p>The branch and PR a run produced, with files touched. Every run ends with one, even a failed run, so the chat always says what state the branch is in.</p></div>
+    </div>
+  </div>
+  <div class="prose col" style="margin-top:28px">
+    <p><strong>How steering works.</strong> A run is one logical thing, but the chat never shows it as one block. Every time a human speaks during the run, the agent's current turn closes and whatever it does next opens under a new reply. Chronology holds, and human messages stay human messages.</p>
+    <ul>
+      <li><strong>Plain messages during a run are just chat.</strong> You and Noah can argue while Claude works without Claude reading it mid-task. It sees that conversation when the run ends or on the next dispatch.</li>
+      <li><strong>@mentioning the working agent steers it.</strong> The message is queued and delivered as the agent's next user turn, after the in-flight tool call finishes.</li>
+      <li><strong>Interrupt is the brake.</strong> Cancels the current tool call and delivers the message now. Stop lives on the activity header and ends the run.</li>
+      <li><strong>Receipts, not guesses.</strong> A steer shows "queued" until the agent's next turn consumes it, then "picked up 14:08:31." The agent's acknowledgement is its next reply.</li>
+      <li><strong>Two steers before the next turn arrive together,</strong> in order, as one user turn.</li>
+    </ul>
+    <p><strong>No side panel.</strong> There is one surface, the chat. Artifacts are cards that expand in place, so the record and the viewer are the same thing and the conversation always has full width. A document that matters to the whole workspace is a chat of its own, pinned at the top of the sidebar, and agents get pinned chats as context on dispatch.</p>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Harnesses</div>
+    <h2>Bring your own agent</h2>
+    <p class="lede">Beam does not ship a model. It talks to the coding harnesses you already pay for, through the headless interfaces they already expose. Agents belong to the workspace, not to a person. A run happens on the machine of whoever dispatched it.</p>
+  </div>
+  <div class="wire">
+    <div class="box">
+      <h3>Beam desktop</h3>
+      <ul>
+        <li>Chat UI, presence, mentions</li>
+        <li>Builds the prompt: chat transcript + dispatch message + repo conventions</li>
+        <li>Renders agent event stream as a work card</li>
+        <li>Routes permission asks to the chat and answers back</li>
+      </ul>
+    </div>
+    <div class="arrow">spawn<b></b>events</div>
+    <div class="box">
+      <h3>Harness adapter</h3>
+      <p class="mono">start(chat, worktree) → run</p>
+      <p class="mono">run.send(text) · run.approve(id) · run.cancel()</p>
+      <p class="mono">run.events: text · tool · ask · done</p>
+      <ul>
+        <li>One adapter per harness, one normalized event shape</li>
+        <li>Creates the git worktree, pushes the branch, opens the PR</li>
+        <li>Keeps the session id so a later @mention resumes instead of restarting</li>
+      </ul>
+    </div>
+    <div class="arrow">stdio<b></b>json</div>
+    <div class="stack">
+      <div class="agent"><div class="t"><i class="claude" style="background:var(--claude)"></i>Claude Code</div><div class="mono">Agent SDK, or <code>claude -p</code> with stream-json in and out. Permission callback answers come from the chat. Sessions resume by id.</div></div>
+      <div class="agent"><div class="t"><i class="codex" style="background:var(--codex)"></i>Codex</div><div class="mono">Codex app-server protocol over stdio (what the IDE extension uses), <code>codex exec --json</code> as the fallback. Approval requests map to the same ask event.</div></div>
+      <div class="agent" style="border-style:dashed"><div class="t"><i style="background:var(--ink-3)"></i>Kimi CLI, Gemini CLI, next</div><div class="mono">Anything with a headless JSON stream gets an adapter. The adapter is the extension point, not a plugin marketplace.</div></div>
+    </div>
+  </div>
+
+  <div class="cfg-wrap">
+    <div class="prose col">
+      <p><strong>An agent is a harness plus its settings.</strong> Claude Code and Codex are the harnesses. What model runs inside, how hard it thinks, and what it is allowed to do without asking are per-agent settings, set once for the workspace and shown next to the agent's name in the sidebar. They apply no matter whose machine the run lands on. Add a second Claude Code with a different model and it is a second agent with its own name.</p>
+      <p>Open by clicking an agent in the sidebar. The fields are what the harness's headless interface actually accepts, nothing invented on top.</p>
+    </div>
+    <div class="cfg" aria-label="Agent settings panel mock">
+      <div class="cfg-h"><span class="cfg-tabs"><span class="ct on" data-agent="claude"><span class="av claude">C</span>Claude Code</span><span class="ct" data-agent="codex"><span class="av codex">X</span>Codex</span></span><span class="k" id="cfgk">workspace agent · needs Claude Code ≥ 2.4 locally</span></div>
+      <div class="cfg-row"><span>Name in chat</span><span class="val" id="cfgname">@claude</span></div>
+      <div class="cfg-row"><span>Model</span><span class="ddwrap"><span class="val sel" id="cfgmodel" role="button" tabindex="0" aria-expanded="false"><span id="cfgmodelv">Fable 5.1</span> <i>▾</i></span>
+        <span class="dd" id="cfgdd">
+          <span class="ddh">Anthropic</span><span class="ddo on">Fable 5.1</span><span class="ddo">Fable 5.0</span><span class="ddo">Opus 5.0</span><span class="ddo">Sonnet 5.0</span>
+        </span></span></div>
+      <div class="cfg-row"><span>Reasoning effort</span><span class="seg"><b>low</b><b>medium</b><b class="on">high</b><b>max</b></span></div>
+      <div class="cfg-row"><span>Permissions</span><span class="seg"><b class="on">ask in chat</b><b>auto-allow list</b><b>full auto</b></span></div>
+      <div class="cfg-row"><span>Always allow</span><span class="val mono">pnpm test, pnpm lint, git status, git diff</span></div>
+      <div class="cfg-row"><span>Worktrees</span><span class="val mono">~/.beam/acme-platform/&lt;chat&gt;</span></div>
+      <div class="cfg-row"><span>Context on dispatch</span><span class="seg"><b>last landing</b><b class="on">since last landing + summary</b><b>whole chat</b></span></div>
+      <div class="cfg-row"><span>Instructions</span><span class="val mono">CLAUDE.md, AGENTS.md from repo root</span></div>
+      <div class="cfg-f"><span>Changes apply to the next run</span><span class="btn">Save</span></div>
+    </div>
+  </div>
+  <div class="prose col" style="margin-top:28px">
+    <p><strong>Where a run happens: runners.</strong> Same idea as GitHub Actions runners. A runner is anything that can host a run. Every member's app registers as a runner while it is open. A headless Beam daemon on any box, a Mac mini in a closet, is a runner. A cloud sandbox per chat is a runner the workspace provisions. Dispatch picks the chat's pinned runner, else the agent's default, else the dispatcher's own machine. The chat header shows which runner is active, and the adapter does not care which kind it is.</p>
+    <p><strong>What the agent sees.</strong> The full chat above the dispatch, rendered as a transcript with speaker names, plus the repo's own agent instructions files. Not the whole workspace history. Long chats get summarized above a cutoff, with the last messages kept verbatim because those are the spec.</p>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Architecture</div>
+    <h2>How it holds together</h2>
+  </div>
+  <div class="dec">
+    <div><div class="q">Desktop shell</div><div class="a"><strong>Electron + React.</strong> Both harness SDKs are Node, the adapters spawn child processes and need PTYs, and you already live in React. Tauri is lighter but puts the adapters across a Rust boundary for no gain at this stage.</div></div>
+    <div><div class="q">Sync layer</div><div class="a"><strong>Convex.</strong> Chats, messages, presence, and the agent event stream are all live queries. The host machine writes agent events as they arrive. Everyone else's app subscribes. You know the stack, and it removes the need to build a relay server for v0.</div></div>
+    <div><div class="q">Workspace and chats</div><div class="a"><strong>Sign in with GitHub. A workspace is a team space with connected repos.</strong> A chat attaches one repo; the runner creates the worktree and branch on the first dispatch, so nobody manages branches by hand. A new chat starts with just you and people are invited in; by default an invite also adds the person to the chat you're in. Open chats are tabs, per person: which tabs you have open is your business, not shared state.</div></div>
+    <div><div class="q">Runners</div><div class="a"><strong>Local runners in v0, self-hosted daemon if cheap, cloud runners in v1.</strong> Local runs use each person's install and subscription login and need no infrastructure. Cloud runners survive laptops sleeping and let anyone resume, but run on API keys, so the workspace pays per token. That is the right bill for a team and the wrong one for two friends this month.</div></div>
+    <div><div class="q">Code movement</div><div class="a"><strong>Git only.</strong> The host runs the agent in a worktree under a Beam directory, never in the user's main checkout. Push plus PR is the only way work leaves the host. No file sync, no shared volumes.</div></div>
+    <div><div class="q">Permissions</div><div class="a"><strong>Anyone in the chat can answer an ask.</strong> Two people is a team of equals. The card records who answered. Per-workspace policy (host-only, or auto-allow a command list) can come later.</div></div>
+    <div><div class="q">Private chats</div><div class="a"><strong>Same object, one member.</strong> A private chat belongs to the workspace, gets a branch on first dispatch, and can @mention any workspace agent. Only it may pin a default agent, so plain messages dispatch without a mention. Share is one click and exposes the whole history; a shared chat never goes private again, and the pin clears on share. Each workspace's plus offers Team chat or Private chat.</div></div>
+    <div><div class="q">Concurrency</div><div class="a"><strong>One active run per chat.</strong> A second @mention while a run is live is a steer, not a new run. Mentioning a different agent while one is running queues it and says so in the chat.</div></div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Scope</div>
+    <h2>What v0 is</h2>
+    <p class="lede">The bar: you and Noah use it for a real multi-PR change and prefer it to Conductor for that one job.</p>
+  </div>
+  <div class="scope">
+    <div>
+      <h3><i style="background:var(--ok)"></i>In</h3>
+      <ul>
+        <li>One workspace per GitHub repo, invite by GitHub login</li>
+        <li>Team and private chats, open as tabs, presence shows which chat each person has focused</li>
+        <li>Connect Claude Code and Codex from the local machine, with per-agent model, reasoning effort, and permission settings</li>
+        <li>Dispatch, live work card, steer mid-run, permission asks in-chat</li>
+        <li>Worktree per chat, push branch, open draft PR, landing card</li>
+        <li>Resume an agent session on the next @mention in the same chat</li>
+        <li>Inline artifacts: diagrams, plans, diffs, tables, run log, as cards that expand in the chat</li>
+        <li>Local runners, plus the headless runner daemon if it fits</li>
+      </ul>
+    </div>
+    <div>
+      <h3><i style="background:var(--ink-3)"></i>Not yet</h3>
+      <ul>
+        <li>Cloud runners <span>· laptops and a closet box for now</span></li>
+        <li>In-app diff review <span>· the PR is the review surface</span></li>
+        <li>More than two harnesses <span>· adapter shape first</span></li>
+        <li>Agents talking to each other unprompted <span>· humans dispatch</span></li>
+        <li>Multi-repo workspaces, voice, mobile</li>
+        <li>Permission policies, roles, admin</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">The name</div>
+    <h2>Why Beam</h2>
+    <p class="lede">A Supraluminal Intelligence product, so the name comes from the same world. A beam is light on its way somewhere, and a beamline is the shared line in a lab where the runs happen. It is also the verb for the key moment: talk it out, then beam it over. One syllable, spelled the way it sounds.</p>
+  </div>
+  <div class="names">
+    <div class="pick"><div class="n">Beam</div><p>Light in transit, the beamline in a lab, and the verb for dispatch. Short, verb-able, on-brand without needing the physics explained.</p></div>
+    <div><div class="n">Cherenkov</div><p>The glow when something exceeds light speed in a medium, and already the company's color for "live." The tightest brand tie, and nobody spells it right the first time.</p></div>
+    <div><div class="n">Worldline</div><p>One object's path through spacetime, shared here by humans and agents. Best concept fit. Worldline SA, a payments company, holds the mark in software.</p></div>
+    <div><div class="n">Lightcone</div><p>Exactly the context rule: the agent sees the past light cone of the dispatch. Owned in the AI community by Lightcone Infrastructure.</p></div>
+    <div><div class="n">Parley</div><p>The working name before this was a Supraluminal product. Named the arguing well, had nothing to do with physics.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Open questions</div>
+    <h2>Decide before building</h2>
+  </div>
+  <div class="prose col">
+    <ul>
+      <li><strong>Whose subscription runs the agent?</strong> The dispatcher's, in v0, because the run is on their machine. Fair by default: you pay for what you send. It does mean two people dispatching the same agent can get different harness versions, which the settings panel should flag. Cloud runners make this a workspace bill later.</li>
+      <li><strong>How much chat goes to the agent?</strong> Everything above the mention, or from the last landing card? Proposed: everything since the last landing card, plus a summary of what came before.</li>
+      <li><strong>Should a human be able to edit the agent's context before dispatch?</strong> A "preview what Claude will see" toggle on the composer is cheap and probably worth it.</li>
+      <li><strong>What happens when a local runner closes the laptop mid-run?</strong> The run dies, the activity block says so, the branch has whatever was pushed. A later @mention resumes from the session id on any runner that has the worktree, which in v0 means the same machine. The headless daemon exists to make this rare.</li>
+      <li><strong>Does the chat name the branch, or the other way around?</strong> Proposed: creating a chat creates the branch from the chat name. Renaming the chat does not rename the branch.</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="wrap" style="padding-left:0;padding-right:0">Beam · Supraluminal Intelligence · design draft · nothing here is built yet</footer>
+</div>
+
+<script>
+(function(){
+  var btn=document.getElementById('replay');
+  var items=Array.prototype.slice.call(document.querySelectorAll('#msgs [data-t]'));
+  var runst=document.getElementById('runst');
+  var runtime=document.getElementById('runtime');
+  var dot=document.getElementById('dotwork');
+  var msgsEl=document.getElementById('msgs');
+  (function group(){var prev=null;Array.prototype.forEach.call(msgsEl.querySelectorAll('.msg'),function(m){var av=m.querySelector('.av');var who=av?av.className.replace('av','').trim():'';if(who&&who===prev)m.classList.add('cont');prev=who;});})();
+  function toBottom(){msgsEl.scrollTop=msgsEl.scrollHeight;}
+  toBottom();
+  var timers=[];
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function reset(){
+    timers.forEach(clearTimeout);timers=[];
+    items.forEach(function(el){el.classList.remove('hide')});
+    
+    runst.classList.remove('done');runst.classList.add('work');runtime.textContent='4m 12s';
+    dot.classList.add('work');
+    btn.disabled=false;btn.textContent='▶ Replay the scenario';
+  }
+  function play(){
+    if(reduce){reset();return;}
+    timers.forEach(clearTimeout);timers=[];
+    items.forEach(function(el){el.classList.add('hide')});
+    msgsEl.scrollTop=0;
+    
+    runst.classList.remove('done');runst.classList.add('work');
+    dot.classList.add('work');
+    btn.disabled=true;btn.textContent='Playing…';
+    var t0=0,last=0;
+    items.forEach(function(el){
+      var t=parseInt(el.getAttribute('data-t'),10);
+      last=Math.max(last,t);
+      timers.push(setTimeout(function(){
+        el.classList.remove('hide');
+        toBottom();
+        if(el.classList.contains('pr')){runst.classList.remove('work');runst.classList.add('done');runtime.textContent='done · 4m 12s';}
+      },t));
+    });
+    var tick=0;
+    var tickTimer=setInterval(function(){
+      if(runst.classList.contains('done')){clearInterval(tickTimer);return;}
+      tick++;var s=tick*30;var m=Math.floor(s/60);var r=s%60;
+      runtime.textContent=m+'m '+(r<10?'0':'')+r+'s';
+    },900);
+    timers.push(setTimeout(function(){clearInterval(tickTimer);btn.disabled=false;btn.textContent='▶ Replay the scenario';},last+700));
+  }
+  btn.addEventListener('click',play);
+  (function cfg(){
+    var models={claude:{h:'Anthropic',list:['Fable 5.1','Fable 5.0','Opus 5.0','Sonnet 5.0'],cur:'Fable 5.1',name:'@claude',k:'workspace agent · needs Claude Code ≥ 2.4 locally'},
+                codex:{h:'OpenAI',list:['GPT-5.6 Sol','GPT-5.6 Terra','GPT-5.6 Luna'],cur:'GPT-5.6 Sol',name:'@codex',k:'workspace agent · needs Codex CLI ≥ 0.9 locally'}};
+    var agent='claude';
+    var wrap=document.querySelector('.ddwrap'),sel=document.getElementById('cfgmodel'),dd=document.getElementById('cfgdd'),v=document.getElementById('cfgmodelv');
+    function render(){var m=models[agent];v.textContent=m.cur;document.getElementById('cfgname').textContent=m.name;document.getElementById('cfgk').textContent=m.k;
+      dd.innerHTML='<span class="ddh">'+m.h+'</span>'+m.list.map(function(x){return '<span class="ddo'+(x===m.cur?' on':'')+'">'+x+'</span>'}).join('');}
+    function open(o){wrap.classList.toggle('open',o);sel.setAttribute('aria-expanded',o?'true':'false');}
+    sel.addEventListener('click',function(){open(!wrap.classList.contains('open'))});
+    sel.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();open(!wrap.classList.contains('open'));}});
+    dd.addEventListener('click',function(e){var o=e.target.closest('.ddo');if(!o)return;models[agent].cur=o.textContent;render();open(false);});
+    document.querySelectorAll('.cfg-tabs .ct').forEach(function(t){t.addEventListener('click',function(){agent=t.getAttribute('data-agent');document.querySelectorAll('.cfg-tabs .ct').forEach(function(x){x.classList.toggle('on',x===t)});render();open(false);});});
+    document.addEventListener('click',function(e){if(wrap.classList.contains('open')&&!wrap.contains(e.target))open(false)});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape')open(false)});
+    render();
+  })();
+
+  document.querySelectorAll('.act .ah').forEach(function(h){h.addEventListener('click',function(){h.parentNode.classList.toggle('closed');h.querySelector('.tog').textContent=h.parentNode.classList.contains('closed')?'▸':'▾';});});
+  var comp=document.querySelector('.composer'),cin=document.getElementById('cin'),atbtn=document.getElementById('atbtn');
+  function setOpen(o){comp.classList.toggle('open',o);cin.setAttribute('aria-expanded',o?'true':'false');
+    cin.innerHTML=o?'@cl<span class="caret"></span>':'<span class="ph">Message auth-service split, or @mention an agent</span><span class="caret"></span>';}
+  function toggle(){setOpen(!comp.classList.contains('open'))}
+  cin.addEventListener('click',toggle);atbtn.addEventListener('click',toggle);
+  cin.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')setOpen(false)});
+  document.addEventListener('click',function(e){if(comp.classList.contains('open')&&!comp.contains(e.target))setOpen(false)});
+})();
+</script>

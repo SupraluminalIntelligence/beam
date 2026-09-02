@@ -1,0 +1,13 @@
+{
+  "name": "@beam/harness",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
+  "dependencies": {
+    "@beam/contracts": "workspace:*",
+    "@anthropic-ai/claude-agent-sdk": "latest"
+  }
+}
