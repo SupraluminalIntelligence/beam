@@ -9,6 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { ChatView } from "./ChatView";
 import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal } from "./Modals";
 import { Sidebar } from "./Sidebar";
+import { People } from "./People";
 import { TabStrip } from "./TabStrip";
 import { toast } from "./Toast";
 
@@ -78,8 +79,8 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
       <Sidebar me={me} workspaces={workspaces} wsId={wsId} detail={detail} chats={chats} presence={presence ?? []} runners={runnersOnline ?? []} tabs={tabs} activeId={activeId} onNewChat={newChat} setModal={setModal} />
       <div className="pane">
         <div className="titlebar">
-          <div className="tb-ws"><b>{detail.name}</b><span className="mono">{detail.repos.length} repo{detail.repos.length === 1 ? "" : "s"} · {detail.members.length} {detail.members.length === 1 ? "person" : "people"}</span></div>
-          <div className="tb-r"><button className="tb-k" onClick={() => setModal({ kind: "palette" })} title="Jump to chat">⌘K</button></div>
+          <div className="tb-ws"><b>{detail.name}</b><span className="mono">{detail.repos.length} repo{detail.repos.length === 1 ? "" : "s"}</span></div>
+          <div className="tb-r"><People me={me} members={detail.members} presence={presence ?? []} runners={runnersOnline ?? []} setModal={setModal} /><button className="tb-k" onClick={() => setModal({ kind: "palette" })} title="Jump to chat">⌘K</button></div>
         </div>
         <TabStrip wsId={wsId} chats={chats} tabs={tabs} activeId={activeId} onNew={() => void newChat(detail.members.length > 1 ? "team" : "private")} />
         <div className="pane-body">

@@ -53,7 +53,6 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
     catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
   };
   const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
-  const runnersOf = (login: string) => p.runners.filter((r) => r.online && r.ownerLogin === login);
 
   return (
     <aside className="side">
@@ -116,18 +115,6 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             </span>
           </div>
         ))}
-        <div className="sb-sec">People <button onClick={() => p.setModal({ kind: "invite" })} title="Invite a member by GitHub login">+</button></div>
-        {p.detail.members.map((l) => {
-          const online = p.presence.some((x) => x.login === l);
-          return (
-            <button key={l} className="pp-item" onClick={() => toast(`${l} · ${online ? "online" : "away"}`)}>
-              <PersonAvatar login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} />
-              <span className="nm">{nameOf(l)}</span>
-              <span className={`sq ${online ? "ok" : "idle"}`} />
-              <span className="sub">{[l === p.me.githubLogin ? "you" : online ? "online" : "away", ...(runnersOf(l).length ? [`runner · ${runnersOf(l).map((r) => r.name).join(", ")}`] : [])].join(" · ")}</span>
-            </button>
-          );
-        })}
         </div>
       </div>
       <div className="sb-foot" onClick={stop}>
