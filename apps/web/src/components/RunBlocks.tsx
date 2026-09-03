@@ -68,26 +68,34 @@ export function Requests({ view, turn, runId }: { view: RunView; turn: number; r
   ))}</>;
 }
 
-/** What a run left behind: the branch, the diff size, and the PR if `gh` could open one. */
+type Landing = { repos: { repo: string; branch: string; base: string; pushed: boolean; add: number; del: number; files: number; prUrl: string | null; compareUrl: string | null; error: string | null }[]; error: string | null };
+const openHref = (href: string) => { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); };
+
+/** What a run left behind, one card per repo it changed. Nothing changed: no card. */
 export function LandingCard({ run }: { run: Run }) {
-  const l = run.landing as null | { branch: string; base: string; pushed: boolean; add: number; del: number; files: number; prUrl: string | null; compareUrl: string | null; error: string | null };
-  if (!l) return run.state === "failed" ? <div className="ask fail"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div> : null;
-  const href = l.prUrl ?? l.compareUrl;
-  const open = () => { if (href) (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam?.openExternal?.(href) ?? window.open(href, "_blank"); };
-  return (
-    <button className="card" onClick={open} title={href ?? undefined}>
-      <span className="ai">⎇</span>
-      <div>
-        <div className="ttl">{l.branch}</div>
-        <div className="mt">
-          <span>{run.state === "interrupted" ? "stopped" : run.state === "failed" ? "failed" : l.pushed ? "pushed" : "not pushed"}</span>
-          {l.pushed && <><span className="add">+{l.add}</span><span className="del">−{l.del}</span><span>{l.files} file{l.files === 1 ? "" : "s"}</span></>}
-          {l.error && <span className="err">{l.error}</span>}
-          {href && <span className="hint">{l.prUrl ? "open draft PR" : "compare on GitHub"}</span>}
+  const raw = run.landing as null | Landing | { branch?: string };
+  if (!raw) return run.state === "failed" ? <div className="ask fail"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div> : null;
+  const l: Landing = "repos" in raw ? raw : { repos: [], error: null }; // runs from before threads had one branch; they show nothing
+  if (l.error) return <div className="ask fail"><span className="k">run failed</span><span>{l.error}</span></div>;
+  if (!l.repos.length) return null;
+  return <>{l.repos.map((r) => {
+    const href = r.prUrl ?? r.compareUrl;
+    return (
+      <button key={r.repo} className="card" onClick={() => href && openHref(href)} title={href ?? undefined}>
+        <span className="ai">⎇</span>
+        <div>
+          <div className="ttl">{r.branch}</div>
+          <div className="mt">
+            <span>{r.repo.split("/")[1]}</span>
+            <span>{run.state === "interrupted" ? "stopped" : r.pushed ? "pushed" : "not pushed"}</span>
+            {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}
+            {r.error && <span className="err">{r.error}</span>}
+            {href && <span className="hint">{r.prUrl ? "open PR" : "compare on GitHub"}</span>}
+          </div>
         </div>
-      </div>
-    </button>
-  );
+      </button>
+    );
+  })}</>;
 }
 
 /** The state line for a run that has not produced text yet. */
@@ -95,7 +103,7 @@ export function RunStatus({ run, view }: { run: Run; view: RunView | null }) {
   if (run.state === "queued") return <div className="rstat"><i />waiting for {run.runnerName}</div>;
   if (run.state === "starting") return <div className="rstat"><i />preparing worktree on {run.runnerName}</div>;
   if (run.state === "working" && !view?.turns.length) return <div className="rstat"><i />starting on {run.runnerName}</div>;
-  if (run.state === "landing") return <div className="rstat"><i />pushing {run.branch}</div>;
+  if (run.state === "landing") return <div className="rstat"><i />pushing</div>;
   if (view?.errors.length && (run.state === "failed" || !isLive(run.state))) return <div className="rstat bad">{view.errors[view.errors.length - 1]}</div>;
   return null;
 }

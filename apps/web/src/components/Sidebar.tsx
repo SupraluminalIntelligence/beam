@@ -40,7 +40,8 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
     return () => document.removeEventListener("click", close);
   }, []);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const status = (_c: Doc<"chats">) => "idle";
+  const status = (c: Doc<"chats">) => (c.state === "settled" ? "settled" : c.state === "done" ? "done" : "idle");
+  const [showDone, setShowDone] = useState(false);
   const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
   const runnersOf = (login: string) => p.runners.filter((r) => r.online && r.ownerLogin === login);
 
@@ -62,7 +63,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                 <button className="ws-plus" onClick={() => setNewPop(newPop === w.id ? null : w.id)} title={`New chat in ${w.name}`}>+</button>
                 <NewPop open={newPop === w.id} wsName={w.name} onPick={(k) => { setNewPop(null); ui.setWorkspace(w.id); p.onNewChat(k); }} />
               </div>
-              {on && p.chats.map((c) => {
+              {on && [...p.chats.filter((c) => !c.state || c.state === "open"), ...(showDone ? p.chats.filter((c) => c.state && c.state !== "open") : [])].map((c) => {
                 const here = p.presence.filter((x) => x.chatId === c._id).map((x) => x.login);
                 return (
                   <button key={c._id} className={`th-item${p.tabs.includes(c._id) ? " open" : ""}${p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(p.wsId, c._id)}>
@@ -73,6 +74,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                   </button>
                 );
               })}
+              {on && p.chats.some((c) => c.state && c.state !== "open") && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {p.chats.filter((c) => c.state && c.state !== "open").length} done</button>}
             </div>
           );
         })}

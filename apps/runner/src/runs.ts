@@ -1,20 +1,22 @@
 import type { ConvexClient } from "convex/browser";
-import type { Agent, RunEvent } from "@beam/contracts";
+import type { Agent, RepoLanding, RunEvent } from "@beam/contracts";
 import { adapters, type BeamTool, type Session } from "@beam/harness";
+import { compareUrl, defaultBranch, draftPullRequest, ensureMirror, ensureRepoWorktree, landRepo, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
 import { z } from "zod";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { beamHome, branchName, checkpointAndPush, compareUrl, defaultBranch, diffStat, draftPullRequest, ensureMirror, ensureWorktree } from "@beam/git";
 import { api } from "../../../convex/_generated/api.js";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 
+interface Change { _id: Id<"changes">; repo: string; branch: string; base: string; state: string; prUrl: string | null; prNumber: number | null; title: string }
 interface Detail {
   run: { _id: Id<"runs">; branch: string | null; resumeCursor: unknown };
-  chat: { _id: Id<"chats">; workspaceId: Id<"workspaces">; title: string; repo: string | null; activeBranch: string | null };
+  chat: { _id: Id<"chats">; workspaceId: Id<"workspaces">; title: string; repos: string[] };
   agent: { _id: Id<"agents">; harness: string; handle: string; model: string; effort: string; permissionMode: string; alwaysAllow: string[]; contextPolicy: string; workspaceId: Id<"workspaces"> };
   dispatch: { _id: Id<"messages">; text: string; author: string };
   transcript: { author: string; text: string; kind: string; _creationTime: number }[];
   previous: { resumeCursor: unknown; worktree: string | null } | null;
+  changes: Change[];
   agents: { id: Id<"agents">; handle: string; harness: string }[];
 }
 
@@ -34,58 +36,90 @@ export function watchRuns(client: ConvexClient, token: string) {
   return { active };
 }
 
+/** One repo's place in the thread directory. */
+interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null }
+
 async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
   const { chat, agent, dispatch } = d;
-  const repo = chat.repo;
-  log(runId, `dispatch from ${dispatch.author} → @${agent.handle}${repo ? ` on ${repo}` : " (no repo)"}`);
+  log(runId, `dispatch from ${dispatch.author} → @${agent.handle}${chat.repos.length ? ` in ${chat.repos.join(", ")}` : " (no repo yet)"}`);
 
-  // 1. Worktree on the chat's branch. First run names the branch; later runs reuse it.
-  //    Without a repo the agent talks from a scratch directory: no branch, nothing pushed.
-  let base = "main", branch: string | null = null, wt: string;
-  if (repo) {
-    branch = chat.activeBranch ?? d.run.branch ?? branchName(chat.title, runId);
-    try {
-      await ensureMirror(repo);
-      base = await defaultBranch(repo);
-      wt = await ensureWorktree(repo, chat.workspaceId, chat._id, branch, base);
-    } catch (e) {
-      return land(client, token, runId, "failed", null, null, `could not prepare worktree: ${(e as Error).message}`);
-    }
-  } else {
-    wt = join(beamHome(), "scratch", chat.workspaceId, chat._id);
-    await mkdir(wt, { recursive: true });
-  }
-  await client.mutation(api.runs.claim, { token, runId, branch, worktree: wt });
+  // 1. The thread directory: one worktree per repo, each on that repo's open change or a fresh thread branch.
+  const dir = threadDir(chat.workspaceId, chat._id);
+  await mkdir(dir, { recursive: true });
+  const slots = new Map<string, RepoSlot>();
+  const changes = [...d.changes];
+  const mount = async (repo: string): Promise<RepoSlot> => {
+    const have = slots.get(repo);
+    if (have) return have;
+    await ensureMirror(repo);
+    const base = await defaultBranch(repo);
+    const open = changes.find((c) => c.repo === repo && c.state === "open") ?? null;
+    const resolved = changes.filter((c) => c.repo === repo && c.state !== "open").length;
+    const branch = open?.branch ?? threadBranch(chat.title, chat._id, resolved);
+    const slotDir = join(dir, repoDirName(repo, [...slots.keys(), repo]));
+    await ensureRepoWorktree(repo, slotDir, branch, open?.base ?? base);
+    const slot = { repo, dir: slotDir, branch, base: open?.base ?? base, change: open };
+    slots.set(repo, slot);
+    return slot;
+  };
+  try { for (const repo of chat.repos) await mount(repo); }
+  catch (e) { return land(client, token, runId, "failed", [], `could not prepare a worktree: ${(e as Error).message}`, null); }
+  await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir });
 
-  // 2. Start the harness with the chat as context.
-  const adapter = adapters[agent.harness as keyof typeof adapters];
-  if (!adapter) return land(client, token, runId, "failed", branch, base, `no adapter for ${agent.harness}`);
-  const agentView: Agent = { id: agent._id as never, workspaceId: agent.workspaceId as never, harness: agent.harness as never, handle: agent.handle, model: agent.model, effort: agent.effort as never, permissionMode: agent.permissionMode as never, alwaysAllow: agent.alwaysAllow, contextPolicy: agent.contextPolicy as never };
-  const sameWorktree = d.previous?.worktree === wt;
-  const resumeCursor = sameWorktree ? d.previous?.resumeCursor ?? null : null;
-  const systemContext = renderContext(d, branch);
-  let attachedDuringRun: string | null = null;
+  // 2. Beam tools: the agent can grow the thread while it works.
   const tools: BeamTool[] = [
     {
-      name: "list_repos", description: "List the GitHub repos connected to this Beam workspace, and which one (if any) this chat is attached to.",
+      name: "list_repos", description: "List the repos connected to this workspace and which ones are mounted in this thread's directory.",
       schema: {},
-      run: async () => { const r = await client.query(api.runs.workspaceRepos, { token, runId }); return r.repos.length ? `Repos: ${r.repos.join(", ")}. Attached to this chat: ${r.attached ?? "none"}.` : "No repos are connected to this workspace yet. You can attach one by owner/name with attach_repo."; },
+      run: async () => { const r = await client.query(api.runs.workspaceRepos, { token, runId }); return `Workspace repos: ${r.repos.join(", ") || "none"}. Mounted in this thread: ${[...slots.values()].map((s) => `${s.repo} → ./${s.dir.slice(dir.length + 1)} (branch ${s.branch})`).join(", ") || "none"}.`; },
     },
     {
-      name: "attach_repo", description: "Attach a GitHub repo (owner/name) to this chat so future runs work inside a worktree of it. Use it when the team has decided which repo the work belongs in. Takes effect on the next @mention, not this run.",
+      name: "attach_repo", description: "Attach a GitHub repo (owner/name) to this thread. It is cloned into a folder in your working directory right away, on a branch for this thread, and you can start working in it immediately.",
       schema: { repo: z.string().describe("owner/name, e.g. acme/platform") },
-      run: async (args) => { const r = await client.mutation(api.runs.attachRepo, { token, runId, repo: String(args["repo"]) }); attachedDuringRun = r.repo; return `Attached ${r.repo} to this chat${r.added ? " (and connected it to the workspace)" : ""}. This run stays where it is; the next time someone @mentions you here, you will start inside a worktree of ${r.repo} on a fresh branch.`; },
+      run: async (args) => { const r = await client.mutation(api.runs.attachRepo, { token, runId, repo: String(args["repo"]) }); const s = await mount(r.repo); return `Attached ${r.repo}. It is at ./${s.dir.slice(dir.length + 1)} on branch ${s.branch}.`; },
+    },
+    {
+      name: "adopt_pr", description: "Bring an existing pull request into this thread: its branch is checked out in a folder in your working directory so you can review it or continue it. Use this when asked to review or pick up a PR.",
+      schema: { repo: z.string().describe("owner/name"), number: z.number().describe("PR number") },
+      run: async (args) => {
+        const repo = String(args["repo"]), number = Number(args["number"]);
+        const pr = await prByNumber(repo, number);
+        if (!pr) throw new Error(`could not read PR #${number} on ${repo}; is \`gh\` signed in on this machine?`);
+        await client.mutation(api.changes.adopt, { token, runId, repo, branch: pr.headRefName, base: pr.baseRefName, title: pr.title, prUrl: pr.url, prNumber: pr.number });
+        changes.push({ _id: "" as Id<"changes">, repo, branch: pr.headRefName, base: pr.baseRefName, state: "open", prUrl: pr.url, prNumber: pr.number, title: pr.title });
+        slots.delete(repo);
+        const s = await mount(repo);
+        return `PR #${pr.number} "${pr.title}" is checked out at ./${s.dir.slice(dir.length + 1)} on ${pr.headRefName}. Commits you make there land on that PR.`;
+      },
+    },
+    {
+      name: "new_pr", description: "Start a fresh pull request for a repo in this thread: the current open change is closed out and the next landing goes to a new branch. Use it when someone asks to split work into a separate PR.",
+      schema: { repo: z.string().describe("owner/name") },
+      run: async (args) => {
+        const repo = String(args["repo"]);
+        await client.mutation(api.changes.rotate, { token, runId, repo });
+        for (const c of changes) if (c.repo === repo && c.state === "open") c.state = "closed";
+        slots.delete(repo);
+        const s = await mount(repo);
+        return `Next landing on ${repo} goes to a new branch, ${s.branch}. The folder ./${s.dir.slice(dir.length + 1)} is now on it.`;
+      },
     },
   ];
+
+  // 3. Start the harness in the thread directory with the chat as context.
+  const adapter = adapters[agent.harness as keyof typeof adapters];
+  if (!adapter) return land(client, token, runId, "failed", [], `no adapter for ${agent.harness}`, null);
+  const agentView: Agent = { id: agent._id as never, workspaceId: agent.workspaceId as never, harness: agent.harness as never, handle: agent.handle, model: agent.model, effort: agent.effort as never, permissionMode: agent.permissionMode as never, alwaysAllow: agent.alwaysAllow, contextPolicy: agent.contextPolicy as never };
+  const resumeCursor = d.previous?.worktree === dir ? d.previous?.resumeCursor ?? null : null;
   let session: Session;
   try {
-    session = await adapter.start({ runId, agent: agentView, cwd: wt, resumeCursor, systemContext, tools });
+    session = await adapter.start({ runId, agent: agentView, cwd: dir, resumeCursor, systemContext: renderContext(d, dir, slots), tools });
   } catch (e) {
-    return land(client, token, runId, "failed", branch, base, `${agent.harness} failed to start: ${(e as Error).message}`);
+    return land(client, token, runId, "failed", [], `${agent.harness} failed to start: ${(e as Error).message}`, null);
   }
 
-  // 3. Event pump → Convex. Text streams into one message per turn; everything else is a run event.
+  // 4. Event pump → Convex. Text streams into one message per turn; everything else is a run event.
   const batch: RunEvent[] = [];
   let flushTimer: NodeJS.Timeout | null = null;
   const flush = async () => {
@@ -96,8 +130,6 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   };
   const queue = (e: RunEvent) => { batch.push(e); if (!flushTimer) flushTimer = setTimeout(() => void flush(), 100); };
 
-  // Text: one Convex message per turn, patched at SAY_MS while the model streams. Patches pipeline (Convex keeps
-  // order and lands them ~16ms apart), so the window can be short; the UI smooths the last hop.
   const SAY_MS = 60;
   const said = new Map<string, { id: Promise<Id<"messages">>; text: string; sent: string; timer: NodeJS.Timeout | null; inflight: boolean }>();
   const sayFlush = async (key: string) => {
@@ -136,9 +168,9 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     })();
   });
 
-  // 4. Control: steers, approvals, and stop requests from anyone in the chat.
+  // 5. Control: steers, approvals, and stop requests from anyone in the chat.
   const seenSteers = new Set<string>(), seenResolutions = new Set<string>();
-  let queuedSteers: { id: string; text: string }[] = [];
+  const queuedSteers: { id: string; text: string }[] = [];
   const steersPending = () => queuedSteers.length > 0;
   const deliver = async () => {
     while (queuedSteers.length && !ended) {
@@ -156,7 +188,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     if (c.interruptRequestedAt && !interrupting) { interrupting = true; state = "interrupted"; log(runId, "interrupt requested"); void session.interrupt().then(() => { ended = true; }); }
   });
 
-  // 5. First turn: the dispatch itself.
+  // 6. First turn: the dispatch itself.
   openTurns = 1;
   await session.send(stripMention(dispatch.text, agent.handle), dispatch._id);
   await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
@@ -167,45 +199,46 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   await flush();
   for (const key of said.keys()) { const s = said.get(key)!; if (s.timer) clearTimeout(s.timer); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); await sayFlush(key); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); }
 
-  // 6. Land: commit, push, draft PR. Always, even after a failure or interrupt. Repo-less runs just end.
-  if (repo && branch) await land(client, token, runId, state, branch, base, null, { wt, repo, title: chat.title, cursor });
-  else { if (attachedDuringRun) log(runId, `attached ${attachedDuringRun}; next run gets a worktree`); await land(client, token, runId, state, null, null, null, { wt, repo: "", title: chat.title, cursor }); }
-}
-
-async function land(client: ConvexClient, token: string, runId: Id<"runs">, state: string, branch: string | null, base: string | null, error: string | null,
-  push?: { wt: string; repo: string; title: string; cursor: unknown }) {
-  let landing = branch && base ? { branch, base, pushed: false, add: 0, del: 0, files: 0, prUrl: null as string | null, compareUrl: null as string | null, error } : null;
-  if (push && landing && push.repo) {
+  // 7. Land every repo that changed: commit, push, open or update its PR. Always, even after a failure or interrupt.
+  const landings: RepoLanding[] = [];
+  for (const s of slots.values()) {
     try {
-      const { committed } = await checkpointAndPush(push.wt, landing.branch, `${push.title}\n\nRun in Beam · ${runId}`);
-      const stat = await diffStat(push.wt, `origin/${landing.base}`);
-      landing = { ...landing, pushed: true, ...stat, compareUrl: compareUrl(push.repo, landing.base, landing.branch) };
-      if (stat.files > 0) landing.prUrl = await draftPullRequest(push.wt, push.repo, landing.branch, landing.base, push.title, `Opened from Beam.\n\n${committed ? "Changes were committed at the end of the run." : ""}`);
-      log(runId, `landed · ${landing.branch} · +${stat.add} −${stat.del} · ${stat.files} files${landing.prUrl ? ` · ${landing.prUrl}` : ""}`);
+      const r = await landRepo(s.dir, s.branch, s.base, `${chat.title}\n\nRun in Beam · ${runId}`);
+      if (!r.pushed) continue;
+      let pr = s.change?.prUrl ? { url: s.change.prUrl, number: s.change.prNumber } : await prForBranch(s.repo, s.branch).then((p) => (p ? { url: p.url, number: p.number } : null));
+      if (!pr && r.files > 0) { const url = await draftPullRequest(s.dir, s.repo, s.branch, s.base, chat.title, "Opened from Beam."); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
+      await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title: chat.title, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
+      landings.push({ repo: s.repo, branch: s.branch, base: s.base, pushed: true, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, compareUrl: compareUrl(s.repo, s.base, s.branch), error: null });
+      log(runId, `landed ${s.repo} · ${s.branch} · +${r.add} −${r.del} · ${r.files} files${pr ? ` · ${pr.url}` : ""}`);
     } catch (e) {
-      landing = { ...landing, error: `push failed: ${(e as Error).message}` };
-      log(runId, "push failed", (e as Error).message);
+      landings.push({ repo: s.repo, branch: s.branch, base: s.base, pushed: false, add: 0, del: 0, files: 0, prUrl: null, compareUrl: null, error: `push failed: ${(e as Error).message}` });
+      log(runId, `push failed for ${s.repo}`, (e as Error).message);
     }
-  } else if (error) log(runId, "failed:", error);
-  if (error && landing === null) await client.mutation(api.runs.appendEvents, { token, runId, events: [{ type: "error", runId, message: error, fatal: true, at: Date.now() }] }).catch(() => {});
-  await client.mutation(api.runs.land, { token, runId, state, landing, resumeCursor: push?.cursor ?? null });
+  }
+  await land(client, token, runId, state, landings, null, cursor);
 }
 
-/** The chat so far, rendered for the harness. Names are handles; the agent's own messages are marked. */
-function renderContext(d: Detail, branch: string | null): string {
+async function land(client: ConvexClient, token: string, runId: Id<"runs">, state: string, repos: RepoLanding[], error: string | null, cursor: unknown) {
+  if (error) { log(runId, "failed:", error); await client.mutation(api.runs.appendEvents, { token, runId, events: [{ type: "error", runId, message: error, fatal: true, at: Date.now() }] }).catch(() => {}); }
+  await client.mutation(api.runs.land, { token, runId, state, landing: { repos, error }, resumeCursor: cursor });
+}
+
+/** The thread so far, rendered for the harness: who is here, where the repos are, and what has been said. */
+function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>): string {
   const who = (author: string) => {
     if (!author.startsWith("agent:")) return `@${author}`;
     const a = d.agents.find((x) => `agent:${x.id}` === author);
     return a ? `@${a.handle}${a.id === d.agent._id ? " (you)" : ""}` : "@agent";
   };
   const lines = d.transcript.filter((m) => m.text.trim()).map((m) => `${who(m.author)}: ${m.text.trim()}`);
+  const mounted = [...slots.values()].map((s) => `- ./${s.dir.slice(dir.length + 1)} → ${s.repo}, branch ${s.branch}${s.change?.prUrl ? ` (PR ${s.change.prUrl})` : ""}`);
   const head = [
-    `You are @${d.agent.handle}, a coding agent in a Beam chat called "${d.chat.title}" with a team of people.`,
-    branch
-      ? `You work in a git worktree on branch ${branch}. Do not switch branches, and do not push: Beam commits and pushes for you when the run ends.`
-      : `No repo is attached to this chat yet, so you are in an empty scratch directory. Talk, plan, and answer questions. When the team knows which repo the work belongs in, call list_repos and attach_repo; code work starts on the next @mention after that.`,
+    `You are @${d.agent.handle}, a coding agent in a Beam thread called "${d.chat.title}" with a team of people.`,
+    `Your working directory is the thread's directory. Each repo the thread works in is a folder inside it, on a branch for this thread:`,
+    ...(mounted.length ? mounted : ["- (no repos yet: use attach_repo when the work has a home, or adopt_pr to pick up an existing PR)"]),
+    `Work inside those folders. Do not switch branches or push: Beam commits and pushes each folder that changed when the run ends, and opens or updates a PR per repo.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
   ];
-  return lines.length ? `${head.join("\n")}\n\nChat so far:\n${lines.join("\n")}` : head.join("\n");
+  return lines.length ? `${head.join("\n")}\n\nThread so far:\n${lines.join("\n")}` : head.join("\n");
 }

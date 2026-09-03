@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { openChange, settleIfQuiet, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
 
 export const list = query({
@@ -38,12 +39,38 @@ export const rename = mutation({
   handler: async (ctx, { chatId, title }) => { await requireChat(ctx, chatId); await ctx.db.patch(chatId, { title, untitled: false }); },
 });
 
+/** Add a repo to the thread. Threads work in any number of repos; each gets a worktree in the thread directory. */
 export const setRepo = mutation({
   args: { chatId: v.id("chats"), repo: v.string() },
   handler: async (ctx, { chatId, repo }) => {
     const { chat } = await requireChat(ctx, chatId);
-    if (chat.activeBranch && chat.repo !== repo) throw new Error("chat already has a branch on " + chat.repo);
-    await ctx.db.patch(chatId, { repo });
+    const repos = threadRepos(chat);
+    if (repos.includes(repo)) return;
+    await ctx.db.patch(chatId, { repos: [...repos, repo], repo: chat.repo ?? repo });
+  },
+});
+
+export const removeRepo = mutation({
+  args: { chatId: v.id("chats"), repo: v.string() },
+  handler: async (ctx, { chatId, repo }) => {
+    const { chat } = await requireChat(ctx, chatId);
+    const open = await openChange(ctx, chatId, repo);
+    if (open) throw new Error(`${repo} has an open change (${open.branch}); resolve it first`);
+    const repos = threadRepos(chat).filter((r) => r !== repo);
+    await ctx.db.patch(chatId, { repos, repo: repos[0] ?? null });
+  },
+});
+
+/** open → done is a person's call; done → settled happens when the last change resolves (at once if there were none). */
+export const setState = mutation({
+  args: { chatId: v.id("chats"), state: v.string() },
+  handler: async (ctx, { chatId, state }) => {
+    await requireChat(ctx, chatId);
+    if (state === "open") { await ctx.db.patch(chatId, { state: "open" }); return "open"; }
+    if (state !== "done") throw new Error("state must be open or done");
+    await ctx.db.patch(chatId, { state: "done", doneAt: Date.now() });
+    await settleIfQuiet(ctx, chatId);
+    return (await ctx.db.get(chatId))!.state;
   },
 });
 

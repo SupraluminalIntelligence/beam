@@ -41,7 +41,10 @@ export default defineSchema({
     members: v.array(v.string()), // github logins
     agents: v.union(v.array(v.id("agents")), v.null()),
     pinnedAgent: v.union(v.id("agents"), v.null()), pinnedRunner: v.union(v.id("runners"), v.null()),
-    repo: v.union(v.string(), v.null()), activeBranch: v.union(v.string(), v.null()),
+    repo: v.union(v.string(), v.null()), activeBranch: v.union(v.string(), v.null()), // legacy single repo; `repos` is the truth
+    repos: v.optional(v.array(v.string())),   // every repo this thread works in; one worktree each in the thread directory
+    state: v.optional(v.string()),            // open | done | settled (default open)
+    doneAt: v.optional(v.number()), settledAt: v.optional(v.number()),
     autoRoute: v.optional(v.boolean()),   // agents listen to plain messages (default on)
     createdBy: v.string(), lastMessageAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
@@ -62,6 +65,15 @@ export default defineSchema({
     landing: v.any(), startedAt: v.union(v.number(), v.null()), endedAt: v.union(v.number(), v.null()),
     interruptRequestedAt: v.optional(v.number()),
   }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]),
+  /** A change is one branch in one repo with its PR. A thread holds many, across repos and over time. */
+  changes: defineTable({
+    chatId: v.id("chats"), workspaceId: v.id("workspaces"), repo: v.string(), branch: v.string(), base: v.string(),
+    state: v.string(),                       // open | merged | closed
+    title: v.string(), prUrl: v.union(v.string(), v.null()), prNumber: v.union(v.number(), v.null()),
+    add: v.number(), del: v.number(), files: v.number(),
+    adopted: v.boolean(),                    // came from an existing PR rather than a run
+    createdBy: v.string(), updatedAt: v.number(), resolvedAt: v.union(v.number(), v.null()),
+  }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
   presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number() })
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),

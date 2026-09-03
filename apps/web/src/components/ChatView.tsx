@@ -39,6 +39,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const stopRun = useMutation(api.runs.interrupt);
   const runs = useQuery(api.runs.forChat, { chatId: chat._id });
   const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
+  const changes = useQuery(api.changes.forChat, { chatId: chat._id }) ?? [];
+  const setState = useMutation(api.chats.setState);
+  const removeRepo = useMutation(api.chats.removeRepo);
+  const repos = chat.repos ?? (chat.repo ? [chat.repo] : []);
+  const threadState = chat.state ?? "open";
+  const openChangeFor = (repo: string) => changes.find((c) => c.repo === repo && c.state === "open") ?? null;
+  const lastChangeFor = (repo: string) => [...changes].filter((c) => c.repo === repo).sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
   const u = useUi();
   const views = useMemo(() => {
     const out: Record<string, RunView> = {};
@@ -135,16 +142,27 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         {chat.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
         <span className={`t${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>
         <span className={`sel repopick${repoOpen ? " open" : ""}`} tabIndex={0} onClick={(e) => { e.stopPropagation(); setRepoOpen(!repoOpen); }}>
-          {chat.repo ? <span className="chip repo" title="Repository attached to this chat · click to change"><i>repo</i>{chat.repo}</span> : <span className="chip addrepo">+ repo</span>}
+          <span className="chip addrepo" title="Add a repo to this thread">{repos.length ? "+" : "+ repo"}</span>
           <span className="dd">
-            <span className="ddh">Repos in {detail.name}</span>
-            {detail.repos.map((r) => <button key={r} className={r === chat.repo ? "on" : ""} onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} attached · worktree on first dispatch`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r}</button>)}
+            <span className="ddh">Add a repo from {detail.name}</span>
+            {detail.repos.filter((r) => !repos.includes(r)).map((r) => <button key={r} onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} added · checked out in the thread on the next run`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r}</button>)}
             <button onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setModal({ kind: "addrepo" }); }}>+ connect another repo</button>
-            {chat.repo && !chat.activeBranch && <span className="ddf">Worktree and branch are created automatically on the first dispatch.</span>}
+            {repos.length > 0 && <span className="ddh">In this thread</span>}
+            {repos.map((r) => <button key={r} className="dim" onClick={(e) => { e.stopPropagation(); setRepoOpen(false); removeRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} removed from the thread`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r} <span className="k">remove</span></button>)}
           </span>
         </span>
-        {chat.activeBranch && <span className="chip branch" title="Every run in this chat lands on this branch. It rotates when the branch is merged."><i>⎇ branch</i>{chat.activeBranch}</span>}
+        {repos.map((r) => {
+          const c = openChangeFor(r) ?? lastChangeFor(r);
+          const href = c?.prUrl ?? null;
+          const stateLabel = !c ? "no change yet" : c.state === "open" ? (c.prNumber ? `#${c.prNumber} open` : "branch pushed") : c.prNumber ? `#${c.prNumber} ${c.state}` : c.state;
+          return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${href ? " · open PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
+            onClick={(e) => { e.stopPropagation(); if (href) { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); } }}>
+            <i>{r.split("/")[1]}</i>{stateLabel}</span>;
+        })}
         <span className="sp" />
+        {threadState === "open"
+          ? <button className="donebtn" title="Mark this thread done. It settles by itself once every PR from it has merged or closed." onClick={() => void setState({ chatId: chat._id, state: "done" }).then((st) => toast(st === "settled" ? "Done and settled · nothing left in flight" : "Done · settles when its PRs merge"))}>done</button>
+          : <button className={`donebtn ${threadState}`} title="Reopen this thread" onClick={() => void setState({ chatId: chat._id, state: "open" }).then(() => toast("Reopened"))}>{threadState === "settled" ? "settled" : `done · ${changes.filter((c) => c.state === "open").length} PR${changes.filter((c) => c.state === "open").length === 1 ? "" : "s"} in flight`}</button>}
         <div className="scope" onClick={(e) => e.stopPropagation()}>
           <button className="scopebtn" onClick={() => setScopeOpen(!scopeOpen)} title={chat.private ? "Private · just you" : "Members and agents"}>
             {chat.private && <span className="k">private</span>}
@@ -180,7 +198,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         {messages && messages.length > 0 && <div className="daysep"><span>Started {dayLabel(chat._creationTime)} · {hhmm(chat._creationTime)}{chat.private ? " · private" : ""}</span></div>}
         {messages && messages.length === 0 && (chat.private
           ? <div className="empty"><b>Just you{pinned ? ` and ${HARNESS_NAME[pinned.harness]}` : ""}.</b><span>Your first message names the chat. {pinned ? "Plain messages go straight to the pinned agent." : "@mention an agent when you want one."} Share it from the header whenever it turns into something.</span></div>
-          : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {chat.repo ? `Attached to ${chat.repo}; a worktree and branch appear on the first dispatch.` : "No repo yet: @mention an agent to talk, and it can attach one when the work has a home."} Your first message names the chat.</span></div>)}
+          : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {repos.length ? `Working in ${repos.join(", ")}; branches and PRs appear as agents land work.` : "No repo yet: talk, investigate, or ask an agent to attach one or pick up a PR."} Your first message names the chat.</span></div>)}
         {grouped.map(({ m, cont, lastOfRun }) => {
           const ag = isAgent(m.author) ? agentOf(m.author) : null;
           const mine = m.author === me.githubLogin;

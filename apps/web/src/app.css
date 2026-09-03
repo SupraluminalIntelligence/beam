@@ -489,3 +489,19 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .ag-item .ctl.eff[data-lv="1"] .bars i:nth-child(-n+1),.ag-item .ctl.eff[data-lv="2"] .bars i:nth-child(-n+2),.ag-item .ctl.eff[data-lv="3"] .bars i:nth-child(-n+3),.ag-item .ctl.eff[data-lv="4"] .bars i:nth-child(-n+4){background:var(--ink-2)}
 .ag-item .ctl.eff:hover .bars i{background:var(--line-2)}
 .ag-item .ctl.eff:hover[data-lv="1"] .bars i:nth-child(-n+1),.ag-item .ctl.eff:hover[data-lv="2"] .bars i:nth-child(-n+2),.ag-item .ctl.eff:hover[data-lv="3"] .bars i:nth-child(-n+3),.ag-item .ctl.eff:hover[data-lv="4"] .bars i:nth-child(-n+4){background:var(--ink)}
+
+/* ---- threads: change chips, done button, folded done list ---- */
+.thead .chip.change{cursor:default;display:inline-flex;align-items:center;gap:0}
+.thead .chip.change.open,.thead .chip.change.merged{cursor:pointer}
+.thead .chip.change.open{border-color:var(--ok);color:var(--ink)}
+.thead .chip.change.merged{color:var(--ink-3)}
+.thead .chip.change.none{color:var(--ink-3)}
+.thead .chip.addrepo{color:var(--ink-3)}
+.dd button.dim{color:var(--ink-3)}.dd button.dim .k{float:right;font-size:10px}
+.donebtn{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);border:1px solid var(--line);padding:1px 8px;margin-right:10px;height:22px}
+.donebtn:hover{color:var(--ink);border-color:var(--line-2)}
+.donebtn.done{color:var(--warn);border-color:var(--warn)}
+.donebtn.settled{color:var(--ok);border-color:var(--ok)}
+.th-done{display:block;width:100%;text-align:left;padding:5px 14px 5px 30px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)}
+.th-done:hover{color:var(--ink-2)}
+.th-item .sq.done{background:var(--warn)}.th-item .sq.settled{background:var(--ok)}

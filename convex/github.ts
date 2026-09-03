@@ -1,5 +1,7 @@
+import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { action, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { settleIfQuiet } from "./changes";
 import { internal } from "./_generated/api";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
@@ -37,3 +39,51 @@ export const myRepos = action({
   },
 });
 
+
+/** Open changes with a PR, plus a token that can read each one (the person who created it, else any member with a token). */
+export const openChangesWithTokens = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const open = await ctx.db.query("changes").withIndex("by_state", (q) => q.eq("state", "open")).collect();
+    const out: { id: typeof open[number]["_id"]; repo: string; prNumber: number; token: string }[] = [];
+    for (const c of open) {
+      if (!c.prNumber) continue;
+      let token: string | null = null;
+      const creator = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", c.createdBy)).first();
+      if (creator?.githubToken) token = creator.githubToken;
+      else {
+        const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", c.workspaceId)).collect();
+        for (const m of members) { const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", m.githubLogin)).first(); if (u?.githubToken) { token = u.githubToken; break; } }
+      }
+      if (token) out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token });
+    }
+    return out;
+  },
+});
+
+export const markResolved = internalMutation({
+  args: { changeId: v.id("changes"), state: v.string() },
+  handler: async (ctx, { changeId, state }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c || c.state !== "open") return;
+    await ctx.db.patch(changeId, { state, resolvedAt: Date.now() });
+    await settleIfQuiet(ctx, c.chatId);
+  },
+});
+
+/** Every few minutes: did any open PR merge or close? Threads settle from here without anyone running anything. */
+export const syncChanges = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.runQuery(internal.github.openChangesWithTokens, {});
+    for (const r of rows) {
+      try {
+        const res = await fetch(`https://api.github.com/repos/${r.repo}/pulls/${r.prNumber}`, { headers: { authorization: `Bearer ${r.token}`, accept: "application/vnd.github+json", "user-agent": "beam" } });
+        if (!res.ok) continue;
+        const pr = (await res.json()) as { state: string; merged: boolean };
+        if (pr.merged) await ctx.runMutation(internal.github.markResolved, { changeId: r.id, state: "merged" });
+        else if (pr.state === "closed") await ctx.runMutation(internal.github.markResolved, { changeId: r.id, state: "closed" });
+      } catch (e) { console.error("syncChanges", r.repo, r.prNumber, (e as Error).message); }
+    }
+  },
+});

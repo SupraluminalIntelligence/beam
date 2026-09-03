@@ -79,8 +79,9 @@ export type Message = z.infer<typeof Message>;
 
 // ---- runs ----
 export const RunState = z.enum(["queued", "starting", "working", "landing", "landed", "failed", "interrupted"]);
-/** What a run leaves behind. The branch is always pushed, the PR is best effort. */
-export const Landing = z.object({
+/** What a run left in one repo. The branch is always pushed, the PR is best effort. */
+export const RepoLanding = z.object({
+  repo: z.string(),
   branch: z.string(),
   base: z.string(),
   pushed: z.boolean(),
@@ -91,7 +92,13 @@ export const Landing = z.object({
   compareUrl: z.string().nullable(),
   error: z.string().nullable(),
 });
+export type RepoLanding = z.infer<typeof RepoLanding>;
+/** What a run leaves behind across every repo it touched. Empty when nothing changed. */
+export const Landing = z.object({ repos: z.array(RepoLanding), error: z.string().nullable() });
 export type Landing = z.infer<typeof Landing>;
+
+export const ChangeState = z.enum(["open", "merged", "closed"]);
+export const ThreadState = z.enum(["open", "done", "settled"]);
 
 export const Run = z.object({
   id: RunId,

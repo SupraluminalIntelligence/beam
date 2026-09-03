@@ -1,5 +1,4 @@
-// Router plumbing: a plain message with no mention is routed to claude (ROUTER_STUB=claude on the deployment),
-// becomes a dispatch with a receipt, and lands. Run with the stub set; unset it afterwards.
+// Threads: two repos in one thread, one dispatch changes both, two landings, then the thread is marked done.
 import { chromium } from "playwright-core";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
@@ -13,16 +12,17 @@ mkdirSync(join(gitbase, "acme"), { recursive: true }); mkdirSync(home, { recursi
 writeFileSync(log, "");
 
 // --- a tiny repo with a main branch ---
-const bare = join(gitbase, "acme", "demo.git");
-const seed = join(scratch, "seed");
 const git = (args, cwd) => execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
-git(["init", "--bare", "-b", "main", bare]);
-git(["init", "-b", "main", seed]);
-mkdirSync(join(seed, "src"));
-writeFileSync(join(seed, "README.md"), "# demo\n\nA tiny package used by Beam's run check.\n");
-writeFileSync(join(seed, "src", "math.ts"), "export const add = (a: number, b: number) => a + b;\n");
-git(["add", "-A"], seed); git(["-c", "user.name=seed", "-c", "user.email=seed@x", "commit", "-m", "init"], seed);
-git(["remote", "add", "origin", bare], seed); git(["push", "origin", "main"], seed);
+const bares = {};
+for (const name of ["web", "api"]) {
+  const bare = join(gitbase, "acme", `${name}.git`), seed = join(scratch, `seed-${name}`);
+  git(["init", "--bare", "-b", "main", bare]); git(["init", "-b", "main", seed]); mkdirSync(join(seed, "src"));
+  writeFileSync(join(seed, "README.md"), `# ${name}\n`);
+  writeFileSync(join(seed, "src", "math.ts"), "export const add = (a: number, b: number) => a + b;\n");
+  git(["add", "-A"], seed); git(["-c", "user.name=seed", "-c", "user.email=seed@x", "commit", "-m", "init"], seed);
+  git(["remote", "add", "origin", bare], seed); git(["push", "origin", "main"], seed);
+  bares[name] = bare;
+}
 
 // --- runner in its own home, pointed at the local git base ---
 const env = { ...process.env, BEAM_HOME: home, BEAM_GIT_BASE: `file://${gitbase}/`, FORCE_COLOR: "0" };
@@ -52,17 +52,16 @@ try {
 
   await p.getByText("+ New chat").click(); await p.getByText("Team chat").first().click();
   await p.getByPlaceholder(/Message Untitled/).waitFor({ timeout: 20000 });
-  await p.locator(".repopick").click();
-  await p.getByText("+ connect another repo").click();
-  await p.getByPlaceholder("owner/name or GitHub URL").fill("acme/demo");
-  await p.locator(".modal .btn").filter({ hasText: /^Connect$/ }).click();
-  await p.locator(".thead .chip.change", { hasText: "demo" }).waitFor({ timeout: 10000 });
-
-  await p.getByPlaceholder(/Message/).fill("can someone add a `subtract` function next to `add` in src/math.ts and export it? tiny, no tests.");
+  for (const name of ["web", "api"]) {
+    await p.locator(".repopick").click();
+    await p.getByText("+ connect another repo").click();
+    await p.getByPlaceholder(/owner\/name/).fill(`acme/${name}`);
+    await p.locator(".modal .btn").filter({ hasText: /^Connect$/ }).click();
+    await p.locator(".thead .chip.change", { hasText: name }).waitFor({ timeout: 10000 });
+  }
+  await p.getByPlaceholder(/Message/).fill("@claude in this thread there are two repo folders, web and api. Add an exported `subtract` to web/src/math.ts and an exported `multiply` to api/src/math.ts. Tiny, no tests.");
   await p.keyboard.press("Enter");
-  await p.locator(".msg.dispatch").waitFor({ timeout: 15000 });
-  const receipt = await p.locator(".rcpt").first().innerText({ timeout: 10000 });
-  result.receipt = receipt.replace(/\s+/g, " ").trim();
+  await p.locator(".msg.dispatch").waitFor({ timeout: 10000 });
   await p.locator(".msg.report").waitFor({ timeout: 20000 });
   await p.screenshot({ path: join(shots, "1-dispatched.png") });
 
@@ -73,7 +72,7 @@ try {
   while (Date.now() - t0 < 300_000) {
     const ask = p.locator(".ask .perm button", { hasText: /^allow$/ });
     if (await ask.count()) { await ask.first().click(); approvals += 1; await p.screenshot({ path: join(shots, `2-approve-${approvals}.png`) }); }
-    if (await p.locator(".card .ttl", { hasText: /^beam\// }).count()) break;
+    if ((await p.locator(".card .ttl", { hasText: /^beam\// }).count()) >= 2) break;
     if (await p.locator(".ask.fail").count()) break;
     const len = await p.evaluate(() => { const els = document.querySelectorAll(".msg.report .tx"); return els.length ? els[els.length - 1].textContent.length : 0; });
     if (len !== lastLen) { samples.push([Date.now() - t0, len]); lastLen = len; }
@@ -83,15 +82,18 @@ try {
   const stream = { updates: samples.length, medianGapMs: gaps[Math.floor(gaps.length / 2)] ?? null, p90GapMs: gaps[Math.floor(gaps.length * 0.9)] ?? null, charsPerUpdate: samples.length > 1 ? Math.round(samples[samples.length - 1][1] / samples.length) : null };
   await p.waitForTimeout(800);
   await p.screenshot({ path: join(shots, "3-landed.png"), fullPage: false });
-  const card = await p.locator(".card .mt").first().innerText().catch(() => "");
-  const branch = await p.locator(".card .ttl").first().innerText().catch(() => "");
-  const report = await p.locator(".msg.report .tx").allInnerTexts();
-  const steps = await p.locator(".step").allInnerTexts();
-  const remoteBranches = git(["branch", "--list", "beam/*"], bare);
-  const changed = branch ? git(["diff", "--stat", `main...${branch}`], bare) : "";
-  const math = branch ? git(["show", `${branch}:src/math.ts`], bare) : "";
-  result.ok = !!branch && /subtract/.test(math);
-  Object.assign(result, { stream, branch, card: card.replace(/\s+/g, " "), approvals, steps: steps.map((s) => s.replace(/\s+/g, " ").trim()), report: report.map((r) => r.slice(0, 300)), remoteBranches, changed, math, errs, headerBranch: await p.locator(".thead .chip").allInnerTexts() });
+  const cards = await p.locator(".card .mt").allInnerTexts();
+  const chips = await p.locator(".thead .chip.change").allInnerTexts();
+  const web = git(["branch", "--list", "beam/*"], bares.web), api = git(["branch", "--list", "beam/*"], bares.api);
+  const webMath = web ? git(["show", `${web.trim().replace(/^\* /, "")}:src/math.ts`], bares.web) : "";
+  const apiMath = api ? git(["show", `${api.trim().replace(/^\* /, "")}:src/math.ts`], bares.api) : "";
+  // mark done: no PRs exist for file:// remotes, so the thread stays "done" with changes in flight
+  await p.locator(".donebtn").click();
+  await p.locator(".donebtn.done, .donebtn.settled").waitFor({ timeout: 10000 });
+  const doneLabel = await p.locator(".donebtn").innerText();
+  await p.screenshot({ path: join(shots, "4-done.png") });
+  result.ok = /subtract/.test(webMath) && /multiply/.test(apiMath) && cards.length >= 2;
+  Object.assign(result, { cards: cards.map((c) => c.replace(/\s+/g, " ")), chips, webBranch: web, apiBranch: api, webMath, apiMath, doneLabel, errs, stream });
 } catch (e) {
   await p.screenshot({ path: join(shots, "err.png") }).catch(() => {});
   Object.assign(result, { error: String(e).slice(0, 600), errs, runnerTail: out.slice(-1500) });

@@ -45,7 +45,7 @@ try {
   const inp = p.locator('input[placeholder="XXXX-XXXX"]');
   await inp.fill(code);
   await p.getByText(/is waiting/).waitFor({ timeout: 10000 });
-  await p.getByRole("button", { name: "Approve" }).click();
+  await p.getByRole("button", { name: "Approve", exact: true }).click();
   await waitOut(/beam-runner up as/, 60000);
   await p.locator(".hrow .st.authenticated").first().waitFor({ timeout: 60000 });
   await p.keyboard.press("Escape");
@@ -56,7 +56,7 @@ try {
   await p.getByText("+ connect another repo").click();
   await p.getByPlaceholder("owner/name or GitHub URL").fill("acme/demo");
   await p.locator(".modal .btn").filter({ hasText: /^Connect$/ }).click();
-  await p.locator(".thead .chip", { hasText: "acme/demo" }).waitFor({ timeout: 10000 });
+  await p.locator(".thead .chip.change", { hasText: "demo" }).waitFor({ timeout: 10000 });
 
   await p.getByPlaceholder(/Message/).fill("@claude add a `subtract` function next to `add` in src/math.ts and export it. Keep it tiny, no tests.");
   await p.keyboard.press("Enter");

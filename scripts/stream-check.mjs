@@ -25,7 +25,7 @@ try {
   await p.keyboard.press("Meta+,");
   await p.locator('input[placeholder="XXXX-XXXX"]').fill(code);
   await p.getByText(/is waiting/).waitFor({ timeout: 10000 });
-  await p.getByRole("button", { name: "Approve" }).click();
+  await p.getByRole("button", { name: "Approve", exact: true }).click();
   await waitOut(/beam-runner up as/, 60000);
   await p.locator(".hrow .st.authenticated").first().waitFor({ timeout: 60000 });
   await p.keyboard.press("Escape");

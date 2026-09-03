@@ -96,3 +96,64 @@ export async function diffStat(wt: string, base = "origin/main"): Promise<{ add:
   }
   return { add, del, files };
 }
+
+// ---------------- threads: one directory per thread, one worktree per repo inside it ----------------
+
+export const threadDir = (workspaceId: string, chatId: string) => join(beamHome(), "threads", workspaceId, chatId);
+/** Folder name for a repo inside the thread directory: the repo's name, or owner-name when two repos share a name. */
+export function repoDirName(repo: string, all: readonly string[]): string {
+  const name = repo.split("/")[1] ?? repo;
+  return all.filter((r) => (r.split("/")[1] ?? r) === name).length > 1 ? repo.replace("/", "-") : name;
+}
+/** beam/<thread-slug>-<6 chars of the thread id>, then -2, -3 as changes on that repo resolve. */
+export const threadBranch = (title: string, chatId: string, n: number) => `beam/${slug(title)}-${chatId.slice(-6).toLowerCase()}${n > 0 ? `-${n + 1}` : ""}`;
+
+/** A worktree for `repo` at `path`, on `branch` (created from origin/<base> when new). */
+export async function ensureRepoWorktree(repo: string, path: string, branch: string, base: string): Promise<string> {
+  const mirror = await ensureMirror(repo);
+  const localHas = await git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], mirror).catch(() => "");
+  const remoteHas = await git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`], mirror).catch(() => "");
+  if (await exists(path)) {
+    const current = await git(["rev-parse", "--abbrev-ref", "HEAD"], path).catch(() => "");
+    if (current !== branch) {
+      if (localHas) await git(["checkout", branch], path);
+      else await git(["checkout", "-b", branch, remoteHas ? `origin/${branch}` : `origin/${base}`], path);
+    }
+    return path;
+  }
+  await mkdir(join(path, ".."), { recursive: true });
+  if (localHas) await git(["worktree", "add", path, branch], mirror);
+  else await git(["worktree", "add", "-b", branch, path, remoteHas ? `origin/${branch}` : `origin/${base}`], mirror);
+  return path;
+}
+
+export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number }
+/**
+ * Land one repo's worktree: commit whatever changed, push if there is anything beyond the base, report the diff.
+ * A worktree with no commits beyond base and nothing dirty is left alone: no branch is pushed for nothing.
+ */
+export async function landRepo(wt: string, branch: string, base: string, message: string): Promise<RepoLandResult> {
+  await git(["add", "-A"], wt);
+  const dirty = !!(await git(["status", "--porcelain"], wt));
+  if (dirty) await git(["-c", "user.name=Beam", "-c", "user.email=beam@supraluminal.dev", "commit", "-m", message], wt);
+  const ahead = await git(["rev-list", "--count", `origin/${base}..HEAD`], wt).catch(() => "0");
+  if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0 };
+  await git(["push", "-u", "origin", branch], wt);
+  const stat = await diffStat(wt, `origin/${base}`);
+  return { dirty, committed: dirty, pushed: true, ...stat };
+}
+
+export interface PrInfo { number: number; url: string; title: string; headRefName: string; baseRefName: string; state: string }
+const gh = (args: string[], cwd?: string) => run("gh", args, { cwd: cwd ?? process.cwd(), env: process.env }).then((r) => r.stdout.trim());
+/** The PR for a branch, if one exists. Uses the person's own `gh` login. */
+export async function prForBranch(repo: string, branch: string): Promise<PrInfo | null> {
+  try {
+    const out = await gh(["pr", "list", "--repo", repo, "--head", branch, "--state", "all", "--json", "number,url,title,headRefName,baseRefName,state", "--limit", "1"]);
+    const rows = JSON.parse(out) as PrInfo[];
+    return rows[0] ?? null;
+  } catch { return null; }
+}
+export async function prByNumber(repo: string, number: number): Promise<PrInfo | null> {
+  try { return JSON.parse(await gh(["pr", "view", String(number), "--repo", repo, "--json", "number,url,title,headRefName,baseRefName,state"])) as PrInfo; }
+  catch { return null; }
+}

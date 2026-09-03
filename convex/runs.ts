@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
+import { threadRepos } from "./changes";
 
 const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
@@ -41,18 +42,17 @@ export const detail = query({
     const since = previous?.endedAt ?? 0;
     const transcript = all.filter((m) => m._creationTime > since && m._creationTime < dispatch._creationTime && m.kind !== "steer").slice(-40);
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
-    return { run, chat, agent, dispatch, transcript, previous, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
+    const changes = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
+    return { run, chat: { ...chat, repos: threadRepos(chat) }, agent, dispatch, transcript, previous, changes, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
   },
 });
 
-/** The runner has a worktree and is about to start the harness. First claim also fixes the chat's branch. */
+/** The runner has the thread directory ready and is about to start the harness. */
 export const claim = mutation({
   args: { token: v.string(), runId: v.id("runs"), branch: v.union(v.string(), v.null()), worktree: v.string() },
   handler: async (ctx, { token, runId, branch, worktree }) => {
-    const { run } = await ownRun(ctx, token, runId);
+    await ownRun(ctx, token, runId);
     await ctx.db.patch(runId, { state: "working", branch, worktree, startedAt: Date.now() });
-    const chat = (await ctx.db.get(run.chatId))!;
-    if (branch && !chat.activeBranch) await ctx.db.patch(chat._id, { activeBranch: branch });
   },
 });
 
@@ -113,11 +113,12 @@ export const attachRepo = mutation({
     const chat = (await ctx.db.get(run.chatId))!;
     const name = repo.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
     if (!/^[\w.-]+\/[\w.-]+$/.test(name)) throw new Error(`"${repo}" is not owner/name`);
-    if (chat.activeBranch && chat.repo !== name) throw new Error(`this chat already has a branch on ${chat.repo}`);
     const ws = (await ctx.db.get(chat.workspaceId))!;
-    if (!ws.repos.includes(name)) await ctx.db.patch(ws._id, { repos: [...ws.repos, name] });
-    await ctx.db.patch(chat._id, { repo: name });
-    return { repo: name, added: !ws.repos.includes(name) };
+    const added = !ws.repos.includes(name);
+    if (added) await ctx.db.patch(ws._id, { repos: [...ws.repos, name] });
+    const repos = threadRepos(chat);
+    if (!repos.includes(name)) await ctx.db.patch(chat._id, { repos: [...repos, name], repo: chat.repo ?? name });
+    return { repo: name, added };
   },
 });
 
@@ -127,7 +128,7 @@ export const workspaceRepos = query({
     const { run } = await ownRun(ctx, token, runId);
     const chat = (await ctx.db.get(run.chatId))!;
     const ws = (await ctx.db.get(chat.workspaceId))!;
-    return { repos: ws.repos, attached: chat.repo };
+    return { repos: ws.repos, attached: threadRepos(chat) };
   },
 });
 

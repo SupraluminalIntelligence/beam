@@ -44,7 +44,7 @@ try {
   const inp = p.locator('input[placeholder="XXXX-XXXX"]');
   await inp.fill(code);
   await p.getByText(/is waiting/).waitFor({ timeout: 10000 });
-  await p.getByRole("button", { name: "Approve" }).click();
+  await p.getByRole("button", { name: "Approve", exact: true }).click();
   await waitOut(/beam-runner up as/, 60000);
   await p.locator(".hrow .st.authenticated").first().waitFor({ timeout: 60000 });
   await p.keyboard.press("Escape");
@@ -54,15 +54,15 @@ try {
   // the picker: a guest has no GitHub token, so it explains and still takes owner/name
   await p.locator(".repopick").click();
   await p.getByText("+ connect another repo").click();
-  await p.locator(".rl-note", { hasText: /Sign out|No repos|GitHub did not/ }).waitFor({ timeout: 15000 });
-  const note = await p.locator(".rl-note").innerText();
+  await p.locator(".rl-connect, .rl-note:not(:has-text('Loading'))").first().waitFor({ timeout: 15000 });
+  const note = await p.locator(".rl-connect, .rl-note").first().innerText();
   await p.locator(".modal .btn.ghost", { hasText: "Cancel" }).click();
 
   // 1. no repo attached: talk to claude, and let it attach the repo itself
   await p.getByPlaceholder(/Message/).fill("@claude we have no repo attached here. attach acme/demo to this chat, then tell me what you did in one line.");
   await p.keyboard.press("Enter");
   await p.locator(".msg.dispatch").waitFor({ timeout: 10000 });
-  await p.locator(".thead .chip", { hasText: "acme/demo" }).waitFor({ timeout: 180_000 });
+  await p.locator(".thead .chip.change", { hasText: "demo" }).waitFor({ timeout: 180_000 });
   await waitOut(/landed|failed/, 180_000).catch(() => {});
   await p.waitForTimeout(1500);
   await p.screenshot({ path: join(shots, "1-attached.png") });

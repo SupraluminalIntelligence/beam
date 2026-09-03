@@ -49,6 +49,7 @@ export const send = mutation({
     if (kind === "dispatch") await chooseRunner(ctx, chat, u.githubLogin!, target!.harness);
     const patch: Record<string, unknown> = { lastMessageAt: Date.now() };
     if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body) });
+    if (chat.state && chat.state !== "open") patch["state"] = "open"; // a message reopens a done or settled thread
     await ctx.db.patch(chatId, patch);
     const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [] });
     let runner: string | null = null;
