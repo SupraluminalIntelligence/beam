@@ -5,7 +5,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
 import { hueClass } from "../lib/format";
-import { ui } from "../lib/ui";
+import { ui, useUi } from "../lib/ui";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
@@ -40,7 +40,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
     return () => document.removeEventListener("click", close);
   }, []);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const status = (c: Doc<"chats">) => (c.state && c.state !== "open" ? "settled" : "idle");
+  const ui_ = useUi();
   const [showDone, setShowDone] = useState(false);
   const rename = useMutation(api.workspaces.rename);
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
@@ -65,32 +65,23 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
         <div className="sb-sec">Workspaces <button onClick={() => p.setModal({ kind: "newws" })} title="New workspace">+</button></div>
         {p.workspaces.map((w) => {
           const on = w.id === p.wsId;
+          const folded = !!ui_.collapsed[w.id];
           return (
             <div key={w.id}>
               <div className={`ws-row${on ? " on" : ""}`} onClick={stop}>
+                <button className="ws-fold" onClick={() => ui.toggleCollapsed(w.id)} title={folded ? "Show threads" : "Hide threads"}><span className={`tri${folded ? "" : " open"}`}>▸</span></button>
                 <button className={`ws-item${on ? " on" : ""}`} onClick={() => ui.setWorkspace(w.id)} onDoubleClick={() => setRenaming({ id: w.id, value: w.name })} title="Double-click to rename">
-                  <span className="ic">{on ? "▣" : "▢"}</span>
                   {renaming?.id === w.id
                     ? <input className="nm ws-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: w.id, value: e.target.value })} onBlur={() => void commitRename()} onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitRename(); } if (e.key === "Escape") setRenaming(null); }} />
                     : <span className="nm">{w.name}</span>}
-                  <span className="k">{on ? p.chats.length : ""}</span>
                 </button>
                 <button className="ws-plus" onClick={() => setNewPop(newPop === w.id ? null : w.id)} title={`New chat in ${w.name}`}>+</button>
                 <NewPop open={newPop === w.id} wsName={w.name} onPick={(k) => { setNewPop(null); ui.setWorkspace(w.id); p.onNewChat(k); }} />
               </div>
-              {on && [...p.chats.filter((c) => !c.state || c.state === "open"), ...(showDone ? p.chats.filter((c) => c.state && c.state !== "open") : [])].map((c) => {
-                const here = p.presence.filter((x) => x.chatId === c._id).map((x) => x.login);
-                return (
-                  <button key={c._id} className={`th-item${p.tabs.includes(c._id) ? " open" : ""}${p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(p.wsId, c._id)}>
-                    <span className={`sq ${status(c)}`} />
-                    <span className={`nm${c.untitled ? " untitled" : ""}`}>{c.title}</span>
-                    {c.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
-                    <span className="here" title={here.length ? `${here.map(nameOf).join(", ")} focused here` : ""}>{here.map((l) => <PersonAvatar key={l} login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} className="xs" />)}</span>
-                  </button>
-                );
-              })}
-              {on && p.chats.some((c) => c.state && c.state !== "open") && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {p.chats.filter((c) => c.state && c.state !== "open").length} settled</button>}
+              <div className={`wt-wrap${folded ? " closed" : ""}`}><div className="wt-inner">
+                <WorkspaceThreads wsId={w.id as Id<"workspaces">} active={on} p={p} showDone={showDone} setShowDone={setShowDone} nameOf={nameOf} imageOf={imageOf} />
+              </div></div>
             </div>
           );
         })}
@@ -139,5 +130,41 @@ function NewPop({ open, wsName, onPick }: { open: boolean; wsName: string; onPic
       <button onClick={() => onPick("private")}>{ICO.lock}<span>Private chat<small>just you · pin a default agent</small></span></button>
       <span className="k" style={{ display: "none" }}>{wsName}</span>
     </div>
+  );
+}
+
+/** One workspace's threads. Every workspace keeps its list; only the active one shows presence. Double-click a thread to rename it. */
+function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imageOf }: { wsId: Id<"workspaces">; active: boolean; p: { me: Me; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; tabs: string[]; activeId: string | null }; showDone: boolean; setShowDone: (v: boolean) => void; nameOf: (l: string) => string; imageOf: (l: string) => string | null }) {
+  const own = useQuery(api.chats.list, active ? "skip" : { workspaceId: wsId });
+  const chats = active ? p.chats : own ?? [];
+  const renameChat = useMutation(api.chats.rename);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const commit = async () => {
+    if (!renaming) return;
+    const { id, value } = renaming; setRenaming(null);
+    const c = chats.find((x) => x._id === id);
+    if (!c || !value.trim() || value.trim() === c.title) return;
+    try { await renameChat({ chatId: id as Id<"chats">, title: value.trim().slice(0, 80) }); } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
+  };
+  const status = (c: Doc<"chats">) => (c.state && c.state !== "open" ? "settled" : "idle");
+  const open = chats.filter((c) => !c.state || c.state === "open"), settled = chats.filter((c) => c.state && c.state !== "open");
+  return (
+    <>
+      {[...open, ...(showDone && active ? settled : [])].map((c) => {
+        const here = active ? p.presence.filter((x) => x.chatId === c._id).map((x) => x.login) : [];
+        return (
+          <button key={c._id} className={`th-item${active && p.tabs.includes(c._id) ? " open" : ""}${active && p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(wsId, c._id)} onDoubleClick={() => setRenaming({ id: c._id, value: c.title })} title="Double-click to rename">
+            <span className={`sq ${status(c)}`} />
+            {renaming?.id === c._id
+              ? <input className="nm th-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: c._id, value: e.target.value })} onBlur={() => void commit()} onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(); } if (e.key === "Escape") setRenaming(null); }} />
+              : <span className={`nm${c.untitled ? " untitled" : ""}`}>{c.title}</span>}
+            {c.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
+            <span className="here" title={here.length ? `${here.map(nameOf).join(", ")} focused here` : ""}>{here.map((l) => <PersonAvatar key={l} login={l} name={nameOf(l)} image={imageOf(l)} hue={l === p.me.githubLogin ? "me" : hueClass(l)} className="xs" />)}</span>
+          </button>
+        );
+      })}
+      {active && settled.length > 0 && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {settled.length} settled</button>}
+    </>
   );
 }

@@ -6,21 +6,23 @@ export interface UiState {
   tabs: Record<string, string[]>;
   active: Record<string, string | null>;
   prefs: { addToChat: "auto" | "ask" };
+  collapsed: Record<string, boolean>;   // workspace id → thread list folded
 }
 const KEY = "beam.ui.v1";
 let state: UiState = load();
 const subs = new Set<() => void>();
 
 function load(): UiState {
-  try { const raw = localStorage.getItem(KEY); if (raw) return { prefs: { addToChat: "auto" }, ...JSON.parse(raw) }; } catch {}
-  return { ws: null, tabs: {}, active: {}, prefs: { addToChat: "auto" } };
+  try { const raw = localStorage.getItem(KEY); if (raw) return { prefs: { addToChat: "auto" }, collapsed: {}, ...JSON.parse(raw) }; } catch {}
+  return { ws: null, tabs: {}, active: {}, prefs: { addToChat: "auto" }, collapsed: {} };
 }
 function set(next: UiState) { state = next; try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {} subs.forEach((f) => f()); }
 
 export const ui = {
   get: () => state,
   subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
-  setWorkspace: (ws: string) => set({ ...state, ws }),
+  setWorkspace: (ws: string) => set({ ...state, ws, collapsed: { ...state.collapsed, [ws]: false } }),
+  toggleCollapsed: (ws: string) => set({ ...state, collapsed: { ...state.collapsed, [ws]: !state.collapsed[ws] } }),
   openChat: (ws: string, chat: string) => {
     const tabs = state.tabs[ws] ?? [];
     set({ ...state, ws, tabs: { ...state.tabs, [ws]: tabs.includes(chat) ? tabs : [...tabs, chat] }, active: { ...state.active, [ws]: chat } });

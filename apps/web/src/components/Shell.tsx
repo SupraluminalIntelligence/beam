@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
@@ -20,8 +20,13 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const u = useUi();
   const wsId = (workspaces.find((w) => w.id === u.ws)?.id ?? workspaces[0]!.id) as Id<"workspaces">;
   useEffect(() => { if (u.ws !== wsId) ui.setWorkspace(wsId); }, [u.ws, wsId]);
-  const detail = useQuery(api.workspaces.detail, { workspaceId: wsId });
-  const chats = useQuery(api.chats.list, { workspaceId: wsId });
+  // Keep the last loaded workspace on screen while the next one loads, so switching never unmounts the shell.
+  const liveDetail = useQuery(api.workspaces.detail, { workspaceId: wsId });
+  const liveChats = useQuery(api.chats.list, { workspaceId: wsId });
+  const last = useRef<{ ws: string; detail: NonNullable<typeof liveDetail>; chats: NonNullable<typeof liveChats> } | null>(null);
+  if (liveDetail && liveChats) last.current = { ws: wsId, detail: liveDetail, chats: liveChats };
+  const detail = liveDetail ?? last.current?.detail;
+  const chats = liveChats ?? (last.current ? [] : undefined);
   const presence = useQuery(api.presence.inWorkspace, { workspaceId: wsId });
   const createChat = useMutation(api.chats.create);
   const focus = useMutation(api.presence.focus);

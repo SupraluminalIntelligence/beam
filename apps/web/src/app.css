@@ -525,3 +525,14 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .pp-row .sq{width:7px;height:7px;background:var(--line-2)}.pp-row .sq.ok{background:var(--ok)}
 .pp-invite{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:8px 12px;border-top:1px solid var(--line);margin-top:4px;font-size:13px;color:var(--ink-2)}
 .pp-invite:hover{background:var(--surface-2);color:var(--ink)}
+
+/* ---- workspace fold + thread rename ---- */
+.ws-fold{width:18px;height:28px;display:grid;place-items:center;color:var(--ink-3);margin-left:6px;flex:none}
+.ws-fold:hover{color:var(--ink)}
+.ws-fold .tri{display:inline-block;font-size:10px;transition:transform .2s ease}
+.ws-fold .tri.open{transform:rotate(90deg)}
+.ws-row .ws-item{padding-left:4px}
+.wt-wrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows .24s ease}
+.wt-wrap.closed{grid-template-rows:0fr}
+.wt-wrap>.wt-inner{min-height:0;overflow:hidden}
+.th-rename{background:var(--surface-2);border:0;border-bottom:1px solid var(--line-2);color:var(--ink);font:inherit;padding:0 2px;outline:none;min-width:0;flex:1}
