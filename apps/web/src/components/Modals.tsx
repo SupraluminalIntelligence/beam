@@ -11,6 +11,8 @@ import { ApproveRunner, Harnesses } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
 import type { Me } from "./Shell";
 import { toast } from "./Toast";
+import { PersonAvatar } from "./Avatar";
+import { hueClass } from "../lib/format";
 import { HOSTED_URL } from "../App";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
@@ -91,20 +93,42 @@ export function InviteModal({ open, onClose, wsId, wsName, chatId }: { open: boo
   const invite = useMutation(api.workspaces.invite);
   const u = useUi();
   const [login, setLogin] = useState("");
-  useEffect(() => { if (open) setLogin(""); }, [open]);
-  const go = async () => {
-    const v = login.trim();
-    if (!v) { toast("Need a GitHub login"); return; }
-    const addHere = chatId && (u.prefs.addToChat === "auto" || window.confirm(`Also add ${v} to this chat?`));
-    const l = await invite({ workspaceId: wsId, githubLogin: v, chatId: addHere ? chatId : null });
-    onClose(); toast(addHere ? `Invited ${l} · added to this chat too` : `Invited ${l} · they appear when they sign in`);
+  const [sel, setSel] = useState(0);
+  const people = useQuery(api.users.directory, open ? { workspaceId: wsId, q: login } : "skip") ?? [];
+  useEffect(() => { if (open) { setLogin(""); setSel(0); } }, [open]);
+  useEffect(() => { setSel(0); }, [login]);
+  const typed = login.trim().replace(/^@/, "");
+  const exact = people.some((p) => p.login.toLowerCase() === typed.toLowerCase());
+  // Rows: everyone on Beam who matches, plus "invite <typed>" when the typed login is not one of them.
+  const rows = [...people.map((p) => ({ kind: "person" as const, ...p })), ...(typed && !exact ? [{ kind: "raw" as const, login: typed, name: typed, image: null }] : [])];
+  const go = async (l: string) => {
+    if (!l) return;
+    const addHere = chatId && (u.prefs.addToChat === "auto" || window.confirm(`Also add ${l} to this chat?`));
+    try {
+      const done = await invite({ workspaceId: wsId, githubLogin: l, chatId: addHere ? chatId : null });
+      onClose(); toast(addHere ? `Invited ${done} · added to this chat too` : `Invited ${done} · the workspace shows up for them right away`);
+    } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
   };
   return (
     <Modal open={open} onClose={onClose}>
       <div className="m-h">Invite to {wsName}</div>
-      <div className="row"><span>GitHub login</span><input type="text" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="octocat" autoFocus onKeyDown={(e) => { if (e.key === "Enter") void go(); }} /></div>
-      <div className="row"><span>Access</span><span className="hint">they connect their own harnesses · their machine becomes a runner while Beam is open</span></div>
-      <div className="m-f"><span>Guests can be invited by their guest-xxxx login.</span><span><button className="btn ghost" onClick={onClose}>Cancel</button> <button className="btn" onClick={() => void go()}>Invite</button></span></div>
+      <div className="row"><span>Who</span><input type="text" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="search people on Beam, or type a GitHub login" autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (rows.length) setSel((sel + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length); return; }
+          if (e.key === "Enter") { e.preventDefault(); const r = rows[sel]; if (r) void go(r.login); }
+        }} /></div>
+      <div className="repolist">
+        {rows.map((r, i) => (
+          <button key={r.login} className={`rl-row person${i === sel ? " sel" : ""}`} onMouseEnter={() => setSel(i)} onClick={() => void go(r.login)}>
+            <PersonAvatar login={r.login} name={r.name} image={r.image} hue={hueClass(r.login)} />
+            <span className="nm">{r.name}</span>
+            <span className="d">{r.kind === "person" ? `@${r.login} · on Beam` : "not on Beam yet · invite by login anyway"}</span>
+            <span className="t">{r.kind === "person" ? "invite" : "invite"}</span>
+          </button>
+        ))}
+        {!rows.length && <div className="rl-note">{typed ? "No one matches. Keep typing a full GitHub login to invite them anyway." : "Everyone on Beam is already in this workspace. Type a GitHub login to invite someone new."}</div>}
+      </div>
+      <div className="m-f"><span>They connect their own harnesses; their machine hosts runs while Beam is open.</span><span><button className="btn ghost" onClick={onClose}>Cancel</button></span></div>
     </Modal>
   );
 }

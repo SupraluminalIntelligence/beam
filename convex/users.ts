@@ -23,3 +23,21 @@ export const byLogins = query({
     return out;
   },
 });
+
+/** People who have signed in to Beam with GitHub, for the invite picker. Guests are left out; members already in the workspace too. */
+export const directory = query({
+  args: { workspaceId: v.id("workspaces"), q: v.string() },
+  handler: async (ctx, { workspaceId, q }) => {
+    const me = await getAuthUserId(ctx);
+    if (!me) return [];
+    const members = new Set((await ctx.db.query("members").withIndex("by_workspace", (x) => x.eq("workspaceId", workspaceId)).collect()).map((m) => m.githubLogin));
+    const all = await ctx.db.query("users").collect();
+    const needle = q.trim().toLowerCase();
+    return all
+      .filter((u) => u.githubLogin && !u.isAnonymous && !members.has(u.githubLogin))
+      .filter((u) => !needle || u.githubLogin!.toLowerCase().includes(needle) || (u.name ?? "").toLowerCase().includes(needle))
+      .sort((a, b) => a.githubLogin!.localeCompare(b.githubLogin!))
+      .slice(0, 20)
+      .map((u) => ({ login: u.githubLogin!, name: u.name ?? u.githubLogin!, image: u.image ?? null }));
+  },
+});

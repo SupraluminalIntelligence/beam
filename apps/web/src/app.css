@@ -543,3 +543,7 @@ body.resizing .side-grip{pointer-events:auto}
 .wt-wrap.closed{grid-template-rows:0fr}
 .wt-wrap>.wt-inner{min-height:0;overflow:hidden}
 .th-rename{background:var(--surface-2);border:0;border-bottom:1px solid var(--line-2);color:var(--ink);font:inherit;padding:0 2px;outline:none;min-width:0;flex:1}
+.rl-row.person{grid-template-columns:auto 1fr auto auto;align-items:center}
+.rl-row.person .nm{font-weight:500}
+.rl-row.sel{background:var(--surface-2)}
+.rl-row.person .nm{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500}
