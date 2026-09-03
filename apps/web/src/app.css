@@ -500,8 +500,7 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .dd button.dim{color:var(--ink-3)}.dd button.dim .k{float:right;font-size:10px}
 .donebtn{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);border:1px solid var(--line);padding:1px 8px;margin-right:10px;height:22px}
 .donebtn:hover{color:var(--ink);border-color:var(--line-2)}
-.donebtn.done{color:var(--warn);border-color:var(--warn)}
 .donebtn.settled{color:var(--ok);border-color:var(--ok)}
 .th-done{display:block;width:100%;text-align:left;padding:5px 14px 5px 30px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)}
 .th-done:hover{color:var(--ink-2)}
-.th-item .sq.done{background:var(--warn)}.th-item .sq.settled{background:var(--ok)}
+.th-item .sq.settled{background:var(--ok)}

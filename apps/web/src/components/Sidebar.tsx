@@ -40,7 +40,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
     return () => document.removeEventListener("click", close);
   }, []);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
-  const status = (c: Doc<"chats">) => (c.state === "settled" ? "settled" : c.state === "done" ? "done" : "idle");
+  const status = (c: Doc<"chats">) => (c.state && c.state !== "open" ? "settled" : "idle");
   const [showDone, setShowDone] = useState(false);
   const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
   const runnersOf = (login: string) => p.runners.filter((r) => r.online && r.ownerLogin === login);
@@ -74,7 +74,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                   </button>
                 );
               })}
-              {on && p.chats.some((c) => c.state && c.state !== "open") && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {p.chats.filter((c) => c.state && c.state !== "open").length} done</button>}
+              {on && p.chats.some((c) => c.state && c.state !== "open") && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {p.chats.filter((c) => c.state && c.state !== "open").length} settled</button>}
             </div>
           );
         })}

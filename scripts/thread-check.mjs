@@ -87,9 +87,9 @@ try {
   const web = git(["branch", "--list", "beam/*"], bares.web), api = git(["branch", "--list", "beam/*"], bares.api);
   const webMath = web ? git(["show", `${web.trim().replace(/^\* /, "")}:src/math.ts`], bares.web) : "";
   const apiMath = api ? git(["show", `${api.trim().replace(/^\* /, "")}:src/math.ts`], bares.api) : "";
-  // mark done: no PRs exist for file:// remotes, so the thread stays "done" with changes in flight
+  // settle the thread
   await p.locator(".donebtn").click();
-  await p.locator(".donebtn.done, .donebtn.settled").waitFor({ timeout: 10000 });
+  await p.locator(".donebtn.settled").waitFor({ timeout: 10000 });
   const doneLabel = await p.locator(".donebtn").innerText();
   await p.screenshot({ path: join(shots, "4-done.png") });
   result.ok = /subtract/.test(webMath) && /multiply/.test(apiMath) && cards.length >= 2;

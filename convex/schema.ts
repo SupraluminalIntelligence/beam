@@ -43,7 +43,7 @@ export default defineSchema({
     pinnedAgent: v.union(v.id("agents"), v.null()), pinnedRunner: v.union(v.id("runners"), v.null()),
     repo: v.union(v.string(), v.null()), activeBranch: v.union(v.string(), v.null()), // legacy single repo; `repos` is the truth
     repos: v.optional(v.array(v.string())),   // every repo this thread works in; one worktree each in the thread directory
-    state: v.optional(v.string()),            // open | done | settled (default open)
+    state: v.optional(v.string()),            // open | settled (default open)
     doneAt: v.optional(v.number()), settledAt: v.optional(v.number()),
     autoRoute: v.optional(v.boolean()),   // agents listen to plain messages (default on)
     createdBy: v.string(), lastMessageAt: v.number(),

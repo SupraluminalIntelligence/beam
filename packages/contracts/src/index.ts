@@ -98,7 +98,7 @@ export const Landing = z.object({ repos: z.array(RepoLanding), error: z.string()
 export type Landing = z.infer<typeof Landing>;
 
 export const ChangeState = z.enum(["open", "merged", "closed"]);
-export const ThreadState = z.enum(["open", "done", "settled"]);
+export const ThreadState = z.enum(["open", "settled"]);
 
 export const Run = z.object({
   id: RunId,

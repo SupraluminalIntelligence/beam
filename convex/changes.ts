@@ -96,15 +96,5 @@ export const resolve = mutation({
     if (!c) throw new Error("no such change");
     await requireChat(ctx, c.chatId);
     await ctx.db.patch(changeId, { state, resolvedAt: Date.now() });
-    await settleIfQuiet(ctx, c.chatId);
   },
 });
-
-/** A done thread whose changes have all resolved is settled. */
-export async function settleIfQuiet(ctx: MutationCtx, chatId: Id<"chats">) {
-  const chat = await ctx.db.get(chatId);
-  if (!chat || chat.state !== "done") return;
-  const rows = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
-  if (rows.some((c) => c.state === "open")) return;
-  await ctx.db.patch(chatId, { state: "settled", settledAt: Date.now() });
-}

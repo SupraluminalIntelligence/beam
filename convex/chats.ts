@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { openChange, settleIfQuiet, threadRepos } from "./changes";
+import { openChange, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
 
 export const list = query({
@@ -61,16 +61,14 @@ export const removeRepo = mutation({
   },
 });
 
-/** open → done is a person's call; done → settled happens when the last change resolves (at once if there were none). */
+/** Two states. A thread is open while people work in it; settling it is a person's call. A new message reopens it. */
 export const setState = mutation({
   args: { chatId: v.id("chats"), state: v.string() },
   handler: async (ctx, { chatId, state }) => {
     await requireChat(ctx, chatId);
-    if (state === "open") { await ctx.db.patch(chatId, { state: "open" }); return "open"; }
-    if (state !== "done") throw new Error("state must be open or done");
-    await ctx.db.patch(chatId, { state: "done", doneAt: Date.now() });
-    await settleIfQuiet(ctx, chatId);
-    return (await ctx.db.get(chatId))!.state;
+    if (state !== "open" && state !== "settled") throw new Error("state must be open or settled");
+    await ctx.db.patch(chatId, state === "open" ? { state: "open" } : { state: "settled", settledAt: Date.now() });
+    return state;
   },
 });
 

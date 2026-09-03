@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { settleIfQuiet } from "./changes";
 import { internal } from "./_generated/api";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
@@ -67,11 +66,10 @@ export const markResolved = internalMutation({
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open") return;
     await ctx.db.patch(changeId, { state, resolvedAt: Date.now() });
-    await settleIfQuiet(ctx, c.chatId);
   },
 });
 
-/** Every few minutes: did any open PR merge or close? Threads settle from here without anyone running anything. */
+/** Every few minutes: did any open PR merge or close? Keeps the change chips honest without anyone running anything. */
 export const syncChanges = internalAction({
   args: {},
   handler: async (ctx) => {

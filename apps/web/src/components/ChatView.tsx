@@ -161,8 +161,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         })}
         <span className="sp" />
         {threadState === "open"
-          ? <button className="donebtn" title="Mark this thread done. It settles by itself once every PR from it has merged or closed." onClick={() => void setState({ chatId: chat._id, state: "done" }).then((st) => toast(st === "settled" ? "Done and settled · nothing left in flight" : "Done · settles when its PRs merge"))}>done</button>
-          : <button className={`donebtn ${threadState}`} title="Reopen this thread" onClick={() => void setState({ chatId: chat._id, state: "open" }).then(() => toast("Reopened"))}>{threadState === "settled" ? "settled" : `done · ${changes.filter((c) => c.state === "open").length} PR${changes.filter((c) => c.state === "open").length === 1 ? "" : "s"} in flight`}</button>}
+          ? <button className="donebtn" title="Settle this thread when you are done with it. A new message reopens it." onClick={() => void setState({ chatId: chat._id, state: "settled" }).then(() => toast("Settled · a new message reopens it"))}>settle</button>
+          : <button className="donebtn settled" title="Reopen this thread" onClick={() => void setState({ chatId: chat._id, state: "open" }).then(() => toast("Reopened"))}>settled{changes.some((c) => c.state === "open") ? ` · ${changes.filter((c) => c.state === "open").length} PR${changes.filter((c) => c.state === "open").length === 1 ? "" : "s"} open` : ""}</button>}
         <div className="scope" onClick={(e) => e.stopPropagation()}>
           <button className="scopebtn" onClick={() => setScopeOpen(!scopeOpen)} title={chat.private ? "Private · just you" : "Members and agents"}>
             {chat.private && <span className="k">private</span>}
