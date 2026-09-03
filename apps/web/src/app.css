@@ -504,3 +504,4 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .th-done{display:block;width:100%;text-align:left;padding:5px 14px 5px 30px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.06em;color:var(--ink-3)}
 .th-done:hover{color:var(--ink-2)}
 .th-item .sq.settled{background:var(--ok)}
+.ws-rename{background:var(--surface-2);border:0;border-bottom:1px solid var(--line-2);color:var(--ink);font:inherit;font-weight:500;padding:0 2px;margin:-1px 0;outline:none;min-width:0}

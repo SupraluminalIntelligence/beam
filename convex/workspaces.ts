@@ -30,6 +30,18 @@ export const detail = query({
   },
 });
 
+/** Any member can rename the workspace. Double-click the name in the sidebar. */
+export const rename = mutation({
+  args: { workspaceId: v.id("workspaces"), name: v.string() },
+  handler: async (ctx, { workspaceId, name }) => {
+    await requireMember(ctx, workspaceId);
+    const n = name.trim().slice(0, 48);
+    if (!n) throw new Error("a workspace needs a name");
+    await ctx.db.patch(workspaceId, { name: n });
+    return n;
+  },
+});
+
 export const create = mutation({
   args: { name: v.string(), repo: v.union(v.string(), v.null()) },
   handler: async (ctx, { name, repo }) => {

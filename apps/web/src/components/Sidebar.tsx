@@ -42,6 +42,16 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const status = (c: Doc<"chats">) => (c.state && c.state !== "open" ? "settled" : "idle");
   const [showDone, setShowDone] = useState(false);
+  const rename = useMutation(api.workspaces.rename);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
+  const commitRename = async () => {
+    if (!renaming) return;
+    const { id, value } = renaming; setRenaming(null);
+    const w = p.workspaces.find((x) => x.id === id);
+    if (!w || value.trim() === w.name || !value.trim()) return;
+    try { await rename({ workspaceId: id as Id<"workspaces">, name: value }); toast(`Renamed to ${value.trim()}`); }
+    catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
+  };
   const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
   const runnersOf = (login: string) => p.runners.filter((r) => r.online && r.ownerLogin === login);
 
@@ -59,7 +69,14 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           return (
             <div key={w.id}>
               <div className={`ws-row${on ? " on" : ""}`} onClick={stop}>
-                <button className={`ws-item${on ? " on" : ""}`} onClick={() => ui.setWorkspace(w.id)}><span className="ic">{on ? "▣" : "▢"}</span><span className="nm">{w.name}</span><span className="k">{on ? p.chats.length : ""}</span></button>
+                <button className={`ws-item${on ? " on" : ""}`} onClick={() => ui.setWorkspace(w.id)} onDoubleClick={() => setRenaming({ id: w.id, value: w.name })} title="Double-click to rename">
+                  <span className="ic">{on ? "▣" : "▢"}</span>
+                  {renaming?.id === w.id
+                    ? <input className="nm ws-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: w.id, value: e.target.value })} onBlur={() => void commitRename()} onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commitRename(); } if (e.key === "Escape") setRenaming(null); }} />
+                    : <span className="nm">{w.name}</span>}
+                  <span className="k">{on ? p.chats.length : ""}</span>
+                </button>
                 <button className="ws-plus" onClick={() => setNewPop(newPop === w.id ? null : w.id)} title={`New chat in ${w.name}`}>+</button>
                 <NewPop open={newPop === w.id} wsName={w.name} onPick={(k) => { setNewPop(null); ui.setWorkspace(w.id); p.onNewChat(k); }} />
               </div>
