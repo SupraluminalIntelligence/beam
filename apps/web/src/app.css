@@ -556,3 +556,12 @@ body.resizing .side-grip{pointer-events:auto}
 .msgs{padding-bottom:28px}
 .perm button kbd{font-family:inherit;font-size:10px;color:var(--ink-3);margin-left:6px}
 .perm button:hover kbd{color:var(--ink-2)}
+.act .ah .chip{font-size:10.5px;padding:0 6px;color:var(--ink-3);border-color:var(--line);margin-left:6px}
+.act .ah .st .quietnote{color:var(--warn);margin-right:6px}
+.act.quiet .ah .st i{background:var(--warn);animation:none;opacity:.6}
+.stepline .r.live{color:var(--warn)}
+.act .ah{flex-wrap:nowrap;min-width:0}
+.act .ah .ttl{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .ah .chip{flex:none;white-space:nowrap}
+.act .ah .st{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
+.act .ah .st .quietnote{max-width:260px;overflow:hidden;text-overflow:ellipsis}

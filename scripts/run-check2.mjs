@@ -74,7 +74,7 @@ try {
   await p.keyboard.press("Enter");
   const t0 = Date.now(); let approvals = 0;
   while (Date.now() - t0 < 300_000) {
-    const ask = p.locator(".ask .perm button", { hasText: /^allow$/ });
+    const ask = p.locator(".ask .perm button").first();
     if (await ask.count()) { await ask.first().click(); approvals += 1; }
     if (await p.locator(".card .ttl", { hasText: /^beam\// }).count()) break;
     if (await p.locator(".ask.fail").count()) break;

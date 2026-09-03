@@ -244,7 +244,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span><span className="tm">{hhmm(m._creationTime)}</span></div>
-                {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} />}
+                {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} lastAt={view?.lastAt ?? null} queued={turnLive ? view?.queuedSteers ?? 0 : 0} note={turnLive ? view?.note ?? null : null} />}
                 {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
                 {m.kind === "report" ? <StreamText text={m.text} live={turnLive} handles={handles} logins={logins} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={logins} /></div>}
                 {run && lastOfRun && !isLive(run.state) && !trailing.some((t) => t.r._id === run._id) && <LandingCard run={run} />}
@@ -269,7 +269,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
               <div>
                 <div className="hd"><span className={`nm ${ag?.harness === "codex" ? "codex" : ag?.harness === "omp" ? "omp" : "claude"}`}>{name}</span><span className="tm">{hhmm(r.startedAt ?? r._creationTime)}</span></div>
                 <RunStatus run={r} view={v} />
-                {t && <Activity t={t} live={live && !t.done} agentName={name} />}
+                {t && <Activity t={t} live={live && !t.done} agentName={name} lastAt={v?.lastAt ?? null} queued={v?.queuedSteers ?? 0} note={v?.note ?? null} />}
                 {v && t && <Requests view={v} turn={t.turn} runId={r._id} />}
                 {!live && <LandingCard run={r} />}
               </div>

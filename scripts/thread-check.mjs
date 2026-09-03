@@ -70,7 +70,7 @@ try {
   // sample what the reader sees: how often the streamed text changes
   const samples = []; let lastLen = -1;
   while (Date.now() - t0 < 300_000) {
-    const ask = p.locator(".ask .perm button", { hasText: /^allow$/ });
+    const ask = p.locator(".ask .perm button").first();
     if (await ask.count()) { await ask.first().click(); approvals += 1; await p.screenshot({ path: join(shots, `2-approve-${approvals}.png`) }); }
     if ((await p.locator(".card .ttl", { hasText: /^beam\// }).count()) >= 2) break;
     if (await p.locator(".ask.fail").count()) break;

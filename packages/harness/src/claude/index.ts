@@ -70,6 +70,7 @@ class ClaudeSession implements Session {
   private turn = 0;
   private text = "";
   private stopped = false;
+  private turnOpen = false;   // the model is inside a turn (between its first frame and the result)
   private readonly input: StartSession;
 
   /** `bin` is the user's installed `claude`; the SDK's own copy is not shipped inside the packaged app. */
@@ -137,11 +138,26 @@ class ClaudeSession implements Session {
   private handle(m: SDKMessage) {
     const runId = this.input.runId as never;
     switch (m.type) {
-      case "system":
-        if (m.subtype === "init") { this.sessionId = m.session_id; this.emit({ type: "session.started", runId, resumeCursor: { sessionId: m.session_id } }); }
+      case "system": {
+        if (m.subtype === "init") { this.sessionId = m.session_id; this.emit({ type: "session.started", runId, resumeCursor: { sessionId: m.session_id } }); return; }
+        const sys = m as unknown as { subtype: string; attempt?: number; max_retries?: number; retry_delay_ms?: number; error_status?: number | null; status?: string };
+        if (sys.subtype === "api_retry") {
+          const secs = Math.round((sys.retry_delay_ms ?? 0) / 1000);
+          this.emit({ type: "status", runId, message: `API ${sys.error_status ?? "error"} · retry ${sys.attempt}/${sys.max_retries}${secs ? ` in ${secs}s` : ""}`, until: sys.retry_delay_ms ? Date.now() + sys.retry_delay_ms : null });
+        } else if (sys.subtype === "status" && sys.status && sys.status !== "idle") {
+          this.emit({ type: "status", runId, message: String(sys.status).replace(/_/g, " "), until: null });
+        }
         return;
+      }
+      case "rate_limit_event": {
+        const info = (m as unknown as { rate_limit_info: { status: string; resetsAt?: number; rateLimitType?: string } }).rate_limit_info;
+        if (info.status === "rejected") this.emit({ type: "status", runId, message: `rate limited${info.resetsAt ? ` · resets ${new Date(info.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`, until: info.resetsAt ? info.resetsAt * 1000 : null });
+        else if (info.status === "allowed_warning") this.emit({ type: "status", runId, message: "close to the rate limit", until: null });
+        return;
+      }
       case "stream_event": {
         if (m.parent_tool_use_id) return;
+        this.beginTurn();
         const ev = m.event as { type: string; delta?: { type: string; text?: string }; content_block?: { type: string } };
         // Text blocks are separated by tool calls; keep them as paragraphs rather than gluing them together.
         if (ev.type === "content_block_start" && ev.content_block?.type === "text" && this.text && !this.text.endsWith("\n\n")) {
@@ -156,6 +172,7 @@ class ClaudeSession implements Session {
       }
       case "assistant": {
         if (m.parent_tool_use_id) return;
+        this.beginTurn();
         for (const block of m.message.content as { type: string; id?: string; name?: string; input?: Record<string, unknown> }[]) {
           if (block.type === "tool_use" && block.id && block.name) {
             const { kind, summary } = describeTool(block.name, block.input ?? {}, this.input.cwd);
@@ -178,11 +195,13 @@ class ClaudeSession implements Session {
         return;
       }
       case "result": {
+        this.beginTurn();
         const text = this.text.trim() || (m.subtype === "success" ? m.result : "");
         if (text) this.emit({ type: "content.final", runId, messageId: `t${this.turn}` as never, text });
         if (m.subtype !== "success") this.emit({ type: "error", runId, message: `${m.subtype}${"errors" in m && Array.isArray(m.errors) ? ": " + m.errors.join("; ") : ""}`, fatal: false });
         this.emit({ type: "turn.completed", runId, turnId: `turn${this.turn}` });
         this.text = "";
+        this.turnOpen = false;
         return;
       }
       default:
@@ -190,11 +209,18 @@ class ClaudeSession implements Session {
     }
   }
 
-  async send(text: string, messageId: string) {
+  /** Called on the first frame of a turn. Turn numbers follow the model, so a queued steer is not a turn until it runs. */
+  private beginTurn() {
+    if (this.turnOpen) return;
+    this.turnOpen = true;
     this.turn += 1;
     this.text = "";
     this.emit({ type: "turn.started", runId: this.input.runId as never, turnId: `turn${this.turn}` });
-    if (this.turn > 1) this.emit({ type: "steer.received", runId: this.input.runId as never, messageId: messageId as never });
+  }
+
+  async send(text: string, messageId: string) {
+    if (this.turn === 0 && !this.turnOpen) this.beginTurn();
+    else this.emit({ type: "steer.received", runId: this.input.runId as never, messageId: messageId as never });
     this.inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, session_id: this.sessionId ?? "" } as unknown as SDKUserMessage);
   }
   async interrupt() { try { await this.q.interrupt(); } catch {} }

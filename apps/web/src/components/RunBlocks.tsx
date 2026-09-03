@@ -8,14 +8,22 @@ import { toast } from "./Toast";
 type Run = Doc<"runs"> & { runnerName: string };
 export const isLive = (state: string) => state === "queued" || state === "starting" || state === "working" || state === "landing";
 
-const ms = (n: number | null) => (n == null ? "" : n < 1000 ? `${n}ms` : n < 60_000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n / 60_000)}m`);
+const ms = (n: number | null) => (n == null ? "" : n < 1000 ? `${n}ms` : n < 60_000 ? `${(n / 1000).toFixed(1)}s` : `${Math.floor(n / 60_000)}m ${Math.round((n % 60_000) / 1000)}s`);
 const span = (t: TurnView) => (t.startedAt && t.endedAt ? ms(t.endedAt - t.startedAt) : "");
+/** A clock that ticks once a second while something is live, so elapsed times move. */
+function useNow(live: boolean) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { if (!live) return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [live]);
+  return now;
+}
+const QUIET_MS = 90_000;
 
 const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam" };
 
 /** One tool call: status square, kind, one clipped line, timing. Click for the full command and its output. */
-function Step({ a }: { a: ActivityLine }) {
+function Step({ a, now }: { a: ActivityLine; now: number }) {
   const [open, setOpen] = useState(false);
+  const running = a.ok === null && a.startedAt ? ms(Math.max(0, now - a.startedAt)) : null;
   const label = KIND_LABEL[a.kind] ?? a.kind.slice(0, 5);
   // "Read src/x.ts" → the file, since the kind column already says read
   const text = ["read", "edit", "write", "search", "web", "agent"].includes(a.kind) ? a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : a.summary;
@@ -25,7 +33,7 @@ function Step({ a }: { a: ActivityLine }) {
         <span className={`sq ${a.ok === null ? "run" : a.ok ? "ok" : "bad"}`} />
         <span className="kind">{label}</span>
         <span className="what">{text}</span>
-        <span className="r">{ms(a.ms)}</span>
+        <span className={`r${running ? " live" : ""}`}>{running ?? ms(a.ms)}</span>
       </button>
       {open && <div className="stepdetail">
         {a.kind === "bash" && <pre className="cmd">{a.summary}</pre>}
@@ -36,20 +44,28 @@ function Step({ a }: { a: ActivityLine }) {
 }
 
 /** One turn's tool calls. Open while it runs, folded once it is done. */
-export function Activity({ t, live, agentName }: { t: TurnView; live: boolean; agentName: string }) {
+export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }: { t: TurnView; live: boolean; agentName: string; lastAt?: number | null; queued?: number; note?: string | null }) {
   const [open, setOpen] = useState<boolean | null>(null);
+  const now = useNow(live);
   const isOpen = open ?? live;
   if (!t.activity.length && !live) return null;
   const n = t.activity.length;
+  const quiet = live && lastAt ? Math.max(0, now - lastAt) : 0;
+  const elapsed = live && t.startedAt ? ms(Math.max(0, now - t.startedAt)) : "";
   const title = live ? (n ? `${agentName} is working · ${n} step${n === 1 ? "" : "s"}` : `${agentName} is thinking`) : `${n} step${n === 1 ? "" : "s"}`;
   return (
-    <div className={`act${isOpen ? "" : " closed"}`}>
+    <div className={`act${isOpen ? "" : " closed"}${live && (note || quiet > QUIET_MS) ? " quiet" : ""}`}>
       <button className="ah" onClick={() => setOpen(!isOpen)}>
-        <span className="tog">{isOpen ? "▾" : "▸"}</span><span>{title}</span>
-        <span className={`st ${live ? "work" : "done"}`}><i />{live ? "" : span(t)}</span>
+        <span className="tog">{isOpen ? "▾" : "▸"}</span><span className="ttl">{title}</span>
+        {queued > 0 && <span className="chip" title={`${queued} message${queued === 1 ? "" : "s"} handed over; Claude reads them when this turn ends`}>{queued} queued</span>}
+        <span className={`st ${live ? "work" : "done"}`}>
+          {live && note && <span className="quietnote" title="What the harness reports it is waiting on">{note}</span>}
+          {live && !note && quiet > QUIET_MS && <span className="quietnote" title="No report from the runner in a while: a long command, or something outside the chat. Stop is in the composer.">quiet {ms(quiet)}</span>}
+          <i />{live ? elapsed : span(t)}
+        </span>
       </button>
       <div className="stepwrap"><div className="steps">
-        {t.activity.map((a) => <Step key={a.itemId} a={a} />)}
+        {t.activity.map((a) => <Step key={a.itemId} a={a} now={now} />)}
       </div></div>
     </div>
   );

@@ -131,6 +131,8 @@ export const RunEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("steer.received"), runId: RunId, messageId: MessageId }),
   z.object({ type: z.literal("turn.completed"), runId: RunId, turnId: z.string() }),
   z.object({ type: z.literal("account.updated"), runId: RunId, plan: z.string().nullable(), email: z.string().nullable() }),
+  /** What the harness is waiting on when nothing else is moving: an API retry, a rate limit, compaction. Cleared by the next progress event. */
+  z.object({ type: z.literal("status"), runId: RunId, message: z.string(), until: z.number().nullable() }),
   z.object({ type: z.literal("error"), runId: RunId, message: z.string(), fatal: z.boolean() }),
 ]);
 export type RunEvent = z.infer<typeof RunEvent>;
