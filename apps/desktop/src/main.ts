@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { autoUpdater } from "electron-updater";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
@@ -9,6 +10,28 @@ import { join } from "node:path";
  * so its pairing code comes to us on stdout and the signed-in renderer approves it without a click.
  */
 let runner: ChildProcess | null = null;
+
+/**
+ * Updates: electron-updater against the public releases repo (SupraluminalAI/beam-releases). The renderer shows a
+ * pill when a version is available; downloading and installing are the person's clicks, never automatic.
+ */
+type UpdateState = { state: "none" | "checking" | "available" | "downloading" | "ready" | "error"; version: string | null; percent: number; message: string | null };
+let update: UpdateState = { state: "none", version: null, percent: 0, message: null };
+function setUpdate(next: Partial<UpdateState>) { update = { ...update, ...next }; win?.webContents.send("beam:update", update); }
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => setUpdate({ state: update.state === "none" ? "checking" : update.state, message: null }));
+  autoUpdater.on("update-available", (info) => setUpdate({ state: "available", version: info.version, percent: 0 }));
+  autoUpdater.on("update-not-available", () => setUpdate({ state: "none", version: null }));
+  autoUpdater.on("download-progress", (p) => setUpdate({ state: "downloading", percent: Math.round(p.percent) }));
+  autoUpdater.on("update-downloaded", (info) => setUpdate({ state: "ready", version: info.version, percent: 100 }));
+  autoUpdater.on("error", (e) => setUpdate({ state: update.version ? "error" : "none", message: e.message.slice(0, 200) }));
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 8_000);
+  setInterval(check, 6 * 60 * 60 * 1000);
+}
 let win: BrowserWindow | null = null;
 let pendingPair: string | null = null;
 const runnerLog: string[] = [];
@@ -57,11 +80,16 @@ ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
   }
 });
 ipcMain.handle("beam:pickFolder", async () => { const r = await dialog.showOpenDialog({ properties: ["openDirectory"] }); return r.canceled ? null : (r.filePaths[0] ?? null); });
+ipcMain.handle("beam:version", () => app.getVersion());
+ipcMain.handle("beam:update:status", () => update);
+ipcMain.handle("beam:update:check", () => { if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {}); return update; });
+ipcMain.handle("beam:update:download", () => { if (update.state === "available" || update.state === "error") { setUpdate({ state: "downloading", percent: 0, message: null }); void autoUpdater.downloadUpdate().catch((e) => setUpdate({ state: "error", message: (e as Error).message.slice(0, 200) })); } });
+ipcMain.handle("beam:update:install", () => { if (update.state === "ready") { try { runner?.kill("SIGTERM"); } catch {} setImmediate(() => autoUpdater.quitAndInstall(false, true)); } });
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
 ipcMain.handle("beam:runnerStatus", () => ({ running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
 ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRunner, 500); });
 
-app.whenReady().then(() => { startRunner(); createWindow(); });
+app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", () => { runner?.kill("SIGTERM"); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

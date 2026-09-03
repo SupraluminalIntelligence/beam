@@ -9,6 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
+import { UpdatePill } from "./Update";
 
 type Detail = NonNullable<ReturnType<typeof useDetailType>>;
 function useDetailType() { return null as null | { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] }; }
@@ -93,7 +94,8 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             </div>
           );
         })}
-        <div className="sb-bottom">
+      </div>
+      <div className="sb-bottom">
         <div className="sb-sec">Agents <button onClick={() => p.setModal({ kind: "agent", id: "new" as unknown as Id<"agents"> })} title="Add an agent: omp, Gemini CLI, or any harness with a JSON stream">+</button></div>
         {p.detail.agents.map((a) => (
           <div key={a._id} className="ag-item" onClick={stop}>
@@ -114,7 +116,6 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             </span>
           </div>
         ))}
-        </div>
       </div>
       <div className="sb-foot" onClick={stop}>
         <div className="menu" hidden={!acct}>
@@ -125,7 +126,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           <button onClick={() => { setAcct(false); p.setModal({ kind: "settings" }); }}><span>Settings</span><span className="k">⌘,</span></button>
           <button onClick={() => void signOut()}><span>Log out</span></button>
         </div>
-        <button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><span className="k">⚙</span></button>
+        <button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><UpdatePill /><span className="k">⚙</span></button>
       </div>
     </aside>
   );

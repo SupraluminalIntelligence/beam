@@ -71,8 +71,41 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const pinned = chat.pinnedAgent ? detail.agents.find((a) => a._id === chat.pinnedAgent) ?? null : null;
   const members = chat.private ? [me.githubLogin] : chat.members;
 
+  // Scrolling. Sending a message anchors it at the top of the view (with room below), so the reply reads
+  // downward from there instead of the thread jittering at the bottom. Any other new content keeps the view
+  // pinned to the bottom only if it already was; scrolling up to read is never fought.
   const tailText = messages?.length ? messages[messages.length - 1]!.text.length : 0;
-  useEffect(() => { const el = msgsRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages?.length, tailText, runEvents]);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const [tailPad, setTailPad] = useState(0);
+  const lastCount = useRef(0);
+  useEffect(() => {
+    const el = msgsRef.current; if (!el || !messages) return;
+    const first = lastCount.current === 0;
+    const grew = messages.length > lastCount.current; lastCount.current = messages.length;
+    if (first) { el.scrollTop = el.scrollHeight; return; } // opening a thread shows its end, never anchors
+    const last = messages[messages.length - 1];
+    if (grew && last && last.author === me.githubLogin && last._id !== anchor) {
+      // my message: a viewport of room below it, then it goes to the top
+      setAnchor(last._id);
+      setTailPad(Math.max(0, el.clientHeight - 48));
+      return;
+    }
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (!anchor && nearBottom) el.scrollTop = el.scrollHeight;
+  }, [messages?.length, tailText, runEvents]);
+  // The scroll itself runs after the spacer has been committed, or it would be clamped by the old height.
+  useEffect(() => {
+    const el = msgsRef.current; if (!el || !anchor || !tailPad) return;
+    const node = el.querySelector<HTMLElement>(`[data-mid="${anchor}"]`);
+    if (node) el.scrollTo({ top: node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 12, behavior: "smooth" });
+  }, [anchor, tailPad]);
+  useEffect(() => { setAnchor(null); setTailPad(0); lastCount.current = 0; }, [chat._id]);
+  // Reading up releases the anchor; the tail padding shrinks as replies fill it.
+  useEffect(() => {
+    const el = msgsRef.current; if (!el) return;
+    const onScroll = () => { if (anchor && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) setAnchor(null); };
+    el.addEventListener("scroll", onScroll, { passive: true }); return () => el.removeEventListener("scroll", onScroll);
+  }, [anchor]);
   useEffect(() => { inputRef.current?.focus(); }, [chat._id]);
   useEffect(() => {
     const close = () => { setRepoOpen(false); setScopeOpen(false); setPinOpen(false); setMore(null); };
@@ -207,7 +240,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           const turnView = view && m.turn ? view.turns.find((t) => t.turn === m.turn) ?? null : null;
           const turnLive = !!run && isLive(run.state) && !!turnView && !turnView.done;
           return (
-            <div key={m._id} className={`msg${cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
+            <div key={m._id} data-mid={m._id} className={`msg${cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span><span className="tm">{hhmm(m._creationTime)}</span></div>
@@ -243,6 +276,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             </div>
           );
         })}
+        {tailPad > 0 && <div className="tailpad" style={{ height: tailPad }} />}
       </div>
 
       <div className="composer">

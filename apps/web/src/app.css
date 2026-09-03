@@ -67,7 +67,7 @@ button:focus-visible,[tabindex]:focus-visible,input:focus-visible,textarea:focus
 .sb-act:hover{background:var(--surface)}
 .sb-scroll{overflow-y:auto;overflow-x:visible;flex:1;min-height:0;padding-bottom:12px;display:flex;flex-direction:column}
 /* Agents and people live at the bottom of the panel, above the account row; workspaces and chats grow from the top. */
-.sb-bottom{margin-top:auto;padding-top:10px;border-top:1px solid var(--line)}
+.sb-bottom{flex:none;padding:6px 0 8px;border-top:1px solid var(--line)}
 .sb-bottom>.sb-sec:first-child{padding-top:4px}
 .sb-sec{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:14px 14px 6px;display:flex;justify-content:space-between;align-items:center}
 .sb-scroll>.sb-sec:first-child{height:46px;padding-top:0;padding-bottom:0;border-bottom:1px solid var(--line);margin-bottom:4px}
@@ -547,3 +547,10 @@ body.resizing .side-grip{pointer-events:auto}
 .rl-row.person .nm{font-weight:500}
 .rl-row.sel{background:var(--surface-2)}
 .rl-row.person .nm{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:500}
+
+/* ---- update pill ---- */
+.upd{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--surface);background:var(--warn);padding:2px 8px;margin-right:8px;flex:none}
+.upd:hover{filter:brightness(1.1)}
+.upd.busy{background:var(--surface-3);color:var(--ink-2)}
+.upd.ready{background:var(--ok)}
+.msgs{padding-bottom:28px}

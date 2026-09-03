@@ -1,16 +1,17 @@
 {
   "name": "@beam/desktop",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
     "dev": "pnpm build && BEAM_DEV=1 electron .",
-    "dist": "pnpm build && pnpm build:runner && pnpm build:web && electron-builder --mac dmg --arm64 --x64",
+    "dist": "pnpm build && pnpm build:runner && pnpm build:web && electron-builder --mac --arm64 --x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning",
-    "build:web": "pnpm --filter @beam/web build && rm -rf dist/web && cp -R ../web/dist dist/web"
+    "build:web": "pnpm --filter @beam/web build && rm -rf dist/web && cp -R ../web/dist dist/web",
+    "release": "pnpm build && pnpm build:runner && pnpm build:web && GH_TOKEN=$(gh auth token) electron-builder --mac --arm64 --x64 --publish always"
   },
   "devDependencies": {
     "electron": "^38.0.0",
@@ -21,7 +22,8 @@
     "appId": "ai.supraluminal.beam",
     "productName": "Beam",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**"
@@ -32,12 +34,28 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
-      "identity": null
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false
     },
     "dmg": {
       "artifactName": "Beam-${version}-${arch}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "SupraluminalAI",
+        "repo": "beam-releases",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
