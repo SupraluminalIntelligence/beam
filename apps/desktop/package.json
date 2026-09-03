@@ -1,6 +1,6 @@
 {
   "name": "@beam/desktop",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
@@ -11,7 +11,7 @@
     "test": "vitest run --passWithNoTests",
     "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning",
     "build:web": "pnpm --filter @beam/web build && rm -rf dist/web && cp -R ../web/dist dist/web",
-    "release": "pnpm build && pnpm build:runner && pnpm build:web && GH_TOKEN=$(gh auth token) electron-builder --mac --arm64 --x64 --publish always"
+    "release": "pnpm build && pnpm build:runner && pnpm build:web && GH_TOKEN=$(gh auth token) electron-builder --mac --arm64 --x64 --publish always && node ../../scripts/mac-feed.mjs $npm_package_version && gh release upload v$npm_package_version --repo SupraluminalAI/beam-releases --clobber release/latest-mac.yml && gh release edit v$npm_package_version --repo SupraluminalAI/beam-releases --draft=false --latest"
   },
   "devDependencies": {
     "electron": "^38.0.0",
@@ -51,7 +51,7 @@
         "provider": "github",
         "owner": "SupraluminalAI",
         "repo": "beam-releases",
-        "releaseType": "release"
+        "releaseType": "draft"
       }
     ]
   },
