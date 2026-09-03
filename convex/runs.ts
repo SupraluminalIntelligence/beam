@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -182,6 +182,39 @@ export const respond = mutation({
     const already = events.some((e) => { const ev = e.event as { type: string; requestId?: string }; return ev.type === "request.resolved" && ev.requestId === requestId; });
     if (already) return;
     await insertEvents(ctx, runId, [{ type: "request.resolved", runId, requestId, by: u.githubLogin!, decision }]);
+  },
+});
+
+/** Stop did not land within a reasonable time, or the runner is gone: end the run from the chat side. */
+export const abandon = mutation({
+  args: { runId: v.id("runs") },
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get(runId);
+    if (!run) throw new Error("no such run");
+    const { u } = await requireChat(ctx, run.chatId);
+    if (!isLive(run.state)) return;
+    await insertEvents(ctx, runId, [{ type: "error", runId, message: `stopped by ${u.githubLogin} · the runner did not acknowledge`, fatal: true, at: Date.now() }]);
+    await ctx.db.patch(runId, { state: "interrupted", landing: { repos: [], error: "stopped from the chat; the runner did not respond, so nothing was pushed" }, endedAt: Date.now() });
+  },
+});
+
+/** Every couple of minutes: runs whose runner went offline, or whose stop was never acknowledged, are ended. */
+export const reapStale = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    for (const state of ["queued", "starting", "working", "landing"]) {
+      const rows = await ctx.db.query("runs").filter((q) => q.eq(q.field("state"), state)).collect();
+      for (const r of rows) {
+        const runner = await ctx.db.get(r.runnerId);
+        const offline = !runner || !runner.online || runner.lastSeen < now - 3 * 60_000;
+        const unacked = !!r.interruptRequestedAt && r.interruptRequestedAt < now - 90_000;
+        if (!offline && !unacked) continue;
+        const why = offline ? "the runner went offline" : "the runner did not acknowledge stop";
+        await insertEvents(ctx, r._id, [{ type: "error", runId: r._id, message: `run ended: ${why}`, fatal: true, at: now }]);
+        await ctx.db.patch(r._id, { state: offline ? "failed" : "interrupted", landing: { repos: [], error: `${why}; nothing was pushed` }, endedAt: now });
+      }
+    }
   },
 });
 

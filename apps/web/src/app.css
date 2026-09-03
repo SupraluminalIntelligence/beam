@@ -565,3 +565,5 @@ body.resizing .side-grip{pointer-events:auto}
 .act .ah .chip{flex:none;white-space:nowrap}
 .act .ah .st{flex:none;white-space:nowrap;font-variant-numeric:tabular-nums}
 .act .ah .st .quietnote{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.stopbtn.force{background:var(--del);color:var(--surface)}
+.stopping{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);margin-left:8px}

@@ -37,6 +37,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const pinAgent = useMutation(api.chats.pinAgent);
   const invite = useMutation(api.workspaces.invite);
   const stopRun = useMutation(api.runs.interrupt);
+  const abandonRun = useMutation(api.runs.abandon);
+  const [tick, setTick] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setTick(Date.now()), 2000); return () => clearInterval(t); }, []);
   const runs = useQuery(api.runs.forChat, { chatId: chat._id });
   const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
   const changes = useQuery(api.changes.forChat, { chatId: chat._id }) ?? [];
@@ -306,7 +309,11 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 <span className="dd"><span className="ddh">Default agent</span>{detail.agents.map((a) => <button key={a._id} className={chat.pinnedAgent === a._id ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: a._id }); }}>{HARNESS_NAME[a.harness]}</button>)}<button className={!chat.pinnedAgent ? "on" : ""} onClick={(e) => { e.stopPropagation(); setPinOpen(false); void pinAgent({ chatId: chat._id, agentId: null }); }}>none · @mention only</button></span>
               </span>
             : null}
-          {liveRun && <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · branch will still be pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>}
+          {liveRun && (!liveRun.interruptRequestedAt
+            ? <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · whatever changed is still pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>
+            : tick - liveRun.interruptRequestedAt > 15_000
+              ? <button className="stopbtn force" title="The runner has not acknowledged stop. This ends the run from the chat side; nothing is pushed." onClick={() => void abandonRun({ runId: liveRun._id }).then(() => toast("Run ended · the thread is free again"))}>■ force stop</button>
+              : <span className="stopping">stopping…</span>)}
         </div>
       </div>
 

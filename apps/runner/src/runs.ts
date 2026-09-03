@@ -151,9 +151,14 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   };
 
   let turn = 0, openTurns = 0, ended = false, state = "landed", cursor: unknown = resumeCursor;
+  let lastEventAt = Date.now(), waitingOnPerson = 0;
+  const SILENCE_MS = 15 * 60_000;
   const turnDone = new Promise<void>((res) => {
     void (async () => {
       for await (const e of session.events) {
+        lastEventAt = Date.now();
+        if (e.type === "request.opened") waitingOnPerson += 1;
+        if (e.type === "request.resolved") waitingOnPerson = Math.max(0, waitingOnPerson - 1);
         switch (e.type) {
           case "session.started": cursor = e.resumeCursor; queue(e); break;
           case "turn.started": turn += 1; queue(e); break;
@@ -185,15 +190,29 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     for (const s of c.steers) if (!seenSteers.has(s.id)) { seenSteers.add(s.id); queuedSteers.push({ id: s.id, text: s.text }); log(runId, `steer from ${s.author}`); }
     if (queuedSteers.length) void deliver();
     for (const r of c.resolutions) if (!seenResolutions.has(r.requestId)) { seenResolutions.add(r.requestId); void session.respond(r.requestId, r.decision, r.by); }
-    if (c.interruptRequestedAt && !interrupting) { interrupting = true; state = "interrupted"; log(runId, "interrupt requested"); void session.interrupt().then(() => { ended = true; }); }
+    if (c.interruptRequestedAt && !interrupting) {
+      interrupting = true; state = "interrupted"; log(runId, "interrupt requested");
+      // Ask nicely, then insist: a hung harness never answers an interrupt.
+      const deadline = setTimeout(() => { if (!ended) { log(runId, "interrupt not acknowledged in 10s, forcing"); ended = true; } }, 10_000);
+      void session.interrupt().then(() => { clearTimeout(deadline); ended = true; }, () => { clearTimeout(deadline); ended = true; });
+    }
   });
+  // Watchdog: a harness that says nothing for a long time, with no question pending, is treated as hung.
+  const watchdog = setInterval(() => {
+    if (ended || waitingOnPerson > 0 || Date.now() - lastEventAt < SILENCE_MS) return;
+    log(runId, `no output for ${Math.round(SILENCE_MS / 60_000)} minutes, ending the run`);
+    queue({ type: "error", runId: runId as never, message: `${agent.harness} produced nothing for ${Math.round(SILENCE_MS / 60_000)} minutes; the run was ended`, fatal: true });
+    state = "failed"; ended = true;
+    void session.interrupt().catch(() => {});
+  }, 30_000);
 
   // 6. First turn: the dispatch itself.
   openTurns = 1;
   await session.send(stripMention(dispatch.text, agent.handle), dispatch._id);
   await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
   unsubscribe();
-  await session.stop();
+  clearInterval(watchdog);
+  await Promise.race([session.stop(), new Promise((r) => setTimeout(r, 5000))]);
   cursor = session.resumeCursor() ?? cursor;
   if (flushTimer) clearTimeout(flushTimer);
   await flush();
