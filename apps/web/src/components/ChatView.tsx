@@ -160,16 +160,16 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     for (const m of messages ?? []) if (m.kind === "report" && m.runId) lastReport[m.runId] = m._id;
     return (messages ?? []).map((m) => { const cont = m.author === prev; prev = m.author; return { m, cont, lastOfRun: !!m.runId && lastReport[m.runId] === m._id }; });
   }, [messages]);
-  // Runs whose current turn has no text yet get a trailing block of their own.
+  // Live runs whose current turn has no text yet get a trailing block. Finished runs never trail: their
+  // landing card sits after their last reply, or right after the dispatch when they never replied.
   const trailing = useMemo(() => {
     const spoken = new Set((messages ?? []).filter((m) => m.kind === "report").map((m) => `${m.runId}:${m.turn}`));
-    return (runs ?? []).filter((r) => {
-      const v = views[r._id];
-      const turn = v?.turns.length ?? 0;
-      if (isLive(r.state)) return !spoken.has(`${r._id}:${turn}`);
-      return turn === 0 || (!spoken.has(`${r._id}:${turn}`) && (r.landing || r.state === "failed"));
-    }).map((r) => ({ r, v: views[r._id] ?? null }));
+    return (runs ?? []).filter((r) => isLive(r.state) && !spoken.has(`${r._id}:${views[r._id]?.turns.length ?? 0}`)).map((r) => ({ r, v: views[r._id] ?? null }));
   }, [runs, views, messages]);
+  const silentRuns = useMemo(() => {
+    const replied = new Set((messages ?? []).filter((m) => m.kind === "report" && m.runId).map((m) => m.runId as string));
+    return new Map((runs ?? []).filter((r) => !isLive(r.state) && !replied.has(r._id)).map((r) => [r.dispatchMessageId as string, r]));
+  }, [runs, messages]);
   const lastAuthor = messages?.length ? messages[messages.length - 1]!.author : null;
 
   return (
@@ -250,7 +250,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} lastAt={view?.lastAt ?? null} queued={turnLive ? view?.queuedSteers ?? 0 : 0} note={turnLive ? view?.note ?? null : null} />}
                 {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
                 {m.kind === "report" ? <StreamText text={m.text} live={turnLive} handles={handles} logins={logins} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={logins} /></div>}
-                {run && lastOfRun && !isLive(run.state) && !trailing.some((t) => t.r._id === run._id) && <LandingCard run={run} />}
+                {run && lastOfRun && !isLive(run.state) && <LandingCard run={run} />}
+                {silentRuns.get(m._id) && (() => { const r = silentRuns.get(m._id)!; const v = views[r._id] ?? null; return <><RunStatus run={r} view={v} /><LandingCard run={r} /></>; })()}
                 {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>

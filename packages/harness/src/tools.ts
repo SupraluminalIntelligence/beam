@@ -41,3 +41,15 @@ export function matchesAllow(name: string, input: Record<string, unknown>, allow
 }
 
 export const truncate = (s: string, n = 600) => (s.length > n ? s.slice(0, n) + `\n… (${s.length - n} more chars)` : s);
+
+/** Commands that still deserve a human even in auto mode. Everything else auto mode allows. */
+const DANGER = [
+  /\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)\b/i, /\brm\s+-rf?\s+[\/~]/i, /\bsudo\b/, /\bgit\s+push\b.*(--force|-f\b)/, /\bgit\s+reset\s+--hard/, /\bgit\s+clean\s+-[a-z]*f/,
+  /\bgit\s+branch\s+-D\b/, /\bdrop\s+(table|database)\b/i, /\bmkfs\b/, /\bdd\s+if=/, /\bchmod\s+-R\s+777/, /\bcurl\b[^|]*\|\s*(ba|z)?sh\b/, /\bwget\b[^|]*\|\s*(ba|z)?sh\b/,
+  /\bkill\s+-9\s+-1\b/, /\bshutdown\b/, /\breboot\b/, /\blaunchctl\s+(unload|remove)/, /\bdefaults\s+write\b/, /\bsecurity\s+(delete|set)/, /\bnpm\s+publish\b/, /\bcargo\s+publish\b/, /\bpypi\b/,
+];
+export function isDangerous(name: string, input: Record<string, unknown>): boolean {
+  if (name !== "Bash") return false;
+  const cmd = String(input?.["command"] ?? "");
+  return DANGER.some((re) => re.test(cmd));
+}

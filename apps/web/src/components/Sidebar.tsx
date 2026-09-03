@@ -21,7 +21,7 @@ const EFFORTS = ["low", "medium", "high", "max"] as const;
 const MODES = [
   { v: "ask", label: "ask", hint: "Ask: risky actions wait for approval in the chat" },
   { v: "plan", label: "plan", hint: "Plan: read-only until the plan is approved" },
-  { v: "auto", label: "auto", hint: "Auto: approves routine actions, asks about the rest" },
+  { v: "auto", label: "auto", hint: "Auto: runs without asking; only destructive commands wait" },
 ] as const;
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const MODELS: Record<string, string[]> = { claude: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], codex: ["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"], omp: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"] };
