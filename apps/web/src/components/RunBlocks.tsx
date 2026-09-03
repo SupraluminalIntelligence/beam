@@ -105,9 +105,9 @@ const openHref = (href: string) => { const b = (window as unknown as { beam?: { 
 /** What a run left behind, one card per repo it changed. Nothing changed: no card. */
 export function LandingCard({ run }: { run: Run }) {
   const raw = run.landing as null | Landing | { branch?: string };
-  if (!raw) return run.state === "failed" ? <div className="ask fail"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div> : null;
+  if (!raw) return run.state === "failed" ? <div className="ask fail"><div className="askp"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div></div> : null;
   const l: Landing = "repos" in raw ? raw : { repos: [], error: null }; // runs from before threads had one branch; they show nothing
-  if (l.error) return <div className="ask fail"><span className="k">run failed</span><span>{l.error}</span></div>;
+  if (l.error) return <div className="ask fail"><div className="askp"><span className="k">{run.state === "interrupted" ? "run stopped" : "run failed"}</span><span>{l.error}</span></div></div>;
   if (!l.repos.length) return null;
   return <>{l.repos.map((r) => {
     const href = r.prUrl ?? r.compareUrl;
@@ -135,6 +135,7 @@ export function RunStatus({ run, view }: { run: Run; view: RunView | null }) {
   if (run.state === "starting") return <div className="rstat"><i />preparing worktree on {run.runnerName}</div>;
   if (run.state === "working" && !view?.turns.length) return <div className="rstat"><i />starting on {run.runnerName}</div>;
   if (run.state === "landing") return <div className="rstat"><i />pushing</div>;
-  if (view?.errors.length && (run.state === "failed" || !isLive(run.state))) return <div className="rstat bad">{view.errors[view.errors.length - 1]}</div>;
+  const landingError = !!(run.landing as { error?: string | null } | null)?.error;
+  if (view?.errors.length && !isLive(run.state) && !landingError) return <div className="rstat bad">{view.errors[view.errors.length - 1]}</div>;
   return null;
 }
