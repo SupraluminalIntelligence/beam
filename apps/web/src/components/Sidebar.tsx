@@ -56,6 +56,14 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
 
   return (
     <aside className="side">
+      <div className="side-grip" title="Drag to resize" onMouseDown={(e) => {
+        e.preventDefault();
+        const startX = e.clientX, startW = ui_.sidebarWidth;
+        document.body.classList.add("resizing");
+        const move = (ev: MouseEvent) => ui.setSidebarWidth(startW + ev.clientX - startX);
+        const up = () => { document.body.classList.remove("resizing"); window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+        window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+      }} />
       <div className="sb-top"><span className="sb-brand">BEAM</span></div>
       <div className="ws-row top" onClick={stop}>
         <button className="sb-act" onClick={() => setNewPop(newPop === "top" ? null : "top")}>+ New chat <span className="k">⌘T</span></button>

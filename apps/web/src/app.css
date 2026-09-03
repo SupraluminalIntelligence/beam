@@ -76,7 +76,8 @@ button:focus-visible,[tabindex]:focus-visible,input:focus-visible,textarea:focus
 .k{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
 .ws-item{display:flex;align-items:center;gap:8px;padding:6px 14px;color:var(--ink);font-weight:500;width:100%;text-align:left}
 .ws-item:hover{background:var(--surface)}
-.ws-item.on{background:var(--surface);box-shadow:inset 2px 0 0 var(--ink-2)}
+.ws-item.on{background:transparent}
+.ws-row.on{background:var(--surface);box-shadow:inset 2px 0 0 var(--ink-2)}
 .ws-item .ic{color:var(--ink-3);font-size:11px}
 .ws-item .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .th-item{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 30px;color:var(--ink-3);width:100%;text-align:left}
@@ -527,11 +528,17 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .pp-invite:hover{background:var(--surface-2);color:var(--ink)}
 
 /* ---- workspace fold + thread rename ---- */
-.ws-fold{width:18px;height:28px;display:grid;place-items:center;color:var(--ink-3);margin-left:6px;flex:none}
+.ws-fold{width:22px;height:30px;display:grid;place-items:center;color:var(--ink-3);margin-left:8px;flex:none}
 .ws-fold:hover{color:var(--ink)}
-.ws-fold .tri{display:inline-block;font-size:10px;transition:transform .2s ease}
+.ws-fold .tri{display:inline-block;font-size:12px;line-height:1;transition:transform .2s ease,color .12s ease}
 .ws-fold .tri.open{transform:rotate(90deg)}
-.ws-row .ws-item{padding-left:4px}
+.ws-row .ws-item{padding-left:6px;padding-right:6px}
+.side{position:relative}
+.side-grip{position:absolute;top:0;right:-3px;width:6px;height:100%;cursor:col-resize;z-index:4}
+.side-grip:hover,.resizing .side-grip{background:linear-gradient(to right,transparent 2px,var(--line-2) 2px,var(--line-2) 4px,transparent 4px)}
+body.resizing{cursor:col-resize;user-select:none}
+body.resizing *{pointer-events:none}
+body.resizing .side-grip{pointer-events:auto}
 .wt-wrap{display:grid;grid-template-rows:1fr;transition:grid-template-rows .24s ease}
 .wt-wrap.closed{grid-template-rows:0fr}
 .wt-wrap>.wt-inner{min-height:0;overflow:hidden}

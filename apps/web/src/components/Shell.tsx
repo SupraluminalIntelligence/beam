@@ -80,7 +80,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const logins = new Set<string>([...detail.members, ...chats.flatMap((c) => c.members)]);
 
   return (
-    <div className={`app${bridge() ? "" : " browser"}`}>
+    <div className={`app${bridge() ? "" : " browser"}`} style={{ gridTemplateColumns: `${u.sidebarWidth}px 1fr` }}>
       <Sidebar me={me} workspaces={workspaces} wsId={wsId} detail={detail} chats={chats} presence={presence ?? []} runners={runnersOnline ?? []} tabs={tabs} activeId={activeId} onNewChat={newChat} setModal={setModal} />
       <div className="pane">
         <div className="titlebar">
