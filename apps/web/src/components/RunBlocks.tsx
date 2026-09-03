@@ -1,5 +1,5 @@
 import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
@@ -18,7 +18,7 @@ function Step({ a }: { a: ActivityLine }) {
   const [open, setOpen] = useState(false);
   const label = KIND_LABEL[a.kind] ?? a.kind.slice(0, 5);
   // "Read src/x.ts" → the file, since the kind column already says read
-  const text = a.kind === "bash" ? a.summary : a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "");
+  const text = ["read", "edit", "write", "search", "web", "agent"].includes(a.kind) ? a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : a.summary;
   return (
     <div className={`step${open ? " open" : ""}`}>
       <button className="stepline" onClick={() => setOpen(!open)} title={open ? "collapse" : "show full command and output"}>
@@ -55,15 +55,30 @@ export function Activity({ t, live, agentName }: { t: TurnView; live: boolean; a
   );
 }
 
-/** A question the agent is waiting on. Anyone in the chat can answer; the first answer wins. */
+const KEYS: Record<string, string> = { allow: "⌘⏎", always: "⌘⇧⏎", deny: "⌘⌫" };
+
+/** A question the agent is waiting on. Anyone in the chat can answer; the first answer wins. ⌘⏎ allow · ⌘⇧⏎ always · ⌘⌫ deny. */
 export function Requests({ view, turn, runId }: { view: RunView; turn: number; runId: Id<"runs"> }) {
   const respond = useMutation(api.runs.respond);
   const open = view.requests.filter((r) => r.turn === turn);
+  const first = open[0] ?? null;
+  useEffect(() => {
+    if (!first) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const decision = e.key === "Enter" ? (e.shiftKey ? "always" : "allow") : e.key === "Backspace" ? "deny" : null;
+      if (!decision || !(first.options ?? ["allow", "deny"]).includes(decision)) return;
+      e.preventDefault(); e.stopPropagation();
+      void respond({ runId, requestId: first.requestId, decision }).catch((err) => toast(String((err as Error).message)));
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [first?.requestId, runId]);
   if (!open.length) return null;
-  return <>{open.map((r) => (
+  return <>{open.map((r, i) => (
     <div key={r.requestId} className="ask">
       <div className="askp"><span className="k">waiting for approval</span><span>{r.prompt}</span></div>
-      <div className="perm">{(r.options ?? ["allow", "deny"]).map((o) => <button key={o} onClick={() => void respond({ runId, requestId: r.requestId, decision: o }).catch((e) => toast(String((e as Error).message)))}>{o}</button>)}</div>
+      <div className="perm">{(r.options ?? ["allow", "deny"]).map((o) => <button key={o} onClick={() => void respond({ runId, requestId: r.requestId, decision: o }).catch((e) => toast(String((e as Error).message)))}>{o}{i === 0 && KEYS[o] && <kbd>{KEYS[o]}</kbd>}</button>)}</div>
     </div>
   ))}</>;
 }

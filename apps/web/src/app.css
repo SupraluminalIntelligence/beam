@@ -477,7 +477,7 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .ag-item .ctl:hover,.ag-item .ctl.open{color:var(--ink);background:var(--surface-2)}
 .ag-item .ctl i{font-style:normal;font-size:8px;color:var(--ink-3)}
 .ag-item .ctl.mode.m-plan{color:var(--warn)}.ag-item .ctl.mode.m-auto{color:var(--ok)}
-.ag-item .ctl .dd{min-width:150px;font-family:"IBM Plex Mono",monospace;font-size:11px;left:4px;top:calc(100% + 2px)}
+.ag-item .ctl .dd{min-width:150px;font-family:"IBM Plex Mono",monospace;font-size:11px;left:4px;top:auto;bottom:calc(100% + 4px)}
 .ag-item .ctl .dd.wide{width:226px;min-width:0}
 .ag-item .ctl .dd.wide button{display:grid;grid-template-columns:40px 1fr;gap:8px;align-items:baseline;white-space:normal;font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:11.5px;line-height:1.35;color:var(--ink-2);padding:6px 10px}
 .ag-item .ctl .dd.wide button b{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;color:var(--ink)}
@@ -554,3 +554,5 @@ body.resizing .side-grip{pointer-events:auto}
 .upd.busy{background:var(--surface-3);color:var(--ink-2)}
 .upd.ready{background:var(--ok)}
 .msgs{padding-bottom:28px}
+.perm button kbd{font-family:inherit;font-size:10px;color:var(--ink-3);margin-left:6px}
+.perm button:hover kbd{color:var(--ink-2)}
