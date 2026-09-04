@@ -4,7 +4,7 @@ import { readdirSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 const version = process.argv[2]; if (!version) { console.error("usage: mac-feed.mjs <version>"); process.exit(1); }
-const dir = "apps/desktop/release";
+const dir = new URL("../apps/desktop/release", import.meta.url).pathname;
 const files = readdirSync(dir).filter((f) => f.startsWith(`Beam-${version}-`) && /\.(zip|dmg)$/.test(f)).sort((a, b) => (a.includes("arm64") ? -1 : 1) - (b.includes("arm64") ? -1 : 1));
 const sha = (f) => execFileSync("openssl", ["dgst", "-sha512", "-binary", join(dir, f)]).toString("base64");
 const entries = files.map((f) => ({ url: f, sha512: sha(f), size: statSync(join(dir, f)).size }));
