@@ -1,0 +1,54 @@
+/* BEAM tokens: the whole palette and scale. Beam is a Supraluminal instrument, so these follow
+   supraluminal/src/app/globals.css. Do not add colours casually.
+
+   Colour carries meaning and nothing else:
+     --live   a run in progress (Cherenkov blue). Never decoration.
+     --warn   something needs a person. Never "working".
+     --add / --del   diffs only.   --bad   failed or destructive.
+     --ok     done, online, signed in: bright ink, not a hue.
+   People and agents are told apart by name, avatar and mark, not by hue. The identity variables
+   below exist so older rules keep working; they all resolve to ink.
+
+   Corners: drawn on the sheet = square; sits on top of it or can be picked up = fillet.
+     0       structure: panes, tabs, rules, log rows, figures, code and log blocks, status squares
+     --r-1   controls: buttons, inputs, chips, avatars
+     --r-2   objects and floating layers: cards, attachments, menus, popovers
+     --r-3   the composer, dialogs, the drop target
+   Floating layers cast a hard offset shadow (--shadow), never a blur.
+
+   Type: --font-sans for prose, --font-mono for labels, data and logs, --font-display for names of things.
+   Uppercase mono labels track at --track-label; status words at --track-status. */
+
+:root{
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-display:"Space Grotesk","IBM Plex Sans",sans-serif;
+  --track-label:.22em; --track-status:.18em;
+  --r-1:2px; --r-2:4px; --r-3:6px;
+
+  /* the drawing sheet */
+  --bg:#EFEFEB; --surface:#FBFBF9; --surface-2:#F3F3F0; --surface-3:#E6E6E1;
+  --ink:#141414; --ink-2:#3B3B39; --ink-3:#696965; --line:#DEDEDA; --line-2:#C4C4BE;
+  --shadow:#D9D9D3;
+  --live:#1976A3; --warn:#8F6200; --bad:#B03A30; --ok:var(--ink-2);
+  --add:#3F7A2E; --del:#B03A30; --addbg:#E9F1E4; --delbg:#F6E6E3;
+  --claude:var(--ink); --claude-soft:var(--surface-3); --codex:var(--ink); --codex-soft:var(--surface-3);
+  --me:var(--ink); --noah:var(--ink-2); --noah-soft:var(--surface-3);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    /* negative print: Supraluminal's cool blacks */
+    --bg:#08090B; --surface:#0B0C0E; --surface-2:#111317; --surface-3:#1B1E24;
+    --ink:#E9EBEF; --ink-2:#B4B8BF; --ink-3:#858A93; --line:#24272D; --line-2:#3A3E46;
+    --shadow:#000000;
+    --live:#55B6E0; --warn:#E8B23E; --bad:#D9695F;
+    --add:#7FB069; --del:#D9695F; --addbg:#152015; --delbg:#2A1614;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#08090B; --surface:#0B0C0E; --surface-2:#111317; --surface-3:#1B1E24;
+  --ink:#E9EBEF; --ink-2:#B4B8BF; --ink-3:#858A93; --line:#24272D; --line-2:#3A3E46;
+  --shadow:#000000;
+  --live:#55B6E0; --warn:#E8B23E; --bad:#D9695F;
+  --add:#7FB069; --del:#D9695F; --addbg:#152015; --delbg:#2A1614;
+}
