@@ -1,6 +1,6 @@
 {
   "name": "@beam/desktop",
-  "version": "0.0.8",
+  "version": "0.1.0",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {

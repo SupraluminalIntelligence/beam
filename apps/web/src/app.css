@@ -199,7 +199,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .workspace-pane.maximized,.workspace-pane.compact{position:absolute;inset:0;margin-right:0;z-index:15;transform:translateX(100%)}
 .workspace-pane.maximized.is-open,.workspace-pane.compact.is-open{transform:translateX(0)}
 @media (prefers-reduced-motion:reduce){.workspace-pane{transition:none}}
-.workspace-resize{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:10}
+.workspace-resize{position:absolute;left:-4px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:10;touch-action:none}
 .workspace-resize:hover,.workspace-resize:focus-visible{background:var(--line-2);outline:none}
 .workspace-bar{height:var(--pane-header-height);flex:none;display:flex;align-items:center;gap:4px;padding:0 52px 0 10px;border-bottom:1px solid var(--line)}
 .workspace-bar>button{padding:5px 7px;color:var(--ink-2);flex-shrink:0}

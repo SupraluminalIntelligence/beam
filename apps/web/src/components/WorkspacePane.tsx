@@ -1,4 +1,4 @@
-import { lazy, Suspense, Component, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { lazy, Suspense, Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { emptyPanel, ui, useUi } from "../lib/ui";
 import { ComputeJob, ComputeJobs } from "./Compute";
@@ -17,14 +17,28 @@ const tools = [
   { id: "cad", label: "CAD Viewer", icon: "◇", group: "Engineering", detail: "Inspect models, parts, and sections" },
   { id: "cfd", label: "CFD Editor", icon: "≋", group: "Engineering", detail: "Case setup, mesh, and flow results", upcoming: true },
 ];
+const MIN_TOOL_WIDTH = 340;
+const MIN_CHAT_WIDTH = 480;
 const label = (id: string) => tools.find(t=>t.id===id)?.label ?? (id.startsWith("job:") ? `Job · ${id.slice(-6)}` : "Tool");
 
 /** Shared presentation shell. Durable resources and executions are owned outside it. */
 export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: string }) {
   const panel = useUi().panels[chatId] ?? emptyPanel;
   const host = useRef<HTMLElement>(null);
-  const [compact,setCompact] = useState(()=>window.innerWidth < 1100);
-  useEffect(()=>{const mq=matchMedia("(max-width: 1099px)");const update=()=>setCompact(mq.matches);update();mq.addEventListener("change",update);return()=>mq.removeEventListener("change",update);},[]);
+  const [availableWidth, setAvailableWidth] = useState(() => window.innerWidth);
+  const resizeCleanup = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    const parent = host.current?.parentElement;
+    if (!parent) return;
+    const measure = () => setAvailableWidth(parent.clientWidth);
+    const observer = new ResizeObserver(measure);
+    measure(); observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => () => resizeCleanup.current?.(), []);
+  const compact = availableWidth < MIN_TOOL_WIDTH + MIN_CHAT_WIDTH;
+  const maxWidth = Math.max(MIN_TOOL_WIDTH, availableWidth - MIN_CHAT_WIDTH);
+  const paneWidth = Math.min(maxWidth, Math.max(MIN_TOOL_WIDTH, panel.width));
   useEffect(() => {
     if (!panel.open || !panel.maximized) return;
     const restore = (event: KeyboardEvent) => {
@@ -37,11 +51,12 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     return () => window.removeEventListener("keydown", restore);
   }, [chatId, panel.open, panel.maximized]);
   const activate = (id:string)=>ui.openSurface(chatId,id);
-  return <aside ref={host} className={`workspace-pane${panel.open ? " is-open" : ""}${panel.maximized ? " maximized" : ""}${compact ? " compact" : ""}`} style={{ "--tools-pane-width": panel.maximized || compact ? "100%" : `max(340px, min(${panel.width}px, 60%))` } as CSSProperties} aria-label="Tools pane" aria-hidden={!panel.open} inert={!panel.open}>
-    {!panel.maximized && !compact && <div className="workspace-resize" role="separator" aria-label="Resize tools pane" aria-orientation="vertical" tabIndex={0} aria-valuenow={panel.width} aria-valuemin={340} aria-valuemax={1000} onKeyDown={e=>{if(e.key==="ArrowLeft" || e.key==="ArrowRight"){e.preventDefault();ui.panel(chatId,{width:Math.min(1000,Math.max(340,panel.width+(e.key==="ArrowLeft"?20:-20)))});}}} onPointerDown={e=>{
-      e.preventDefault();const start=e.clientX,width=host.current?.getBoundingClientRect().width ?? panel.width;
-      const move=(event:PointerEvent)=>ui.panel(chatId,{width:Math.min(1000,Math.max(340,width+start-event.clientX))});
-      const end=()=>{window.removeEventListener("pointermove",move);window.removeEventListener("pointerup",end);window.removeEventListener("pointercancel",end);};
+  return <aside ref={host} className={`workspace-pane${panel.open ? " is-open" : ""}${panel.maximized ? " maximized" : ""}${compact ? " compact" : ""}`} style={{ "--tools-pane-width": panel.maximized || compact ? "100%" : `${paneWidth}px` } as CSSProperties} aria-label="Tools pane" aria-hidden={!panel.open} inert={!panel.open}>
+    {!panel.maximized && !compact && <div className="workspace-resize" role="separator" aria-label="Resize tools pane" aria-orientation="vertical" tabIndex={0} aria-valuenow={paneWidth} aria-valuemin={MIN_TOOL_WIDTH} aria-valuemax={maxWidth} onKeyDown={e=>{if(e.key==="ArrowLeft" || e.key==="ArrowRight"){e.preventDefault();ui.panel(chatId,{width:Math.min(maxWidth,Math.max(MIN_TOOL_WIDTH,paneWidth+(e.key==="ArrowLeft"?20:-20)))});}}} onPointerDown={e=>{
+      e.preventDefault();resizeCleanup.current?.();const start=e.clientX,width=host.current?.getBoundingClientRect().width ?? paneWidth;
+      const move=(event:PointerEvent)=>ui.panel(chatId,{width:Math.min(Math.max(MIN_TOOL_WIDTH,(host.current?.parentElement?.clientWidth ?? availableWidth)-MIN_CHAT_WIDTH),Math.max(MIN_TOOL_WIDTH,width+start-event.clientX))});
+      const end=()=>{window.removeEventListener("pointermove",move);window.removeEventListener("pointerup",end);window.removeEventListener("pointercancel",end);resizeCleanup.current=null;};
+      resizeCleanup.current=end;
       window.addEventListener("pointermove",move);window.addEventListener("pointerup",end);window.addEventListener("pointercancel",end);
     }} />}
     <div className="workspace-bar"><div className="workspace-tabs" role="tablist" aria-label="Open tools">{panel.tabs.map(id=><div key={id} className={`workspace-tab${panel.active===id?" selected":""}`}><button role="tab" aria-selected={panel.active===id} onClick={()=>ui.panel(chatId,{active:id})}>{label(id)}</button><button aria-label={`Close ${label(id)}`} onClick={()=>ui.closeSurface(chatId,id)}>×</button></div>)}</div><button title="Open a tool" aria-label="Open a tool" onClick={()=>ui.panel(chatId,{active:null})}>＋</button><button className="workspace-expand" title={panel.maximized ? "Restore split view (Esc)" : "Expand tool to full workspace"} aria-label={panel.maximized ? "Restore split view" : "Expand tool to full workspace"} aria-pressed={panel.maximized} onClick={()=>ui.panel(chatId,{maximized:!panel.maximized})}>
