@@ -1,6 +1,6 @@
 {
   "name": "@beam/desktop",
-  "version": "0.0.5",
+  "version": "0.0.8",
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
@@ -9,7 +9,7 @@
     "dist": "pnpm build && pnpm build:runner && pnpm build:web && electron-builder --mac --arm64 --x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning",
+    "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning && cp ../runner/src/compute/worker.mjs dist/worker.mjs",
     "build:web": "pnpm --filter @beam/web build && rm -rf dist/web && cp -R ../web/dist dist/web",
     "release": "pnpm build && pnpm build:runner && pnpm build:web && sh ../../scripts/release-mac.sh"
   },
@@ -29,7 +29,8 @@
       "dist/**"
     ],
     "asarUnpack": [
-      "dist/runner.mjs"
+      "dist/runner.mjs",
+      "dist/worker.mjs"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -41,7 +42,8 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": false
+      "notarize": false,
+      "icon": "build/beam.icns"
     },
     "dmg": {
       "artifactName": "Beam-${version}-${arch}.${ext}"
