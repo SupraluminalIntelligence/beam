@@ -15,7 +15,8 @@
     "probe": "pnpm --filter @beam/runner probe",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && pnpm test:backend",
+    "test:backend": "vitest run convex/notifications.test.ts convex/files.test.ts convex/chats.test.ts convex/compute.test.ts convex/context.test.ts",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {

@@ -36,3 +36,48 @@ Convex project `beam-backend`, one deployment, production, used for dev and depl
 ## Principles
 
 Chat is the record. Agents speak only when spoken to. Git is the shared filesystem. Nobody owns an agent. A run always ends with a push. Beam never holds a provider credential.
+
+## Codex
+
+Install Codex CLI 0.151 or newer on the runner's machine and sign in with `codex login`.
+GPT-6 Astra is available in both model pickers; use CLI 0.155.1 or newer for Astra.
+Refresh Connected harnesses, then mention `@codex` in a chat (or pin it in a private chat).
+Restart a running development runner after updating this checkout.
+
+The adapter uses the user's `codex app-server` over stdio. It supports streamed replies and
+tool activity, Beam's repo/PR tools, approvals and questions answered in chat, interruption,
+and persisted thread resume on the same machine. Mid-run messages queue as separate turns,
+matching Beam's runner and Claude adapter. Model labels resolve against the CLI's model catalog;
+`max` selects the highest supported effort when the model does not expose that exact level.
+
+Auto mode gives both harnesses full access without tool approval prompts: Codex uses
+`never` approvals with `danger-full-access`; Claude uses `bypassPermissions`. Any tool
+approval requests that still reach the adapters are accepted without opening Allow/Deny
+controls. Genuine questions still ask for an answer. Settings apply when a run starts,
+including when it resumes a previous session.
+
+In Codex ask mode, a workspace-write sandbox routes untrusted operations to Beam.
+Allow-list mode automatically accepts matching command requests and edits; broader access
+still requires approval. Plan mode stays read-only until someone approves the plan in chat.
+Existing provider rules and administrator constraints still apply.
+MCP forms/browser elicitations are declined with an explanation; secret inputs belong in the CLI.
+
+Protocol reference: [Codex App Server](https://developers.openai.com/codex/app-server).
+Adapter tests use an in-memory protocol peer; transport tests use local child processes and
+do not require a provider login. Live verification was performed with Codex CLI 0.151.0
+and with GPT-6 Astra on CLI 0.155.1.
+
+Reply text is saved in segments at tool and steer boundaries. The chat interleaves these
+segments, human messages, and tool rows chronologically; tool completions update their
+existing rows. Earlier runs retain their stored text because their original paragraph
+timing was not recorded. Restart the runner to enable segmentation for new runs.
+
+## Personal agent settings and routing experiments
+
+See [personal defaults, account attribution, and the Jev benchmark](docs/personal-agents-and-jev.md) for behavior, validation results and rollout instructions.
+
+See [notifications and typing](docs/notifications-and-typing.md) for completion alerts, followed chats, background behavior and live typing status.
+
+See [tools, browser, and local compute](docs/compute-and-tools.md) for the Engineering pane, durable job lifecycle, T3 Code reuse, and the future remote/HPC executor boundary.
+
+See [CAD Viewer](docs/cad-viewer.md) for local model inspection, supported formats, artifact integration, and the CAD/CFD extension boundary.

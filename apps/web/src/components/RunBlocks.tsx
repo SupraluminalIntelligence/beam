@@ -57,7 +57,7 @@ export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }
     <div className={`act${isOpen ? "" : " closed"}${live && (note || quiet > QUIET_MS) ? " quiet" : ""}`}>
       <button className="ah" onClick={() => setOpen(!isOpen)}>
         <span className="tog">{isOpen ? "▾" : "▸"}</span><span className="ttl">{title}</span>
-        {queued > 0 && <span className="chip" title={`${queued} message${queued === 1 ? "" : "s"} handed over; Claude reads them when this turn ends`}>{queued} queued</span>}
+        {queued > 0 && <span className="chip" title={`${queued} message${queued === 1 ? "" : "s"} handed over; the agent reads them when this turn ends`}>{queued} queued</span>}
         <span className={`st ${live ? "work" : "done"}`}>
           {live && note && <span className="quietnote" title="What the harness reports it is waiting on">{note}</span>}
           {live && !note && quiet > QUIET_MS && <span className="quietnote" title="No report from the runner in a while: a long command, or something outside the chat. Stop is in the composer.">quiet {ms(quiet)}</span>}
@@ -73,13 +73,27 @@ export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }
 
 const KEYS: Record<string, string> = { allow: "⌘⏎", always: "⌘⇧⏎", deny: "⌘⌫" };
 
+function InputReply({ onReply }: { onReply: (text: string) => Promise<unknown> }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  return <form className="inputreply" onSubmit={(e) => {
+    e.preventDefault();
+    if (!text.trim() || sending) return;
+    setSending(true);
+    void onReply(text.trim()).catch((err) => toast((err as Error).message)).finally(() => setSending(false));
+  }}>
+    <input aria-label="Reply to the agent" placeholder="Type an answer…" value={text} onChange={(e) => setText(e.target.value)} disabled={sending} />
+    <button type="submit" disabled={!text.trim() || sending}>{sending ? "Sending…" : "Send"}</button>
+  </form>;
+}
+
 /** A question the agent is waiting on. Anyone in the chat can answer; the first answer wins. ⌘⏎ allow · ⌘⇧⏎ always · ⌘⌫ deny. */
 export function Requests({ view, turn, runId }: { view: RunView; turn: number; runId: Id<"runs"> }) {
   const respond = useMutation(api.runs.respond);
   const open = view.requests.filter((r) => r.turn === turn);
   const first = open[0] ?? null;
   useEffect(() => {
-    if (!first) return;
+    if (!first || first.kind === "input") return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const decision = e.key === "Enter" ? (e.shiftKey ? "always" : "allow") : e.key === "Backspace" ? "deny" : null;
@@ -93,8 +107,9 @@ export function Requests({ view, turn, runId }: { view: RunView; turn: number; r
   if (!open.length) return null;
   return <>{open.map((r, i) => (
     <div key={r.requestId} className="ask">
-      <div className="askp"><span className="k">waiting for approval</span><span>{r.prompt}</span></div>
-      <div className="perm">{(r.options ?? ["allow", "deny"]).map((o) => <button key={o} onClick={() => void respond({ runId, requestId: r.requestId, decision: o }).catch((e) => toast(String((e as Error).message)))}>{o}{i === 0 && KEYS[o] && <kbd>{KEYS[o]}</kbd>}</button>)}</div>
+      <div className="askp"><span className="k">{r.kind === "input" ? "waiting for an answer" : "waiting for approval"}</span><span style={{ whiteSpace: "pre-wrap" }}>{r.prompt}</span></div>
+      <div className="perm">{(r.options ?? (r.kind === "input" ? [] : ["allow", "deny"])).map((o) => <button key={o} onClick={() => void respond({ runId, requestId: r.requestId, decision: o }).catch((e) => toast(String((e as Error).message)))}>{o}{r.kind === "approval" && i === 0 && KEYS[o] && <kbd>{KEYS[o]}</kbd>}</button>)}</div>
+      {r.kind === "input" && <InputReply onReply={(decision) => respond({ runId, requestId: r.requestId, decision })} />}
     </div>
   ))}</>;
 }

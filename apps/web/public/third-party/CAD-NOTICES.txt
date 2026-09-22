@@ -1,0 +1,23 @@
+Beam CAD Viewer uses:
+
+three.js 0.186.0, Copyright 2010-2026 three.js authors, MIT license.
+https://github.com/mrdoob/three.js
+See THREE-LICENSE.txt.
+
+occt-import-js 0.0.23, by Viktor Kovacs and contributors, LGPL 2.1.
+https://github.com/kovacsv/occt-import-js/tree/c2148e54b456b571238d35cac037d304053d64b2
+https://www.npmjs.com/package/occt-import-js/v/0.0.23
+See OCCT-IMPORT-JS-LICENSE.txt.
+The JavaScript importer and WASM are shipped as separate assets. No upstream
+source modifications. Source and build instructions are included in the npm
+package and the upstream repository. Replace the package dependency and rebuild
+Beam to use a modified importer. Inspection and reverse engineering of this
+library for debugging modifications are permitted under its license.
+
+The importer embeds Open CASCADE Technology (OCCT), LGPL 2.1 with the
+Open CASCADE exception. https://dev.opencascade.org/resources/licensing
+OCCT source: https://github.com/Open-Cascade-SAS/OCCT/tree/d2abb6d844231cb8f29be6894440874a4700e4a5
+See OCCT-LICENSE.txt and OCCT-EXCEPTION.txt.
+The importer repository pins its OCCT source as a git submodule.
+
+The flanged-reducer demo geometry was authored for Beam.

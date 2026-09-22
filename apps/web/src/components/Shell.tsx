@@ -1,16 +1,19 @@
 import { useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
 import { useDocumentTitle } from "../App";
 import { bridge } from "../bridge";
 import { ui, useUi } from "../lib/ui";
+import { BrowserHost } from "../browser/BrowserHost";
+import { WorkspacePane } from "./WorkspacePane";
 import { ChatView } from "./ChatView";
 import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal } from "./Modals";
 import { Sidebar } from "./Sidebar";
 import { People } from "./People";
 import { TabStrip } from "./TabStrip";
+import { NavigationControls } from "./NavigationControls";
 import { toast } from "./Toast";
 
 export type Me = { id: Id<"users">; name: string; githubLogin: string; image: string | null; isAnonymous: boolean };
@@ -80,18 +83,21 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const logins = new Set<string>([...detail.members, ...chats.flatMap((c) => c.members)]);
 
   return (
-    <div className={`app${bridge() ? "" : " browser"}`} style={{ gridTemplateColumns: `${u.sidebarWidth}px 1fr` }}>
+    <div className={`app${bridge() ? "" : " browser"}${u.sidebarHidden ? " sidebar-hidden" : ""}`} style={{ "--sidebar-width": `${u.sidebarWidth}px`, gridTemplateColumns: `${u.sidebarHidden ? 0 : u.sidebarWidth}px minmax(0,1fr)` } as CSSProperties}>
+      <NavigationControls />
       <Sidebar me={me} workspaces={workspaces} wsId={wsId} detail={detail} chats={chats} presence={presence ?? []} runners={runnersOnline ?? []} tabs={tabs} activeId={activeId} onNewChat={newChat} setModal={setModal} />
       <div className="pane">
         <div className="titlebar">
           <div className="tb-ws"><b>{detail.name}</b><span className="mono">{detail.repos.length} repo{detail.repos.length === 1 ? "" : "s"}</span></div>
-          <div className="tb-r"><People me={me} members={detail.members} presence={presence ?? []} runners={runnersOnline ?? []} setModal={setModal} /><button className="tb-k" onClick={() => setModal({ kind: "palette" })} title="Jump to chat">⌘K</button></div>
+          <div className="tb-r"><People me={me} members={detail.members} presence={presence ?? []} runners={runnersOnline ?? []} setModal={setModal} /></div>
         </div>
         <TabStrip wsId={wsId} chats={chats} tabs={tabs} activeId={activeId} onNew={() => void newChat(detail.members.length > 1 ? "team" : "private")} />
-        <div className="pane-body">
-          {active ? <ChatView key={active._id} me={me} chat={active} detail={detail} logins={logins} setModal={setModal} /> : <EmptyPane />}
+        <div className={`pane-body${activeId ? " with-workspace" : ""}`}>
+          {activeId && <button className="files-toggle tools-toggle pane-tools-toggle" title={u.panels[activeId]?.open ? "Close tools pane" : "Open tools pane"} aria-label="Toggle tools pane" aria-expanded={u.panels[activeId]?.open ?? false} onClick={() => ui.panel(activeId, { open: !u.panels[activeId]?.open })}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></svg></button>}
+          {active ? <><ChatView key={active._id} me={me} chat={active} detail={detail} logins={logins} setModal={setModal} /><WorkspacePane key={`workspace:${active._id}`} chatId={active._id} login={me.githubLogin} /></> : <EmptyPane />}
         </div>
       </div>
+      <BrowserHost activeChat={activeId} obscured={modal!==null} />
       <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} />
       <AgentSettingsModal open={modal?.kind === "agent"} agentId={modal?.kind === "agent" ? modal.id : null} detail={detail} onClose={() => setModal(null)} />
       <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />

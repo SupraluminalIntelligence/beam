@@ -1,6 +1,8 @@
+import beamLogo from "../assets/beam-logo.png";
+import { Notifications } from "./Notifications";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
@@ -9,25 +11,23 @@ import { ui, useUi } from "../lib/ui";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
+import { PERMISSION_MODES as MODES, PermissionIcon, permissionLabel } from "./Permissions";
+import { AgentModelSelect } from "./AgentModelSelect";
 import { UpdatePill } from "./Update";
+import { ChatContextMenu, type ChatMenuTarget } from "./ChatContextMenu";
 
 type Detail = NonNullable<ReturnType<typeof useDetailType>>;
 function useDetailType() { return null as null | { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] }; }
 type RunnerRow = { id: unknown; name: string; ownerLogin: string; online: boolean; harnesses: unknown };
 type Status = { harness: string; installed: boolean; auth: string };
 
-const EFFORTS = ["low", "medium", "high", "max"] as const;
-/** Claude Code's three ways of working. Codex and omp map onto the same three in M3. */
-const MODES = [
-  { v: "ask", label: "ask", hint: "Ask: risky actions wait for approval in the chat" },
-  { v: "plan", label: "plan", hint: "Plan: read-only until the plan is approved" },
-  { v: "auto", label: "auto", hint: "Auto: runs without asking; only destructive commands wait" },
-] as const;
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
-const MODELS: Record<string, string[]> = { claude: ["Fable 5.1", "Fable 5.0", "Opus 5.0", "Sonnet 5.0"], codex: ["GPT-5.6 Sol", "GPT-5.6 Terra", "GPT-5.6 Luna"], omp: ["GPT-5.6 Sol", "Kimi K3", "Gemini 3.5 Pro", "Claude Opus 5 (API key)"] };
+
 
 export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"workspaces">; detail: Detail; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; runners: RunnerRow[]; tabs: string[]; activeId: string | null; onNewChat: (k: "team" | "private") => void; setModal: (m: ModalKind) => void }) {
   const [newPop, setNewPop] = useState<string | null>(null);
+  const [chatMenu, setChatMenu] = useState<ChatMenuTarget | null>(null);
+  const closeChatMenu = useCallback(() => setChatMenu(null), []);
   const [acct, setAcct] = useState(false);
   const [openSel, setOpenSel] = useState<string | null>(null);
   const updateAgent = useMutation(api.workspaces.updateAgent);
@@ -42,6 +42,12 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
   }, []);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
   const ui_ = useUi();
+  const resize = useRef<{ x: number; width: number } | null>(null);
+  const endResize = () => { resize.current = null; document.body.classList.remove("resizing"); };
+  useEffect(() => {
+    if (ui_.sidebarHidden) endResize();
+    return endResize;
+  }, [ui_.sidebarHidden]);
   const [showDone, setShowDone] = useState(false);
   const rename = useMutation(api.workspaces.rename);
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
@@ -56,21 +62,29 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
   const harnessReady = (h: string) => p.runners.some((r) => r.online && ((r.harnesses as Status[] | null) ?? []).some((s) => s.harness === h && s.installed && s.auth === "authenticated"));
 
   return (
-    <aside className="side">
-      <div className="side-grip" title="Drag to resize" onMouseDown={(e) => {
+    <aside className="side" inert={ui_.sidebarHidden} aria-hidden={ui_.sidebarHidden}>
+      <div className="side-grip" title="Drag to resize" onPointerDown={(e) => {
+        if (e.button !== 0 || ui_.sidebarHidden) return;
         e.preventDefault();
-        const startX = e.clientX, startW = ui_.sidebarWidth;
+        resize.current = { x: e.clientX, width: ui.get().sidebarWidth };
+        e.currentTarget.setPointerCapture(e.pointerId);
         document.body.classList.add("resizing");
-        const move = (ev: MouseEvent) => ui.setSidebarWidth(startW + ev.clientX - startX);
-        const up = () => { document.body.classList.remove("resizing"); window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
-        window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
-      }} />
-      <div className="sb-top"><span className="sb-brand">BEAM</span></div>
+      }} onPointerMove={(e) => {
+        if (!resize.current) return;
+        if (!(e.buttons & 1) || ui.get().sidebarHidden) { endResize(); return; }
+        ui.setSidebarWidth(resize.current.width + e.clientX - resize.current.x);
+      }} onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={endResize} />
+      <div className="sb-top" />
+      <div className="sb-brand-row"><span className="sb-brand"><img src={beamLogo} alt="" />Beam</span><button className="nav-icon" title="Search chats (⌘K)" aria-label="Search chats" onClick={() => p.setModal({ kind: "palette" })}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></button><Notifications key={p.me.id} activeChat={p.activeId} /></div>
       <div className="ws-row top" onClick={stop}>
         <button className="sb-act" onClick={() => setNewPop(newPop === "top" ? null : "top")}>+ New chat <span className="k">⌘T</span></button>
         <NewPop open={newPop === "top"} wsName={p.detail.name} onPick={(k) => { setNewPop(null); p.onNewChat(k); }} />
       </div>
       <div className="sb-scroll">
+        {(ui_.pinnedChats[p.me.id] ?? []).some(pin => p.workspaces.some(w => w.id === pin.workspaceId)) && <section className="sb-pinned" aria-label="Pinned chats">
+          <div className="sb-sec">Pinned</div>
+          {(ui_.pinnedChats[p.me.id] ?? []).filter(pin => p.workspaces.some(w => w.id === pin.workspaceId)).map(pin => <PinnedChat key={pin.chatId} pin={pin} activeId={p.activeId} wsId={p.wsId} onContextMenu={setChatMenu} />)}
+        </section>}
         <div className="sb-sec">Workspaces <button onClick={() => p.setModal({ kind: "newws" })} title="New workspace">+</button></div>
         {p.workspaces.map((w) => {
           const on = w.id === p.wsId;
@@ -78,7 +92,20 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           return (
             <div key={w.id}>
               <div className={`ws-row${on ? " on" : ""}`} onClick={stop}>
-                <button className="ws-fold" onClick={() => ui.toggleCollapsed(w.id)} title={folded ? "Show threads" : "Hide threads"}><span className={`tri${folded ? "" : " open"}`}>▸</span></button>
+                <button
+                  className="ws-fold"
+                  onClick={() => ui.toggleCollapsed(w.id)}
+                  aria-label={`${folded ? "Expand" : "Collapse"} ${w.name}`}
+                  aria-expanded={!folded}
+                  aria-controls={`workspace-threads-${w.id}`}
+                  title={`${folded ? "Expand" : "Collapse"} ${w.name}`}
+                >
+                  <svg className="ws-folder" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    {folded
+                      ? <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" />
+                      : <><path d="M3 19V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v2" /><path d="M3 19a2 2 0 0 0 2 2h13a2 2 0 0 0 1.9-1.4L23 10H8a2 2 0 0 0-1.9 1.4L3 19Z" /></>}
+                  </svg>
+                </button>
                 <button className={`ws-item${on ? " on" : ""}`} onClick={() => ui.setWorkspace(w.id)} onDoubleClick={() => setRenaming({ id: w.id, value: w.name })} title="Double-click to rename">
                   {renaming?.id === w.id
                     ? <input className="nm ws-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: w.id, value: e.target.value })} onBlur={() => void commitRename()} onClick={(e) => e.stopPropagation()}
@@ -88,8 +115,8 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
                 <button className="ws-plus" onClick={() => setNewPop(newPop === w.id ? null : w.id)} title={`New chat in ${w.name}`}>+</button>
                 <NewPop open={newPop === w.id} wsName={w.name} onPick={(k) => { setNewPop(null); ui.setWorkspace(w.id); p.onNewChat(k); }} />
               </div>
-              <div className={`wt-wrap${folded ? " closed" : ""}`}><div className="wt-inner">
-                <WorkspaceThreads wsId={w.id as Id<"workspaces">} active={on} p={p} showDone={showDone} setShowDone={setShowDone} nameOf={nameOf} imageOf={imageOf} />
+              <div id={`workspace-threads-${w.id}`} className={`wt-wrap${folded ? " closed" : ""}`} inert={folded} aria-hidden={folded}><div className="wt-inner">
+                <WorkspaceThreads wsId={w.id as Id<"workspaces">} active={on} p={p} showDone={showDone} setShowDone={setShowDone} nameOf={nameOf} imageOf={imageOf} onContextMenu={setChatMenu} />
               </div></div>
             </div>
           );
@@ -102,17 +129,11 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
             <button className="ag-name" onClick={() => p.setModal({ kind: "agent", id: a._id })} title="Agent settings"><AgentAvatar harness={a.harness} /><span className="nm">{HARNESS_NAME[a.harness] ?? a.harness}{a.handle !== a.harness && <> <span className="k">@{a.handle}</span></>}</span></button>
             <span className={`sq ${harnessReady(a.harness) ? "ok" : "idle"}`} title={harnessReady(a.harness) ? "a runner is online with this harness signed in" : "no online runner has this harness signed in"} />
             <span className="sub ctls">
-              <span className={`sel ctl${openSel === a._id ? " open" : ""}`} tabIndex={0} title="Model · next run" onClick={() => setOpenSel(openSel === a._id ? null : a._id)}>
-                <span>{a.model}</span><i>▾</i>
-                <span className="dd"><span className="ddh">model</span>{(MODELS[a.harness] ?? []).map((m) => <button key={m} className={m === a.model ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { model: m } }); toast(`${HARNESS_NAME[a.harness]} → ${m} · next run`); }}>{m}</button>)}</span>
-              </span>
-              <span className="dot">·</span>
+              <AgentModelSelect agent={a} />
               <span className={`sel ctl mode m-${a.permissionMode}${openSel === `${a._id}:mode` ? " open" : ""}`} tabIndex={0} title={`${(MODES.find((m) => m.v === a.permissionMode) ?? MODES[0]).hint}`} onClick={() => setOpenSel(openSel === `${a._id}:mode` ? null : `${a._id}:mode`)}>
-                <span>{(MODES.find((m) => m.v === a.permissionMode) ?? { label: a.permissionMode }).label}</span><i>▾</i>
+                <PermissionIcon mode={a.permissionMode} /><span>{permissionLabel(a.permissionMode)}</span><i>▾</i>
                 <span className="dd wide"><span className="ddh">how it works</span>{MODES.map((m) => <button key={m.v} className={m.v === a.permissionMode ? "on" : ""} onClick={(e) => { e.stopPropagation(); setOpenSel(null); void updateAgent({ agentId: a._id, patch: { permissionMode: m.v } }); toast(`${HARNESS_NAME[a.harness]} → ${m.label} · next run`); }}><b>{m.label}</b><span>{m.hint.replace(/^\w+: /, "")}</span></button>)}</span>
               </span>
-              <span className="dot">·</span>
-              <button className="ctl eff" data-lv={EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1} title="Reasoning effort · click to change" onClick={() => { const n = EFFORTS[(EFFORTS.indexOf(a.effort as typeof EFFORTS[number]) + 1) % 4]!; void updateAgent({ agentId: a._id, patch: { effort: n } }); toast(`${HARNESS_NAME[a.harness]} effort → ${n}`); }}><span className="bars"><i /><i /><i /><i /></span><span>{a.effort === "medium" ? "med" : a.effort}</span></button>
             </span>
           </div>
         ))}
@@ -128,6 +149,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
         </div>
         <button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><UpdatePill /><span className="k">⚙</span></button>
       </div>
+      {chatMenu && <ChatContextMenu key={chatMenu.chat._id} target={chatMenu} onClose={closeChatMenu} userId={p.me.id} />}
     </aside>
   );
 }
@@ -143,7 +165,7 @@ function NewPop({ open, wsName, onPick }: { open: boolean; wsName: string; onPic
 }
 
 /** One workspace's threads. Every workspace keeps its list; only the active one shows presence. Double-click a thread to rename it. */
-function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imageOf }: { wsId: Id<"workspaces">; active: boolean; p: { me: Me; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; tabs: string[]; activeId: string | null }; showDone: boolean; setShowDone: (v: boolean) => void; nameOf: (l: string) => string; imageOf: (l: string) => string | null }) {
+function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imageOf, onContextMenu }: { wsId: Id<"workspaces">; active: boolean; p: { me: Me; chats: Doc<"chats">[]; presence: { login: string; chatId: Id<"chats"> | null }[]; tabs: string[]; activeId: string | null }; showDone: boolean; setShowDone: (v: boolean) => void; nameOf: (l: string) => string; imageOf: (l: string) => string | null; onContextMenu: (target: ChatMenuTarget) => void }) {
   const own = useQuery(api.chats.list, active ? "skip" : { workspaceId: wsId });
   const chats = active ? p.chats : own ?? [];
   const renameChat = useMutation(api.chats.rename);
@@ -162,7 +184,13 @@ function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imag
       {[...open, ...(showDone && active ? settled : [])].map((c) => {
         const here = active ? p.presence.filter((x) => x.chatId === c._id).map((x) => x.login) : [];
         return (
-          <button key={c._id} className={`th-item${active && p.tabs.includes(c._id) ? " open" : ""}${active && p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(wsId, c._id)} onDoubleClick={() => setRenaming({ id: c._id, value: c.title })} title="Double-click to rename">
+          <button key={c._id} className={`th-item${active && p.tabs.includes(c._id) ? " open" : ""}${active && p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(wsId, c._id)} onDoubleClick={() => setRenaming({ id: c._id, value: c.title })} title="Double-click to rename · Right-click for options"
+            onContextMenu={e => {
+              if (e.target instanceof HTMLInputElement) return;
+              e.preventDefault(); e.stopPropagation();
+              const bounds = e.currentTarget.getBoundingClientRect();
+              onContextMenu({ chat: c, x: e.clientX || bounds.left + 24, y: e.clientY || bounds.bottom, trigger: e.currentTarget });
+            }}>
             <span className={`sq ${status(c)}`} />
             {renaming?.id === c._id
               ? <input className="nm th-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: c._id, value: e.target.value })} onBlur={() => void commit()} onClick={(e) => e.stopPropagation()}
@@ -176,4 +204,15 @@ function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imag
       {active && settled.length > 0 && <button className="th-done" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} {settled.length} settled</button>}
     </>
   );
+}
+
+function PinnedChat({ pin, activeId, wsId, onContextMenu }: { pin: { workspaceId: string; chatId: string }; activeId: string | null; wsId: string; onContextMenu: (target: ChatMenuTarget) => void }) {
+  const chats = useQuery(api.chats.list, { workspaceId: pin.workspaceId as Id<"workspaces"> });
+  const chat = chats?.find(c => c._id === pin.chatId);
+  if (!chat) return null;
+  return <button className={`th-item pinned-chat${activeId === chat._id && wsId === pin.workspaceId ? " on" : ""}`} onClick={() => ui.openChat(pin.workspaceId, chat._id)} title={chat.title} onContextMenu={e => {
+    e.preventDefault(); e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    onContextMenu({ chat, x: e.clientX || rect.left + 24, y: e.clientY || rect.bottom, trigger: e.currentTarget });
+  }}><span className={`nm${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>{chat.private && <span className="lk" title="Private">{ICO.lock}</span>}</button>;
 }

@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { dayLabel, firstMention, hhmm, hueClass } from "../lib/format";
-import { useUi } from "../lib/ui";
+import { ui, useUi } from "../lib/ui";
+import { JobCard } from "./Compute";
 import { useSmoothText } from "../lib/smooth";
 import { Markdown } from "./Markdown";
 import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
@@ -12,6 +13,13 @@ import { fold, type RunView } from "@beam/reducer";
 import { Activity, LandingCard, Requests, RunStatus, isLive } from "./RunBlocks";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
+import { TypingIndicator, useTyping } from "./TypingIndicator";
+import { RunAttribution } from "./RunAttribution";
+import { useFileDrop } from "../lib/fileDrop";
+import { useFollowScroll } from "../lib/followScroll";
+import { MessageFiles, useAttachments } from "./Files";
+import { ComposerPermissions } from "./Permissions";
+import { timeline } from "../lib/timeline";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
 function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
@@ -26,6 +34,11 @@ const QUICK = ["👍", "🔥", "👀", "✅"];
 const MORE = ["👍", "🔥", "👀", "✅", "💯", "🚀", "🤔", "😂", "🙏", "👎"];
 
 export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat: Doc<"chats">; detail: Detail; logins: Set<string>; setModal: (m: ModalKind) => void }) {
+  const typing = useTyping(chat._id);
+  const attachments = useAttachments(chat._id);
+  const fileDrop = useFileDrop(attachments.add);
+  const [sending, setSending] = useState(false);
+  const preferences = useQuery(api.users.preferences) ?? [];
   const messages = useQuery(api.messages.list, { chatId: chat._id });
   const people = useQuery(api.users.byLogins, { logins: Array.from(logins) });
   const send = useMutation(api.messages.send);
@@ -42,6 +55,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 2000); return () => clearInterval(t); }, []);
   const runs = useQuery(api.runs.forChat, { chatId: chat._id });
   const runEvents = useQuery(api.runs.eventsForChat, { chatId: chat._id });
+  const scroll = useFollowScroll(chat._id, messages !== undefined && runs !== undefined && runEvents !== undefined);
   const changes = useQuery(api.changes.forChat, { chatId: chat._id }) ?? [];
   const setState = useMutation(api.chats.setState);
   const removeRepo = useMutation(api.chats.removeRepo);
@@ -67,49 +81,15 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const [shareWith, setShareWith] = useState<string[]>([]);
   const [more, setMore] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const msgsRef = useRef<HTMLDivElement>(null);
 
   const handles = useMemo(() => new Set(detail.agents.map((a) => a.handle)), [detail.agents]);
   const chatAgents = chat.agents ? detail.agents.filter((a) => chat.agents!.includes(a._id)) : detail.agents;
   const pinned = chat.pinnedAgent ? detail.agents.find((a) => a._id === chat.pinnedAgent) ?? null : null;
+  const mentionedAgent = firstMention(text, handles);
+  const permissionAgent = mentionedAgent ? chatAgents.find(a => a.handle === mentionedAgent) : chat.private ? pinned : null;
   const members = chat.private ? [me.githubLogin] : chat.members;
 
-  // Scrolling. Sending a message anchors it at the top of the view (with room below), so the reply reads
-  // downward from there instead of the thread jittering at the bottom. Any other new content keeps the view
-  // pinned to the bottom only if it already was; scrolling up to read is never fought.
-  const tailText = messages?.length ? messages[messages.length - 1]!.text.length : 0;
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const [tailPad, setTailPad] = useState(0);
-  const lastCount = useRef(0);
-  useEffect(() => {
-    const el = msgsRef.current; if (!el || !messages) return;
-    const first = lastCount.current === 0;
-    const grew = messages.length > lastCount.current; lastCount.current = messages.length;
-    if (first) { el.scrollTop = el.scrollHeight; return; } // opening a thread shows its end, never anchors
-    const last = messages[messages.length - 1];
-    if (grew && last && last.author === me.githubLogin && last._id !== anchor) {
-      // my message: a viewport of room below it, then it goes to the top
-      setAnchor(last._id);
-      setTailPad(Math.max(0, el.clientHeight - 48));
-      return;
-    }
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-    if (!anchor && nearBottom) el.scrollTop = el.scrollHeight;
-  }, [messages?.length, tailText, runEvents]);
-  // The scroll itself runs after the spacer has been committed, or it would be clamped by the old height.
-  useEffect(() => {
-    const el = msgsRef.current; if (!el || !anchor || !tailPad) return;
-    const node = el.querySelector<HTMLElement>(`[data-mid="${anchor}"]`);
-    if (node) el.scrollTo({ top: node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 12, behavior: "smooth" });
-  }, [anchor, tailPad]);
-  useEffect(() => { setAnchor(null); setTailPad(0); lastCount.current = 0; }, [chat._id]);
-  // Reading up releases the anchor; the tail padding shrinks as replies fill it.
-  useEffect(() => {
-    const el = msgsRef.current; if (!el) return;
-    const onScroll = () => { if (anchor && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight) setAnchor(null); };
-    el.addEventListener("scroll", onScroll, { passive: true }); return () => el.removeEventListener("scroll", onScroll);
-  }, [anchor]);
-  useEffect(() => { inputRef.current?.focus(); }, [chat._id]);
+  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, [chat._id]);
   useEffect(() => {
     const close = () => { setRepoOpen(false); setScopeOpen(false); setPinOpen(false); setMore(null); };
     document.addEventListener("click", close);
@@ -117,17 +97,18 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   }, []);
 
   const nameOf = (login: string) => (login === me.githubLogin ? me.name : people?.[login]?.name ?? login);
-  const isAgent = (author: string) => author.startsWith("agent:");
   const agentOf = (author: string) => detail.agents.find((a) => `agent:${a._id}` === author) ?? null;
+
+  const attribution = (run: Doc<"runs"> | undefined) => run?.execution ? <RunAttribution run={run} nameOf={nameOf} /> : null;
 
   type PopItem = { v: string; label: string; d: string; kind: "agent" | "person"; harness?: string };
   const popItems = useMemo((): PopItem[] => {
     if (!pop) return [];
     const q = pop.q.toLowerCase();
-    const ag = chatAgents.filter((a) => !q || a.handle.startsWith(q) || (HARNESS_NAME[a.harness] ?? "").toLowerCase().startsWith(q)).map((a): PopItem => ({ v: a.handle, label: HARNESS_NAME[a.harness] ?? a.harness, d: `${a.model} · ${a.effort}`, kind: "agent", harness: a.harness }));
+    const ag = chatAgents.filter((a) => !q || a.handle.startsWith(q) || (HARNESS_NAME[a.harness] ?? "").toLowerCase().startsWith(q)).map((a): PopItem => ({ v: a.handle, label: HARNESS_NAME[a.harness] ?? a.harness, d: `${preferences.find((p) => p.harness === a.harness)?.model ?? a.model} · ${preferences.find((p) => p.harness === a.harness)?.effort ?? a.effort}`, kind: "agent", harness: a.harness }));
     const pp = members.filter((m) => m !== me.githubLogin && (!q || m.startsWith(q))).map((m): PopItem => ({ v: m, label: nameOf(m), d: "member", kind: "person" }));
     return [...ag, ...pp];
-  }, [pop, chatAgents, members, me.githubLogin, people]);
+  }, [pop, chatAgents, members, me.githubLogin, people, preferences]);
 
   function updatePop(value: string, caret: number) {
     const before = value.slice(0, caret);
@@ -145,35 +126,23 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
 
   async function submit() {
     const body = text.trim();
-    if (!body) return;
+    if ((!body && !attachments.drafts.length) || attachments.busy || sending) return;
+    setSending(true);
     const mention = firstMention(body, handles);
+    typing.stop();
     setText(""); setPop(null);
     try {
-      const r = await send({ chatId: chat._id, text: body, mentionHandle: mention });
+      const r = await send({ chatId: chat._id, text: body, mentionHandle: mention, attachments: attachments.drafts.map(f=>f.id) });
+      attachments.clear();
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
-    } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); }
+    } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); } finally { setSending(false); }
   }
 
-  const grouped = useMemo(() => {
-    let prev: string | null = null;
-    const lastReport: Record<string, string> = {};
-    for (const m of messages ?? []) if (m.kind === "report" && m.runId) lastReport[m.runId] = m._id;
-    return (messages ?? []).map((m) => { const cont = m.author === prev; prev = m.author; return { m, cont, lastOfRun: !!m.runId && lastReport[m.runId] === m._id }; });
-  }, [messages]);
-  // Live runs whose current turn has no text yet get a trailing block. Finished runs never trail: their
-  // landing card sits after their last reply, or right after the dispatch when they never replied.
-  const trailing = useMemo(() => {
-    const spoken = new Set((messages ?? []).filter((m) => m.kind === "report").map((m) => `${m.runId}:${m.turn}`));
-    return (runs ?? []).filter((r) => isLive(r.state) && !spoken.has(`${r._id}:${views[r._id]?.turns.length ?? 0}`)).map((r) => ({ r, v: views[r._id] ?? null }));
-  }, [runs, views, messages]);
-  const silentRuns = useMemo(() => {
-    const replied = new Set((messages ?? []).filter((m) => m.kind === "report" && m.runId).map((m) => m.runId as string));
-    return new Map((runs ?? []).filter((r) => !isLive(r.state) && !replied.has(r._id)).map((r) => [r.dispatchMessageId as string, r]));
-  }, [runs, messages]);
-  const lastAuthor = messages?.length ? messages[messages.length - 1]!.author : null;
+  const rows = useMemo(() => timeline(messages ?? [], runs ?? [], views), [messages, runs, views]);
 
   return (
-    <main className="thread">
+    <main className="thread" inert={!!(u.panels[chat._id]?.open && u.panels[chat._id]?.maximized)} aria-hidden={!!(u.panels[chat._id]?.open && u.panels[chat._id]?.maximized)} {...fileDrop.handlers}>
+      {fileDrop.dragging && <div className="file-drop-overlay" role="status"><div><span className="file-drop-icon" aria-hidden="true">↓</span><strong>Drop to attach</strong><span>Files will be added to your message</span></div></div>}
       <div className="thead">
         {chat.private && <span className="lk" title="Private · only you">{ICO.lock}</span>}
         <span className={`t${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>
@@ -196,6 +165,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <i>{r.split("/")[1]}</i>{stateLabel}</span>;
         })}
         <span className="sp" />
+        <button className="context-toggle" onClick={()=>ui.openContext(chat._id)} title="Files, links, and sources for this chat">Context</button>
         {threadState === "open"
           ? <button className="donebtn" title="Settle this thread when you are done with it. A new message reopens it." onClick={() => void setState({ chatId: chat._id, state: "settled" }).then(() => toast("Settled · a new message reopens it"))}>settle</button>
           : <button className="donebtn settled" title="Reopen this thread" onClick={() => void setState({ chatId: chat._id, state: "open" }).then(() => toast("Reopened"))}>settled{changes.some((c) => c.state === "open") ? ` · ${changes.filter((c) => c.state === "open").length} PR${changes.filter((c) => c.state === "open").length === 1 ? "" : "s"} open` : ""}</button>}
@@ -230,28 +200,44 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         </div>
       </div>
 
-      <div className="msgs" ref={msgsRef}>
+      <div className="msgs" ref={scroll.viewport} tabIndex={0} aria-label="Chat messages">
+        <div className="msgs-content" ref={scroll.content}>
         {messages && messages.length > 0 && <div className="daysep"><span>Started {dayLabel(chat._creationTime)} · {hhmm(chat._creationTime)}{chat.private ? " · private" : ""}</span></div>}
         {messages && messages.length === 0 && (chat.private
           ? <div className="empty"><b>Just you{pinned ? ` and ${HARNESS_NAME[pinned.harness]}` : ""}.</b><span>Your first message names the chat. {pinned ? "Plain messages go straight to the pinned agent." : "@mention an agent when you want one."} Share it from the header whenever it turns into something.</span></div>
           : <div className="empty"><b>Just you for now.</b><span>Invite people from the header and they join this chat. {repos.length ? `Working in ${repos.join(", ")}; branches and PRs appear as agents land work.` : "No repo yet: talk, investigate, or ask an agent to attach one or pick up a PR."} Your first message names the chat.</span></div>)}
-        {grouped.map(({ m, cont, lastOfRun }) => {
-          const ag = isAgent(m.author) ? agentOf(m.author) : null;
+        {rows.map((row) => {
+          const ag = agentOf(row.author);
+          if (row.kind !== "message") {
+            const run = row.run, view = views[run._id] ?? null;
+            const name = ag ? HARNESS_NAME[ag.harness]! : "Agent";
+            const current = view?.turns.at(-1);
+            const activeTable = rows.some((r) => r.kind === "activity" && r.run._id === run._id && r.live);
+            return <div key={row.key} className={`msg report${row.cont ? " cont" : ""}`}>
+              <AgentAvatar harness={ag?.harness ?? "claude"} />
+              <div>
+                <div className="hd"><span className={`nm ${ag?.harness ?? "claude"}`}>{name}</span>{attribution(run)}<span className="tm">{hhmm(row.at)}</span></div>
+                {row.kind === "activity" && <Activity t={row.turn} live={row.live} agentName={name} lastAt={view?.lastAt ?? null} queued={row.live ? view?.queuedSteers ?? 0 : 0} note={row.live ? view?.note ?? null : null} />}
+                {row.kind === "status" && <>
+                  <RunStatus run={run} view={view} />
+                  {current && !activeTable && !current.done && <Activity t={{ ...current, activity: [] }} live agentName={name} lastAt={view?.lastAt ?? null} queued={view?.queuedSteers ?? 0} note={view?.note ?? null} />}
+                  {view && [...new Set(view.requests.map((r) => r.turn))].map((turn) => <Requests key={turn} view={view} turn={turn} runId={run._id} />)}
+                </>}
+                {row.kind === "landing" && <><RunStatus run={run} view={view} /><LandingCard run={run} /></>}
+              </div>
+            </div>;
+          }
+          const m = row.message;
           const mine = m.author === me.githubLogin;
-          const run = m.kind === "report" && m.runId ? runs?.find((r) => r._id === m.runId) ?? null : null;
-          const view = run ? views[run._id] ?? null : null;
-          const turnView = view && m.turn ? view.turns.find((t) => t.turn === m.turn) ?? null : null;
-          const turnLive = !!run && isLive(run.state) && !!turnView && !turnView.done;
           return (
-            <div key={m._id} data-mid={m._id} className={`msg${cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
+            <div key={m._id} data-mid={m._id} className={`msg${row.cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
-                <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span><span className="tm">{hhmm(m._creationTime)}</span></div>
-                {turnView && <Activity t={turnView} live={turnLive} agentName={ag ? HARNESS_NAME[ag.harness]! : "Agent"} lastAt={view?.lastAt ?? null} queued={turnLive ? view?.queuedSteers ?? 0 : 0} note={turnLive ? view?.note ?? null : null} />}
-                {run && view && m.turn && <Requests view={view} turn={m.turn} runId={run._id} />}
-                {m.kind === "report" ? <StreamText text={m.text} live={turnLive} handles={handles} logins={logins} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={logins} /></div>}
-                {run && lastOfRun && !isLive(run.state) && <LandingCard run={run} />}
-                {silentRuns.get(m._id) && (() => { const r = silentRuns.get(m._id)!; const v = views[r._id] ?? null; return <><RunStatus run={r} view={v} /><LandingCard run={r} /></>; })()}
+                <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
+                {m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={logins} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={logins} /></div>}
+                {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
+                {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
+                {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings" })}>Settings</button></div>}
                 {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>
@@ -262,28 +248,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             </div>
           );
         })}
-        {trailing.map(({ r, v }) => {
-          const ag = detail.agents.find((a) => a._id === r.agentId) ?? null;
-          const name = ag ? HARNESS_NAME[ag.harness]! : "Agent";
-          const t = v?.turns[v.turns.length - 1] ?? null;
-          const live = isLive(r.state);
-          return (
-            <div key={r._id} className={`msg report${lastAuthor === `agent:${r.agentId}` ? " cont" : ""}`}>
-              <AgentAvatar harness={ag?.harness ?? "claude"} />
-              <div>
-                <div className="hd"><span className={`nm ${ag?.harness === "codex" ? "codex" : ag?.harness === "omp" ? "omp" : "claude"}`}>{name}</span><span className="tm">{hhmm(r.startedAt ?? r._creationTime)}</span></div>
-                <RunStatus run={r} view={v} />
-                {t && <Activity t={t} live={live && !t.done} agentName={name} lastAt={v?.lastAt ?? null} queued={v?.queuedSteers ?? 0} note={v?.note ?? null} />}
-                {v && t && <Requests view={v} turn={t.turn} runId={r._id} />}
-                {!live && <LandingCard run={r} />}
-              </div>
-            </div>
-          );
-        })}
-        {tailPad > 0 && <div className="tailpad" style={{ height: tailPad }} />}
+        </div>
       </div>
 
+      <TypingIndicator chatId={chat._id} me={me.githubLogin} nameOf={nameOf} />
       <div className="composer">
+        {attachments.chips}
+        {(() => { const target = liveAgent ?? chatAgents.find((a) => a.handle === firstMention(text, handles)) ?? (chat.private ? pinned : null); if (!target) return null; const p = preferences.find((p) => p.harness === target.harness); return <div className="composer-model">{HARNESS_NAME[target.harness]} · {liveRun?.execution?.modelName ?? liveRun?.execution?.model ?? p?.model ?? target.model} · {liveRun?.execution?.effort ?? p?.effort ?? target.effort}{liveRun ? " · continuing current run" : ""}</div>; })()}
         {pop && popItems.length > 0 && (
           <div className="popover">
             {popItems.some((x) => x.kind === "agent") && <div className="ph">Agents</div>}
@@ -293,7 +264,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           </div>
         )}
         <textarea ref={inputRef} rows={1} value={text} placeholder={chat.private && pinned ? `Message ${HARNESS_NAME[pinned.harness]}, or @mention another agent` : `Message ${chat.title}, or @mention an agent`}
-          onChange={(e) => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; updatePop(e.target.value, e.target.selectionStart); }}
+          onBlur={typing.stop}
+          onPaste={e=>void attachments.paste(e, pasted=>{const el=inputRef.current!;const start=el.selectionStart;const next=text.slice(0,start)+pasted+text.slice(el.selectionEnd);setText(next);typing.change(next);requestAnimationFrame(()=>{el.selectionStart=el.selectionEnd=start+pasted.length;});})}
+          onChange={(e) => { typing.change(e.target.value); setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; updatePop(e.target.value, e.target.selectionStart); }}
           onKeyDown={(e) => {
             if (pop && popItems.length && (e.key === "Enter" || e.key === "Tab")) { e.preventDefault(); pick(popItems[pop.sel]!.v); return; }
             if (pop && popItems.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); setPop({ ...pop, sel: (pop.sel + (e.key === "ArrowDown" ? 1 : -1) + popItems.length) % popItems.length }); return; }
@@ -301,7 +274,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); (e.target as HTMLTextAreaElement).style.height = "auto"; }
           }} />
         <div className="ft">
-          <span>⏎ send</span>
+          <span>{sending ? "Sending…" : "⏎ send"}</span>
+          <ComposerPermissions agents={permissionAgent ? [permissionAgent] : chatAgents} />
+          {attachments.controls}
           <button onClick={() => { const el = inputRef.current!; const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; setText(v); el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = v.length; updatePop(v, v.length); }); }}>@ mention</button>
           <span className="sp" />
           {chat.private
