@@ -1,8 +1,10 @@
+import { z } from "zod";
 import type { HarnessStatus } from "@beam/contracts";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
 import { which } from "../path.ts";
 import { withTimeout } from "../version.ts";
 import { JsonRpcChild } from "./rpc.ts";
+import { CodexSession } from "./session.ts";
 
 /**
  * Codex via `codex app-server` JSON-RPC over stdio. Probe: initialize, then account/read.
@@ -22,6 +24,15 @@ export async function probeCodex(): Promise<HarnessStatus> {
     rpc.notify("initialized");
     const version = init.userAgent?.match(/\/(\S+)/)?.[1] ?? null;
     const acct = await withTimeout(rpc.request<{ account?: { type: string; email?: string | null; planType?: string } | null; requiresOpenaiAuth: boolean }>("account/read", {}), 10_000, "codex account/read");
+    const models: NonNullable<HarnessStatus["models"]> = [];
+    let cursor: string | null = null;
+    do {
+      const page = z.object({ data: z.array(z.object({ model: z.string(), displayName: z.string(), supportedReasoningEfforts: z.array(z.object({ reasoningEffort: z.string() })) })), nextCursor: z.string().nullable() }).parse(
+        await withTimeout(rpc.request("model/list", { cursor, limit: 100 }), 10_000, "codex model/list"));
+      models.push(...page.data.map((m) => ({ model: m.model, name: m.displayName, efforts: m.supportedReasoningEfforts.map((e) => e.reasoningEffort) })));
+      cursor = page.nextCursor;
+    } while (cursor);
+    Object.assign(base, { models });
     const a = acct.account;
     if (!a) return acct.requiresOpenaiAuth
       ? { ...base, installed: true, version, auth: "unauthenticated", message: "Not signed in. Run `codex login`." }
@@ -39,5 +50,9 @@ export async function probeCodex(): Promise<HarnessStatus> {
 export const codexAdapter: HarnessAdapter = {
   kind: "codex",
   probe: probeCodex,
-  async start(_input: StartSession): Promise<Session> { throw new Error("codex adapter: start not implemented (M3)"); },
+  async start(input: StartSession): Promise<Session> {
+    const bin = await which("codex");
+    if (!bin) throw new Error("Codex (`codex`) is not on PATH on this runner. Install it and run `codex login`.");
+    return CodexSession.start(input, new JsonRpcChild(bin, ["app-server"], process.env, input.cwd));
+  },
 };

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { isLive } from "./runs";
 import { startRun } from "./messages";
 import { SYSTEM } from "./routerPrompt";
+import { askJev } from "../packages/contracts/src/jev";
 
 /**
  * The router: a small, fast model reads each plain message in a team chat and decides whether one of the
@@ -38,7 +39,8 @@ export const context = internalQuery({
   handler: async (ctx, { messageId }): Promise<RouterContext | null> => {
     const m = await ctx.db.get(messageId);
     if (!m || m.kind !== "text") return null;
-    const chat = (await ctx.db.get(m.chatId))!;
+    const chat = await ctx.db.get(m.chatId);
+    if (!chat || chat.state === "deleted") return null;
     const all = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
     const agents = (chat.agents ? all.filter((a) => chat.agents!.includes(a._id)) : all).map((a) => ({ handle: a.handle, name: HARNESS_NAME[a.harness] ?? a.harness, model: a.model }));
     if (!agents.length) return null;
@@ -173,9 +175,14 @@ export const classify = internalAction({
       const ask = { openrouter: askOpenRouterHedged, gemini: askGemini, anthropic: askAnthropic, openai: askOpenAI }[pick.provider];
       try { decision = await ask(pick.key, model, c); }
       catch (e) { console.error("router failed", (e as Error).message); return; }
-      console.log(`router: ${pick.provider}/${(decision as { model?: string }).model ?? model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
+      console.log(`router ${messageId}: ${pick.provider}/${(decision as { model?: string }).model ?? model} → ${decision.agent ?? "none"} (${decision.why}) in ${Date.now() - t0}ms`);
     }
     await ctx.runMutation(internal.router.apply, { messageId, agent: decision.agent, why: decision.why });
+    // Schedule only after applying the real decision; shadow failures never block dispatch.
+    if (process.env["JEV_SHADOW"] === "true" && process.env["JEV_API_KEY"]) {
+      try { await ctx.scheduler.runAfter(0, internal.router.shadow, { messageId, snapshot: c }); }
+      catch { console.warn("Could not schedule Jev shadow evaluation"); }
+    }
   },
 });
 
@@ -186,7 +193,8 @@ export const apply = internalMutation({
     const m = await ctx.db.get(messageId);
     if (!m || m.kind !== "text") return;
     if (!agent) { await ctx.db.patch(messageId, { routed: { agent: null, why } }); return; }
-    const chat = (await ctx.db.get(m.chatId))!;
+    const chat = await ctx.db.get(m.chatId);
+    if (!chat || chat.state === "deleted") return;
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
     const a = agents.find((x) => x.handle === agent && (!chat.agents || chat.agents.includes(x._id)));
     if (!a) { await ctx.db.patch(messageId, { routed: { agent: null, why: `no agent @${agent}` } }); return; }
@@ -198,7 +206,21 @@ export const apply = internalMutation({
       await startRun(ctx, chat, a, messageId, m.author);
       await ctx.db.patch(messageId, { kind: "dispatch", routed: { agent, why } });
     } catch (e) {
-      await ctx.db.patch(messageId, { routed: { agent: null, why: (e as Error).message.slice(0, 80) } });
+      await ctx.db.patch(messageId, { routed: { agent: null, why: "Could not start agent", error: (e as Error).message.slice(0, 300) } });
     }
+  },
+});
+
+/** Experiment only: never calls apply/startRun. No chat content or credentials are logged. */
+export const shadow = internalAction({
+  args: { messageId: v.id("messages"), snapshot: v.object({ title: v.string(), repo: v.union(v.string(), v.null()), agents: v.array(v.object({ handle: v.string(), name: v.string(), model: v.string() })), liveHandle: v.union(v.string(), v.null()), transcript: v.array(v.object({ who: v.string(), text: v.string(), kind: v.string() })), message: v.object({ who: v.string(), text: v.string() }) }) },
+  handler: async (_ctx, { messageId, snapshot: c }) => {
+    const key = process.env["JEV_API_KEY"];
+    if (!key || process.env["JEV_SHADOW"] !== "true") return;
+    const started = Date.now();
+    try {
+      const decision = await askJev(key, c, SYSTEM, { model: process.env["JEV_MODEL"] ?? "jev-latest", threshold: Number(process.env["JEV_THRESHOLD"] ?? 0.9) });
+      console.log("router shadow", JSON.stringify({ messageId, ...decision, ms: Date.now() - started }));
+    } catch (error) { console.warn("router shadow failed", (error as Error).message); }
   },
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+export * from "./compute.ts";
 
 // ---- ids ----
 const id = (name: string) => z.string().min(1).brand(name);
@@ -15,7 +16,7 @@ export const HarnessKind = z.enum(["claude", "codex", "omp"]);
 export type HarnessKind = z.infer<typeof HarnessKind>;
 
 export const Effort = z.enum(["low", "medium", "high", "max"]);
-/** ask = approve each risky call in the chat · plan = read-only until the plan is approved · auto = the harness's own auto-approval · allowlist = only alwaysAllow plus edits */
+/** ask = approve each risky call in the chat · plan = read-only until the plan is approved · auto = full access without tool approval prompts · allowlist = only alwaysAllow plus edits */
 export const PermissionMode = z.enum(["ask", "plan", "auto", "allowlist"]);
 export const ContextPolicy = z.enum(["last-landing", "since-landing-plus-summary", "whole-chat"]);
 
@@ -42,6 +43,7 @@ export const HarnessStatus = z.object({
   plan: z.string().nullable(),
   email: z.string().nullable(),
   message: z.string().nullable(),
+  models: z.array(z.object({ model: z.string(), name: z.string(), efforts: z.array(z.string()) })).optional(),
   probedAt: z.number(),
 });
 export type HarnessStatus = z.infer<typeof HarnessStatus>;
@@ -120,6 +122,8 @@ export type Run = z.infer<typeof Run>;
 
 /** Normalized harness events. Every adapter emits only these. */
 export const RunEvent = z.discriminatedUnion("type", [
+  /** Runner timestamp for a persisted reply segment, independent of mutation latency. */
+  z.object({ type: z.literal("message.started"), runId: RunId, messageId: MessageId }),
   z.object({ type: z.literal("session.started"), runId: RunId, resumeCursor: z.unknown().nullable() }),
   z.object({ type: z.literal("turn.started"), runId: RunId, turnId: z.string() }),
   z.object({ type: z.literal("content.delta"), runId: RunId, messageId: MessageId, delta: z.string() }),
@@ -140,3 +144,5 @@ export type RunEvent = z.infer<typeof RunEvent>;
 /** Feature flags a client checks before using newer shapes. */
 export const Capabilities = z.object({ contracts: z.literal(1), runners: z.literal(1) });
 export const CONTRACTS_VERSION = 1 as const;
+
+export { ContextSourceInput } from "./context.ts";

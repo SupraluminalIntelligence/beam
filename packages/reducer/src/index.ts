@@ -8,6 +8,7 @@ export interface RunView {
   runId: string;
   status: "working" | "done" | "failed";
   text: Record<string, string>; // messageId -> accumulated text
+  messageStarts: Record<string, number>; // persisted reply segment -> original event time
   activity: ActivityLine[];     // every turn, flat
   turns: TurnView[];            // per turn, 1-based
   requests: OpenRequest[];
@@ -19,7 +20,7 @@ export interface RunView {
   note: string | null;     // what the harness says it is waiting on, if anything
 }
 
-export const emptyRun = (runId: string): RunView => ({ runId, status: "working", text: {}, activity: [], turns: [], requests: [], resolved: {}, errors: [], resumeCursor: null, lastAt: null, queuedSteers: 0, note: null });
+export const emptyRun = (runId: string): RunView => ({ runId, status: "working", text: {}, messageStarts: {}, activity: [], turns: [], requests: [], resolved: {}, errors: [], resumeCursor: null, lastAt: null, queuedSteers: 0, note: null });
 
 const currentTurn = (view: RunView): TurnView => view.turns[view.turns.length - 1] ?? { turn: 1, turnId: "turn1", activity: [], done: false, startedAt: null, endedAt: null };
 const withTurn = (view: RunView, t: TurnView): RunView => {
@@ -35,6 +36,8 @@ export function apply(prev: RunView, e: RunEvent & { at?: number }): RunView {
   // progress of any kind clears a waiting note
   const view = e.type === "status" || e.type === "request.resolved" ? stamped : { ...stamped, note: null };
   switch (e.type) {
+    case "message.started":
+      return { ...view, messageStarts: { ...view.messageStarts, [e.messageId]: e.at ?? view.lastAt ?? 0 } };
     case "status":
       return { ...view, note: e.message };
     case "session.started":

@@ -5,11 +5,13 @@ import { v } from "convex/values";
 import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
 import { threadRepos } from "./changes";
+import { notifyRun, resolveInputNotifications } from "./notifications";
+import { selectRunner, canResume } from "../packages/contracts/src/execution";
 
 const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
 
-async function ownRun(ctx: QueryCtx | MutationCtx, token: string, runId: Id<"runs">) {
+export async function ownRun(ctx: QueryCtx | MutationCtx, token: string, runId: Id<"runs">) {
   const runner = await runnerForToken(ctx, token);
   const run = await ctx.db.get(runId);
   if (!run || run.runnerId !== runner._id) throw new Error("not this runner's run");
@@ -33,11 +35,12 @@ export const detail = query({
   handler: async (ctx, { token, runId }) => {
     const { run } = await ownRun(ctx, token, runId);
     const chat = (await ctx.db.get(run.chatId))!;
-    const agent = (await ctx.db.get(run.agentId))!;
+    const sharedAgent = (await ctx.db.get(run.agentId))!;
+    const agent = run.execution ? { ...sharedAgent, model: run.execution.model, effort: run.execution.effort } : sharedAgent;
     const dispatch = (await ctx.db.get(run.dispatchMessageId))!;
     const all = await ctx.db.query("messages").withIndex("by_chat", (q) => q.eq("chatId", run.chatId)).collect();
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", run.chatId)).collect();
-    const previous = runs.filter((r) => r._id !== runId && r.agentId === run.agentId && r.endedAt).sort((a, b) => b.endedAt! - a.endedAt!)[0] ?? null;
+    const previous = runs.filter((r) => r._id !== runId && r.agentId === run.agentId && r.endedAt && canResume(r, run)).sort((a, b) => b.endedAt! - a.endedAt!)[0] ?? null;
     // Context policy "since-landing-plus-summary": messages after the last landing, before this dispatch.
     const since = previous?.endedAt ?? 0;
     const transcript = all.filter((m) => m._creationTime > since && m._creationTime < dispatch._creationTime && m.kind !== "steer").slice(-40);
@@ -68,7 +71,12 @@ export const appendEvents = mutation({
 async function insertEvents(ctx: MutationCtx, runId: Id<"runs">, events: unknown[]) {
   const last = await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", runId)).order("desc").first();
   let seq = (last?.seq ?? -1) + 1;
-  for (const event of events) await ctx.db.insert("runEvents", { runId, seq: seq++, event });
+  for (const event of events) {
+    await ctx.db.insert("runEvents", { runId, seq: seq++, event });
+    const e = event as { type?: string; requestId?: string };
+    if (e.type === "request.opened" && typeof e.requestId === "string") await notifyRun(ctx, runId, "input", `input:${e.requestId}`);
+    if (e.type === "request.resolved" && typeof e.requestId === "string") await resolveInputNotifications(ctx, runId, e.requestId);
+  }
 }
 
 /** The agent speaks. One message per turn, streamed by patching. */
@@ -137,6 +145,9 @@ export const land = mutation({
   handler: async (ctx, { token, runId, state, landing, resumeCursor }) => {
     await ownRun(ctx, token, runId);
     await ctx.db.patch(runId, { state, landing, resumeCursor, endedAt: Date.now() });
+    await resolveInputNotifications(ctx, runId);
+    const failed = state !== "landed" || !!landing?.error || (Array.isArray(landing?.repos) && landing.repos.some((r: { error?: string; pushed?: boolean }) => r.error || r.pushed === false));
+    await notifyRun(ctx, runId, failed ? "failed" : "completed", "ended");
   },
 });
 
@@ -194,6 +205,8 @@ export const abandon = mutation({
     const { u } = await requireChat(ctx, run.chatId);
     if (!isLive(run.state)) return;
     await insertEvents(ctx, runId, [{ type: "error", runId, message: `stopped by ${u.githubLogin} · the runner did not acknowledge`, fatal: true, at: Date.now() }]);
+    await notifyRun(ctx, runId, "failed", "ended");
+    await resolveInputNotifications(ctx, runId);
     await ctx.db.patch(runId, { state: "interrupted", landing: { repos: [], error: "stopped from the chat; the runner did not respond, so nothing was pushed" }, endedAt: Date.now() });
   },
 });
@@ -212,6 +225,8 @@ export const reapStale = internalMutation({
         if (!offline && !unacked) continue;
         const why = offline ? "the runner went offline" : "the runner did not acknowledge stop";
         await insertEvents(ctx, r._id, [{ type: "error", runId: r._id, message: `run ended: ${why}`, fatal: true, at: now }]);
+        await notifyRun(ctx, r._id, "failed", "ended");
+        await resolveInputNotifications(ctx, r._id);
         await ctx.db.patch(r._id, { state: offline ? "failed" : "interrupted", landing: { repos: [], error: `${why}; nothing was pushed` }, endedAt: now });
       }
     }
@@ -228,28 +243,13 @@ export const interrupt = mutation({
   },
 });
 
-/**
- * Pick where a dispatch runs: the chat's pinned runner if it is up, else the dispatcher's own runner,
- * else any workspace member's online runner that has the harness signed in (so someone on the web
- * with no machine of their own can still put an agent to work; the runner's owner pays).
- */
+/** Personal connection by default. Using another member's account requires both parties to opt in. */
 export async function chooseRunner(ctx: QueryCtx | MutationCtx, chat: Doc<"chats">, login: string, harness: string) {
-  const fresh = (r: Doc<"runners">) => r.online && r.lastSeen > Date.now() - 90_000;
-  const ready = (r: Doc<"runners">) => (r.harnesses as { harness: string; auth: string }[] | null)?.some((h) => h.harness === harness && h.auth === "authenticated") ?? false;
-  const best = (rs: Doc<"runners">[]) => rs.filter(fresh).filter(ready).sort((a, b) => Number(b.launchedByApp) - Number(a.launchedByApp))[0] ?? null;
-  if (chat.pinnedRunner) {
-    const r = await ctx.db.get(chat.pinnedRunner);
-    if (r && fresh(r) && ready(r)) return r;
-  }
-  const mine = await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", login)).collect();
-  const own = best(mine);
-  if (own) return own;
+  const user = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+  const selected = user?.agentPreferences?.find((p) => p.harness === harness)?.runnerId;
   const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
-  for (const m of members) {
-    if (m.githubLogin === login) continue;
-    const r = best(await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", m.githubLogin)).collect());
-    if (r) return r;
-  }
-  if (mine.some(fresh)) throw new Error(`Your runner is up but ${harness} is not signed in there. Check Settings → Connected harnesses.`);
-  throw new Error("No runner online in this workspace. Open the Beam app on a machine, or run `beam-runner start`.");
+  if (!members.some((m) => m.githubLogin === login)) throw new Error("Dispatcher is no longer a workspace member");
+  const mine = await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", login)).collect();
+  const candidates = selected ? [await ctx.db.get(selected)].filter((r): r is Doc<"runners"> => !!r) : mine;
+  return selectRunner(candidates, { login, harness, selected, pinned: chat.pinnedRunner, members: members.map((m) => m.githubLogin), now: Date.now() });
 }

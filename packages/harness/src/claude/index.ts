@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
 import { which } from "../path.ts";
 import { AsyncQueue } from "../queue.ts";
-import { describeTool, isDangerous, matchesAllow, truncate } from "../tools.ts";
+import { describeTool, matchesAllow, truncate } from "../tools.ts";
 import { cliVersion, withTimeout } from "../version.ts";
 
 /**
@@ -79,10 +79,8 @@ class ClaudeSession implements Session {
     const { agent, cwd, resumeCursor } = input;
     this.allow = [...agent.alwaysAllow];
     this.sessionId = (resumeCursor as { sessionId?: string } | null)?.sessionId ?? null;
-    // Beam mode → Claude Code mode. "auto" runs Claude Code in acceptEdits and Beam's own canUseTool allows everything
-    // except a short list of destructive commands, which still reach the chat. Predictable, and it does not depend
-    // on the account having Claude Code's classifier mode.
-    const permissionMode: PermissionMode = ({ ask: "default", plan: "plan", auto: "acceptEdits", allowlist: "acceptEdits" } as Record<string, PermissionMode>)[agent.permissionMode] ?? "default";
+    // Beam auto means full access, independently of Claude's classifier-based auto mode.
+    const permissionMode: PermissionMode = ({ ask: "default", plan: "plan", auto: "bypassPermissions", allowlist: "acceptEdits" } as Record<string, PermissionMode>)[agent.permissionMode] ?? "default";
     const beam = createSdkMcpServer({
       name: "beam",
       tools: input.tools.map((t) => tool(t.name, t.description, t.schema, async (args) => {
@@ -116,7 +114,7 @@ class ClaudeSession implements Session {
 
   private async askPermission(name: string, toolInput: Record<string, unknown>, requestId: string) {
     if (matchesAllow(name, toolInput, this.allow)) return { behavior: "allow" as const, updatedInput: toolInput };
-    if (this.input.agent.permissionMode === "auto" && !isDangerous(name, toolInput)) return { behavior: "allow" as const, updatedInput: toolInput };
+    if (this.input.agent.permissionMode === "auto") return { behavior: "allow" as const, updatedInput: toolInput };
     const { kind, summary } = describeTool(name, toolInput, this.input.cwd);
     const plan = name === "ExitPlanMode";
     this.emit({ type: "request.opened", runId: this.input.runId as never, requestId, kind: "approval", prompt: plan ? "Approve the plan and start making changes?" : kind === "bash" ? `Run: ${summary}` : summary, options: plan ? ["allow", "deny"] : ["allow", "always", "deny"] });

@@ -22,6 +22,9 @@ export async function requireChat(ctx: QueryCtx | MutationCtx, chatId: Id<"chats
   if (!chat) throw new Error("no such chat");
   const u = await requireMember(ctx, chat.workspaceId);
   if (chat.private && !chat.members.includes(u.githubLogin!)) throw new Error("private chat");
+  // Existing query subscriptions can finish while clients remove a deleted chat.
+  // Mutations must never revive it (including messages, routing, and settings).
+  if (chat.state === "deleted" && "scheduler" in ctx) throw new Error("This chat has been deleted.");
   return { chat, u };
 }
 

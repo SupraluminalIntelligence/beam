@@ -14,13 +14,14 @@ export async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) 
 
 /** First contact after start. Upserts the runner row for this token. */
 export const hello = mutation({
-  args: { token: v.string(), name: v.string(), hostname: v.string(), platform: v.string(), harnesses: v.any(), launchedByApp: v.boolean() },
+  args: { token: v.string(), name: v.string(), hostname: v.string(), platform: v.string(), harnesses: v.any(), launchedByApp: v.boolean(), computeBackend: v.optional(v.literal("local-process")) },
   handler: async (ctx, a) => {
     const t = await requireRunner(ctx, a.token);
     const existing = await ctx.db.query("runners").withIndex("by_token", (q) => q.eq("tokenId", t._id)).first();
-    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: a.harnesses, launchedByApp: a.launchedByApp };
+    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: a.harnesses, launchedByApp: a.launchedByApp, computeBackend: a.computeBackend };
     if (existing) { await ctx.db.patch(existing._id, fields); return existing._id; }
-    return ctx.db.insert("runners", { tokenId: t._id, probeRequestedAt: 0, ...fields });
+    const { computeBackend, ...required } = fields;
+    return ctx.db.insert("runners", { tokenId: t._id, probeRequestedAt: 0, ...required, ...(computeBackend ? { computeBackend } : {}) });
   },
 });
 
@@ -53,8 +54,8 @@ export const self = query({
 });
 
 const FRESH = 90_000;
-const shape = (r: { _id: unknown; name: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; harnesses: unknown; launchedByApp: boolean }) =>
-  ({ id: r._id, name: r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
+const shape = (r: { _id: unknown; name: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
+  ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
 
 /** My runners, for Settings → Connected harnesses. */
 export const mine = query({
@@ -97,5 +98,16 @@ export const requestProbe = mutation({
     const r = await ctx.db.get(runnerId);
     if (!r || r.ownerLogin !== u.githubLogin) throw new Error("not your runner");
     await ctx.db.patch(runnerId, { probeRequestedAt: Date.now() });
+  },
+});
+
+/** Sharing is opt-in by the owner; dispatchers must also explicitly select this runner. */
+export const setSharing = mutation({
+  args: { runnerId: v.id("runners"), allow: v.boolean() },
+  handler: async (ctx, { runnerId, allow }) => {
+    const user = await me(ctx);
+    const runner = await ctx.db.get(runnerId);
+    if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("not your runner");
+    await ctx.db.patch(runnerId, { allowSharedRuns: allow });
   },
 });

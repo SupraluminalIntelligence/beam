@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { me as requireUser } from "./lib";
 
 export const me = query({
   args: {},
@@ -39,5 +40,20 @@ export const directory = query({
       .sort((a, b) => a.githubLogin!.localeCompare(b.githubLogin!))
       .slice(0, 20)
       .map((u) => ({ login: u.githubLogin!, name: u.name ?? u.githubLogin!, image: u.image ?? null }));
+  },
+});
+
+/** Personal defaults apply to new dispatches, including automatically routed messages. */
+export const preferences = query({
+  args: {},
+  handler: async (ctx) => (await requireUser(ctx)).agentPreferences ?? [],
+});
+
+export const setAgentPreference = mutation({
+  args: { harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")) },
+  handler: async (ctx, preference) => {
+    const user = await requireUser(ctx);
+    if (!["codex", "claude", "omp"].includes(preference.harness) || !preference.model.trim() || preference.model.length > 200 || !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(preference.effort)) throw new Error("Invalid agent preference");
+    await ctx.db.patch(user._id, { agentPreferences: [...(user.agentPreferences ?? []).filter((p) => p.harness !== preference.harness), { ...preference, model: preference.model.trim() }] });
   },
 });

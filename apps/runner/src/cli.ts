@@ -6,6 +6,7 @@ import { api } from "../../../convex/_generated/api.js";
 import { readConfig } from "./config.ts";
 import { login } from "./login.ts";
 import { watchRuns } from "./runs.ts";
+import { watchCompute } from "./compute/watch.ts";
 
 /**
  * beam-runner: a standalone Convex client that hosts runs on this machine.
@@ -27,6 +28,8 @@ async function probeAll() {
 const line = (s: { harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null }) =>
   `${s.harness.padEnd(7)} ${(s.installed ? `v${s.version ?? "?"}` : "missing").padEnd(10)} ${s.auth.padEnd(15)} ${[s.plan, s.email].filter(Boolean).join(" · ")}${s.message ? `  (${s.message})` : ""}`;
 
+if (cmd === "local-servers") { const { discoverLocalServers } = await import("./localServers.ts"); console.log(JSON.stringify(await discoverLocalServers())); process.exit(0); }
+
 if (cmd === "probe") {
   for (const s of await probeAll()) console.log(line(s));
   process.exit(0);
@@ -40,7 +43,16 @@ if (cmd === "start") {
   const client = new ConvexClient(cfg.convexUrl);
   const token = cfg.token;
   let statuses = await probeAll();
-  const runnerId = await client.mutation(api.runners.hello, { token, name: cfg.name, hostname: hostname(), platform: process.platform, harnesses: statuses, launchedByApp: flag("--app") });
+  let computeSupported = process.platform !== "win32";
+  const registration = { token, name: cfg.name, hostname: hostname(), platform: process.platform, harnesses: statuses, launchedByApp: flag("--app") };
+  // Older deployments do not accept the optional compute capability yet.
+  const runnerId = await client.mutation(api.runners.hello, { ...registration, ...(process.platform !== "win32" ? { computeBackend: "local-process" as const } : {}) }).catch(async (error) => {
+    if (process.platform === "win32") throw error;
+    const id = await client.mutation(api.runners.hello, registration);
+    computeSupported = false;
+    console.log("Connected in compatibility mode (compute capability not advertised)");
+    return id;
+  });
   console.log(`beam-runner up as ${cfg.githubLogin} · ${statuses.filter((s) => s.installed).map((s) => `${s.harness}${s.auth === "authenticated" ? " ✓" : ""}`).join(", ") || "no harnesses found"}`);
   for (const s of statuses) console.log("  " + line(s));
 
@@ -55,6 +67,7 @@ if (cmd === "start") {
   setInterval(() => void reprobe("interval"), 5 * 60_000);
   client.onUpdate(api.runners.self, { token }, (row) => { if (row && row.probeRequestedAt > lastProbeReq) { lastProbeReq = row.probeRequestedAt; void reprobe("requested"); } });
   watchRuns(client, token);
+  if (computeSupported) watchCompute(client, token);
 
   const bye = async () => { try { await client.mutation(api.runners.bye, { token, runnerId }); } catch {} process.exit(0); };
   process.on("SIGINT", bye); process.on("SIGTERM", bye);
