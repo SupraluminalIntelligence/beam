@@ -35,7 +35,7 @@
 .cad-canvas canvas{width:100%;height:100%;display:block;touch-action:none}
 .cad-canvas.measuring canvas{cursor:crosshair}
 .cad-corner{position:absolute;pointer-events:none;display:flex;gap:16px;font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
-.cad-corner b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+.cad-corner b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:.06em}
 .cad-corner.tl{left:14px;top:12px}.cad-corner.tr{right:14px;top:12px}.cad-corner.bl{left:14px;bottom:12px;max-width:60%;overflow:hidden;text-overflow:ellipsis;display:block}.cad-corner.br{right:14px;bottom:12px}
 .cad-corner.live{color:var(--live)}.cad-corner.live b{color:var(--live)}
 .cad-graphics-error{position:absolute;inset:0;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-direction:column;padding:24px;text-align:center}
@@ -51,7 +51,8 @@
 .cad-nm{font-family:var(--font-mono);font-size:11.5px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 0;color:inherit}
 .cad-row.on .cad-nm{font-weight:500}
 .cad-meta{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.cad-note{font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);padding:6px 0 0;line-height:1.6;flex:none}
+.cad-note{font-family:var(--font-sans);font-size:12px;color:var(--ink-3);padding:8px 0 0;line-height:1.5;flex:none}
+.cad-note .cad-k{padding:0}
 .cad-sec{display:flex;gap:8px;align-items:center;justify-content:space-between;padding-top:2px}
 .cad-val{font-family:var(--font-mono);font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .cad-range{appearance:none;-webkit-appearance:none;width:100%;height:1px;background:var(--line-2);outline:none;cursor:ew-resize;margin:14px 0 6px}
@@ -65,7 +66,7 @@
 .cad-kv .cad-dim>span:last-child{white-space:nowrap}
 
 .cad-status{height:32px;flex:none;display:flex;gap:18px;align-items:center;padding:0 14px;border-top:1px solid var(--line);font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);white-space:nowrap;overflow:hidden;font-variant-numeric:tabular-nums}
-.cad-status b{font-weight:400;color:var(--ink)}
+.cad-status b{font-weight:400;color:var(--ink);text-transform:none;letter-spacing:.06em}
 .cad-status .live,.cad-status .live b{color:var(--live)}
 .cad-status>span{flex:none}.cad-status>span.shrink{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .cad-local-note{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;height:32px;border-top:1px solid var(--line);font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);flex:none}

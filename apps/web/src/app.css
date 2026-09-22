@@ -112,6 +112,9 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .pp-item .sub{grid-column:2/4;font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .sb-foot{position:relative;border-top:1px solid var(--line);flex:none}
+.acct-row{display:flex;align-items:center;min-width:0}
+.acct-row>.acct{flex:1;min-width:0}
+.acct-row>.upd{margin-right:14px}
 .acct{display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;text-align:left;color:var(--ink)}
 .acct:hover{background:var(--surface)}
 .acct .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}

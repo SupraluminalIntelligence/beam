@@ -147,7 +147,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           <button onClick={() => { setAcct(false); p.setModal({ kind: "settings" }); }}><span>Settings</span><span className="k">⌘,</span></button>
           <button onClick={() => void signOut()}><span>Log out</span></button>
         </div>
-        <button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><UpdatePill /><span className="k">⚙</span></button>
+        <div className="acct-row"><button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><span className="k">⚙</span></button><UpdatePill /></div>
       </div>
       {chatMenu && <ChatContextMenu key={chatMenu.chat._id} target={chatMenu} onClose={closeChatMenu} userId={p.me.id} />}
     </aside>
