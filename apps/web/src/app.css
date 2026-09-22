@@ -775,3 +775,110 @@ body.resizing .side-grip{pointer-events:auto}
 .titlebar::before,.sb-top::before{content:"";position:absolute;top:0;bottom:0;left:190px;right:0;-webkit-app-region:drag}
 .titlebar>*,.sb-top>*{position:relative;-webkit-app-region:no-drag}
 .app-navigation *{-webkit-app-region:no-drag}
+
+/* ---- PLATE components: shape carries state, hairlines carry structure, ink carries identity ---- */
+/* status squares: filled blue pulsing = live, half amber = needs you, hollow = open and idle, filled grey = settled or done, × = failed */
+.sq,.sq.idle,.stepline .sq,.pp-row .sq{background:transparent;border:1px solid var(--line-2);box-sizing:border-box}
+.sq.ok,.stepline .sq.ok,.pp-row .sq.ok,.th-item .sq.settled{background:var(--ink-3);border-color:var(--ink-3)}
+.sq.work,.stepline .sq.run{background:var(--live);border-color:var(--live);animation:pulse 1.6s infinite;box-shadow:none}
+.sq.ask{border-color:var(--warn);background:linear-gradient(135deg,var(--warn) 50%,transparent 50%)}
+.sq.bad,.stepline .sq.bad{border:0;background:none;color:var(--bad);font-family:var(--font-mono);font-size:9px;line-height:7px;text-align:center}
+.sq.bad::before,.stepline .sq.bad::before{content:"✕"}
+.job-dot{border:1px solid var(--line-2);background:transparent;box-sizing:border-box}
+.job-dot.running,.job-dot.preparing,.job-dot.publishing{background:var(--live);border-color:var(--live);animation:pulse 1.6s infinite}
+.job-dot.succeeded{background:var(--ink-3);border-color:var(--ink-3)}
+.job-dot.awaiting-approval{border-color:var(--warn);background:linear-gradient(135deg,var(--warn) 50%,transparent 50%)}
+/* people: Chladni figures on a raised square; agents: their mark in ink */
+.av.plate{background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line);color:var(--ink);padding:0}
+.av.plate svg{width:100%;height:100%;display:block;fill:currentColor}
+.av.plus{border-radius:var(--r-1)}
+.nm.me,.nm.noah,.nm.claude,.nm.codex,.nm.omp,.nm.gemini{color:var(--ink)}
+.msg .nm{font-weight:500;letter-spacing:.12em;font-size:11px}
+.msg .tm{letter-spacing:.1em;font-size:10px}
+.mention{font-weight:600;padding:0;background:none;color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-2)}
+.mention.claude,.mention.codex,.mention.omp{font-family:var(--font-mono);font-size:12px;font-weight:500;padding:1px 5px;background:var(--ink);color:var(--surface);text-decoration:none;border-radius:var(--r-1)}
+.msg.dispatch .tx,.msg.steer .tx{border-left:0;padding-left:0}
+.rcpt{padding-left:0;font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;margin-top:6px}
+.rcpt i{color:var(--ink-3)}
+.tx .cursor{border-radius:0}
+/* the activity log is ruled, not boxed: a strong rule above, hairlines between, nothing filled */
+.act{border:0;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line);background:transparent;margin-top:10px}
+.act .ah{background:transparent;padding:7px 0;gap:10px}
+.act .ah .ttl{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+.act .ah .tog{width:7px;font-size:10px}
+.act .ah .st{font-size:10px;letter-spacing:var(--track-status);text-transform:uppercase;color:var(--ink-3)}
+.act .ah .st i{width:6px;height:6px;background:transparent;border:1px solid var(--line-2);box-sizing:border-box}
+.act .ah .st.work{color:var(--live)}.act .ah .st.work i{background:var(--live);border-color:var(--live)}
+.act .ah .st.done i{background:var(--ink-3);border-color:var(--ink-3)}
+.act.quiet .ah .st{color:var(--warn)}.act.quiet .ah .st i{border-color:var(--warn);background:linear-gradient(135deg,var(--warn) 50%,transparent 50%);opacity:1}
+.act .ah .chip{background:transparent;border-color:var(--line-2);letter-spacing:var(--track-status);text-transform:uppercase;font-size:9.5px;border-radius:0}
+.steps{border-top:0}
+.step{border-bottom:0;border-top:1px solid var(--line)}
+.stepline{padding:6px 0;grid-template-columns:7px 44px minmax(0,1fr) auto}
+.stepline:hover,.step.open .stepline{background:transparent}
+.stepline:hover .what{color:var(--ink)}
+.stepline .kind{font-size:9.5px;letter-spacing:var(--track-label)}
+.stepline .r.live{color:var(--live)}
+.stepdetail{background:transparent;padding:4px 0 10px 61px}
+/* requests: the box stays, since you act on it; amber only in the label and its half square */
+.ask{border-color:var(--line-2);border-radius:var(--r-2);padding:10px 12px}
+.ask.fail{border-color:var(--bad)}
+.ask .k{display:inline-flex;align-items:center;gap:7px;font-size:10px;letter-spacing:var(--track-status)}
+.ask .k::before{content:"";width:7px;height:7px;box-sizing:border-box;border:1px solid var(--warn);background:linear-gradient(135deg,var(--warn) 50%,transparent 50%)}
+.ask.fail .k::before{content:"✕";border:0;background:none;color:var(--bad);font-size:9px;line-height:7px;width:auto}
+.ask .askp>span:last-child{font-family:var(--font-sans);font-size:13.5px}
+.ask .perm button{border-radius:var(--r-1);letter-spacing:.1em;text-transform:uppercase;font-size:10px;padding:3px 10px}
+.ask .perm button:first-child{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.ask .perm button:first-child kbd{color:var(--surface);opacity:.6}
+.perm .did{border-radius:var(--r-1);letter-spacing:.1em;text-transform:uppercase;font-size:10px}
+/* change cards: a ruled row, the branch as its name, numbers tabular */
+.card{border-color:var(--line-2);border-radius:var(--r-2);max-width:720px;grid-template-columns:auto 1fr;padding:9px 12px}
+.card:hover{background:transparent;border-color:var(--ink-3)}
+.card.on{border-color:var(--ink)}
+.card .ai{border:0;width:auto;height:auto;color:var(--ink-3);font-size:12px}
+.card .mt{font-size:10px;letter-spacing:var(--track-status);text-transform:uppercase;font-variant-numeric:tabular-nums}
+.card .mt .hint{text-decoration:none;color:var(--ink-2)}
+.rstat{font-size:10px;letter-spacing:var(--track-status);text-transform:uppercase}
+.rstat i{background:transparent;border:1px solid var(--line-2);box-sizing:border-box;animation:none}
+.rstat.bad{color:var(--bad)}
+/* window chrome speaks in the label voice; the chat title is a name of a thing */
+.sb-sec{font-size:10px}
+.thead .t{font-family:var(--font-display);font-weight:700;letter-spacing:.04em;font-size:14px}
+.thead .t.untitled{font-family:var(--font-sans);font-weight:400}
+.thead .chip{background:transparent;border:0;padding:0;font-size:11.5px}
+.thead .chip i{letter-spacing:var(--track-label);margin-right:10px}
+.thead .chip.change.open{color:var(--ink)}
+.thead .chip.change.open::before,.thead .chip.change.merged::before,.thead .chip.change.none::before{content:"";width:6px;height:6px;box-sizing:border-box;border:1px solid var(--line-2);margin-right:7px;display:inline-block}
+.thead .chip.change.merged::before{background:var(--ink-3);border-color:var(--ink-3)}
+.thead .chip.addrepo{border:1px dashed var(--line-2);padding:1px 7px;border-radius:var(--r-1)}
+.thead .repopick .chip{border:1px dashed transparent;padding:1px 7px}
+.thead .repopick:hover .chip{border-color:var(--line-2)}
+.donebtn{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;border-color:var(--line-2);border-radius:var(--r-1);height:24px;padding:0 10px}
+.donebtn.settled{color:var(--ink);border-color:var(--ink-3)}
+.donebtn.settled::before{content:"";width:6px;height:6px;background:var(--ink-3);display:inline-block;margin-right:7px}
+.tb-ws .mono,.strip-k,.tb-k{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase}
+.tb-k{border-radius:var(--r-1)}
+.tab.on{box-shadow:inset 0 2px 0 var(--ink)}
+.th-item.on{box-shadow:inset 2px 0 0 var(--ink)}
+.ws-row.on{box-shadow:inset 2px 0 0 var(--ink);background:transparent}
+.daysep{font-size:10px;letter-spacing:var(--track-label)}
+.chip{border-radius:var(--r-1)}
+.btn{border-radius:var(--r-1);font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;padding:7px 14px}
+.btn.ghost{color:var(--ink-2)}
+.dd button.on,.model-menu button[aria-pressed=true],.permission-options button[aria-pressed=true]{background:var(--ink);color:var(--surface)}
+.model-menu button[aria-pressed=true] *,.permission-options button[aria-pressed=true] *{color:var(--surface)}
+.composer .ft{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase}
+.composer .ft .permission-trigger{text-transform:none;letter-spacing:0;font-size:11px}
+.stopbtn{border-radius:var(--r-1);letter-spacing:var(--track-status);text-transform:uppercase;font-size:10px}
+.listen{border-radius:var(--r-1)}
+.upd{border-radius:var(--r-1)}
+.workspace-eyebrow,.workspace-launcher h3{font-family:var(--font-mono);font-size:10px;color:var(--ink-3)}
+.workspace-launcher h2,.workspace-scroll h2{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.04em;font-weight:700;font-size:18px}
+.workspace-launcher section>button{background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:12px 0}
+.workspace-launcher section>button:hover:not(:disabled){background:transparent;border-color:var(--line)}
+.workspace-launcher section>button:hover:not(:disabled) b{text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-2)}
+.workspace-launcher h3{padding-bottom:8px;border-bottom:1px solid var(--line-2)}
+.workspace-launcher .tool-action{font-family:var(--font-mono);letter-spacing:var(--track-label);text-transform:uppercase}
+.compute-card{background:transparent;border-radius:var(--r-2);border-color:var(--line-2)}
+.compute-card:hover{background:transparent;border-color:var(--ink-3)}
+.signin h1{font-family:var(--font-display)}
