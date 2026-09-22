@@ -4,6 +4,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { autoTitle, requireChat } from "./lib";
+import { resolveExecution } from "../packages/contracts/src/execution";
+import { followParticipant } from "./notifications";
 import { chooseRunner, isLive } from "./runs";
 
 export const list = query({
@@ -16,22 +18,32 @@ export const list = query({
 
 /** Create a run for a dispatch. Throws when nobody can host it. */
 export async function startRun(ctx: MutationCtx, chat: Doc<"chats">, agent: Doc<"agents">, messageId: Id<"messages">, login: string) {
+  if (chat.state === "deleted") throw new Error("This chat has been deleted.");
   const runner = await chooseRunner(ctx, chat, login, agent.harness);
+  const user = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+  const execution = resolveExecution(agent, user?.agentPreferences ?? [], runner);
   const runId = await ctx.db.insert("runs", {
+    execution,
     chatId: chat._id, agentId: agent._id, runnerId: runner._id, dispatchedBy: login, dispatchMessageId: messageId, state: "queued",
     branch: chat.activeBranch, worktree: null, resumeCursor: null, landing: null, startedAt: null, endedAt: null,
   });
+  await followParticipant(ctx, chat._id, login);
   await ctx.db.patch(messageId, { runId });
   return { runId, runnerName: runner.name };
 }
 
 /** Kind is decided here from chat state: plain text, a dispatch, or a steer of the live run. */
 export const send = mutation({
-  args: { chatId: v.id("chats"), text: v.string(), mentionHandle: v.union(v.string(), v.null()) },
-  handler: async (ctx, { chatId, text, mentionHandle }) => {
+  args: { chatId: v.id("chats"), text: v.string(), mentionHandle: v.union(v.string(), v.null()), attachments: v.optional(v.array(v.id("files"))) },
+  handler: async (ctx, { chatId, text, mentionHandle, attachments = [] }) => {
     const { chat, u } = await requireChat(ctx, chatId);
     const body = text.trim();
-    if (!body) throw new Error("empty");
+    if (!body && !attachments.length) throw new Error("empty");
+    if (attachments.length > 10 || new Set(attachments).size !== attachments.length) throw new Error("Maximum 10 files per message");
+    for (const id of attachments) {
+      const f = await ctx.db.get(id);
+      if (!f || f.chatId !== chatId || f.author !== u.githubLogin || f.messageId) throw new Error("Invalid attachment");
+    }
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
     let target: typeof agents[number] | null = null;
     if (mentionHandle) {
@@ -48,10 +60,12 @@ export const send = mutation({
     // Fail before writing anything if a dispatch has nowhere to run.
     if (kind === "dispatch") await chooseRunner(ctx, chat, u.githubLogin!, target!.harness);
     const patch: Record<string, unknown> = { lastMessageAt: Date.now() };
-    if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body) });
+    if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body || "Attached files") });
     if (chat.state && chat.state !== "open") patch["state"] = "open"; // a message reopens a done or settled thread
     await ctx.db.patch(chatId, patch);
-    const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [] });
+    const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [], attachments });
+    for (const fileId of attachments) await ctx.db.patch(fileId, { messageId: id });
+    await followParticipant(ctx, chatId, u.githubLogin!);
     let runner: string | null = null;
     if (kind === "dispatch") runner = (await startRun(ctx, chat, target!, id, u.githubLogin!)).runnerName;
     // Plain messages in a team chat with agents go to the router: it decides whether an agent should act.

@@ -1,7 +1,12 @@
 /** The optional preload bridge. Undefined in a browser; present in Electron. Never required. */
 export interface BeamBridge {
+  browserPreview?: boolean;
+  localServers?(): Promise<{url:string;port:number;processName:string}[]>;
   platform: "darwin" | "win32" | "linux";
+  notify?(value: { id: string; title: string; body: string; silent: boolean; workspaceId?: string; chatId?: string }): Promise<boolean>;
+  onNotificationClick?(cb: (value: { id: string; workspaceId: string; chatId: string }) => void): () => void;
   openTerminalWith(command: string): Promise<void>;
+  clipboardFiles?(): Promise<{name:string;base64:string}[]>;
   pickFolder(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   runnerStatus(): Promise<{ running: boolean; pid: number | null; pendingPair: string | null; log: string[] }>;

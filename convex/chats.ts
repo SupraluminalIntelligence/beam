@@ -2,13 +2,29 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { openChange, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
+import { isLive } from "./runs";
+import { followParticipant } from "./notifications";
+import { jobFinished } from "../packages/contracts/src/compute";
 
 export const list = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, { workspaceId }) => {
     const u = await requireMember(ctx, workspaceId);
     const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    return all.filter((c) => !c.private || c.members.includes(u.githubLogin!)).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    return all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!))).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  },
+});
+
+/** Keep history and git references intact, but remove the chat from the workspace. */
+export const remove = mutation({
+  args: { chatId: v.id("chats") },
+  handler: async (ctx, { chatId }) => {
+    await requireChat(ctx, chatId);
+    const runs = await ctx.db.query("runs").withIndex("by_chat", q => q.eq("chatId", chatId)).collect();
+    if (runs.some(r => isLive(r.state))) throw new Error("Stop the running agent before deleting this chat.");
+    const jobs = await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", chatId)).collect();
+    if (jobs.some(j => !jobFinished(j.state))) throw new Error("Stop or cancel this chat’s jobs before deleting it.");
+    await ctx.db.patch(chatId, { state: "deleted" });
   },
 });
 
@@ -24,13 +40,15 @@ export const create = mutation({
     const u = await requireMember(ctx, workspaceId);
     const w = await ctx.db.get(workspaceId);
     const firstAgent = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first();
-    return ctx.db.insert("chats", {
+    const chatId = await ctx.db.insert("chats", {
       workspaceId, title: "Untitled", untitled: true, private: isPrivate,
       members: [u.githubLogin!], agents: null,
       pinnedAgent: isPrivate && firstAgent ? firstAgent._id : null, pinnedRunner: null,
       repo: w && w.repos.length === 1 ? w.repos[0]! : null, activeBranch: null,
       createdBy: u.githubLogin!, lastMessageAt: Date.now(),
     });
+    await followParticipant(ctx, chatId, u.githubLogin!);
+    return chatId;
   },
 });
 

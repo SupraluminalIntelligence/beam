@@ -15,6 +15,8 @@ export default defineSchema({
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     githubLogin: v.optional(v.string()),
+    notificationPreferences: v.optional(v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), sound: v.boolean() })),
+    agentPreferences: v.optional(v.array(v.object({ harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")) }))),
   }).index("email", ["email"]).index("by_login", ["githubLogin"]),
 
   workspaces: defineTable({ name: v.string(), repos: v.array(v.string()), createdBy: v.id("users") }),
@@ -34,6 +36,8 @@ export default defineSchema({
   /** A machine that can host runs. Belongs to a person, available in every workspace they are a member of. */
   runners: defineTable({
     tokenId: v.id("runnerTokens"), ownerLogin: v.string(), name: v.string(), hostname: v.string(), platform: v.string(),
+    allowSharedRuns: v.optional(v.boolean()),
+    computeBackend: v.optional(v.literal("local-process")),
     online: v.boolean(), lastSeen: v.number(), harnesses: v.any(), probeRequestedAt: v.number(), launchedByApp: v.boolean(),
   }).index("by_token", ["tokenId"]).index("by_owner", ["ownerLogin"]),
   chats: defineTable({
@@ -43,11 +47,24 @@ export default defineSchema({
     pinnedAgent: v.union(v.id("agents"), v.null()), pinnedRunner: v.union(v.id("runners"), v.null()),
     repo: v.union(v.string(), v.null()), activeBranch: v.union(v.string(), v.null()), // legacy single repo; `repos` is the truth
     repos: v.optional(v.array(v.string())),   // every repo this thread works in; one worktree each in the thread directory
-    state: v.optional(v.string()),            // open | settled (default open)
+    state: v.optional(v.string()),            // open | settled | deleted (default open)
     doneAt: v.optional(v.number()), settledAt: v.optional(v.number()),
     autoRoute: v.optional(v.boolean()),   // agents listen to plain messages (default on)
     createdBy: v.string(), lastMessageAt: v.number(),
   }).index("by_workspace", ["workspaceId"]),
+  files: defineTable({
+    chatId: v.id("chats"), storageId: v.id("_storage"), name: v.string(), mime: v.string(), size: v.number(),
+    author: v.string(), source: v.union(v.literal("uploaded"), v.literal("agent")),
+    messageId: v.union(v.id("messages"), v.null()), text: v.optional(v.string()),
+  }).index("by_chat", ["chatId"]).index("by_storage", ["storageId"]),
+  contextSources: defineTable({
+    workspaceId: v.id("workspaces"), originChatId: v.id("chats"), author: v.string(),
+    kind: v.union(v.literal("file"), v.literal("link"), v.literal("note")),
+    title: v.string(), fileId: v.optional(v.id("files")), url: v.optional(v.string()), content: v.optional(v.string()),
+    shared: v.boolean(),
+  }).index("by_workspace_shared", ["workspaceId", "shared"]).index("by_file", ["fileId"]),
+  chatContext: defineTable({ chatId: v.id("chats"), sourceId: v.id("contextSources"), addedBy: v.string() })
+    .index("by_chat", ["chatId"]).index("by_chat_source", ["chatId", "sourceId"]),
   messages: defineTable({
     chatId: v.id("chats"),
     author: v.string(),        // github login, or "agent:<agentId>"
@@ -55,7 +72,9 @@ export default defineSchema({
     text: v.string(),
     runId: v.union(v.id("runs"), v.null()),
     turn: v.optional(v.number()),   // agent messages: which turn of the run produced this text
-    routed: v.optional(v.union(v.null(), v.object({ agent: v.union(v.string(), v.null()), why: v.string() }))), // the router's decision for a plain message
+    routed: v.optional(v.union(v.null(), v.object({ agent: v.union(v.string(), v.null()), why: v.string(), error: v.optional(v.string()) }))), // the router's decision for a plain message
+    attachments: v.optional(v.array(v.id("files"))),
+    computeJobId: v.optional(v.id("computeJobs")),
     reactions: v.array(v.object({ emoji: v.string(), by: v.array(v.string()) })),
   }).index("by_chat", ["chatId"]),
   runs: defineTable({
@@ -63,6 +82,7 @@ export default defineSchema({
     dispatchMessageId: v.id("messages"), state: v.string(),
     branch: v.union(v.string(), v.null()), worktree: v.union(v.string(), v.null()), resumeCursor: v.any(),
     landing: v.any(), startedAt: v.union(v.number(), v.null()), endedAt: v.union(v.number(), v.null()),
+    execution: v.optional(v.object({ model: v.string(), modelName: v.optional(v.string()), effort: v.string(), accountOwner: v.string(), accountEmail: v.union(v.string(), v.null()), accountPlan: v.union(v.string(), v.null()) })),
     interruptRequestedAt: v.optional(v.number()),
   }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]),
   /** A change is one branch in one repo with its PR. A thread holds many, across repos and over time. */
@@ -75,6 +95,26 @@ export default defineSchema({
     createdBy: v.string(), updatedAt: v.number(), resolvedAt: v.union(v.number(), v.null()),
   }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
+  /** Jobs are independent of agent runs. Never reap them when an agent or runner disconnects. */
+  computeJobs: defineTable({
+    chatId: v.id("chats"), runnerId: v.id("runners"), backend: v.literal("local-process"),
+    requestedBy: v.string(), sourceRunId: v.optional(v.id("runs")), requestKey: v.string(),
+    spec: v.any(), state: v.union(...["awaiting-approval", "queued", "preparing", "running", "publishing", "succeeded", "failed", "cancelled"].map(s => v.literal(s))),
+    createdAt: v.number(), updatedAt: v.number(), startedAt: v.optional(v.number()), endedAt: v.optional(v.number()),
+    cancelRequestedAt: v.optional(v.number()), approvedBy: v.optional(v.string()),
+    handle: v.optional(v.object({ backend: v.string(), id: v.string() })),
+    log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())),
+    outputs: v.array(v.id("computeAssets")),
+  }).index("by_chat", ["chatId"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]),
+  computeAssets: defineTable({
+    chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
+    author: v.string(), jobId: v.optional(v.id("computeJobs")),
+  }).index("by_storage", ["storageId"]).index("by_job", ["jobId"]),
+  typing: defineTable({ chatId: v.id("chats"), login: v.string(), session: v.string(), expiresAt: v.number() })
+    .index("by_chat", ["chatId"]).index("by_session", ["chatId", "login", "session"]),
+  chatFollowers: defineTable({ chatId: v.id("chats"), login: v.string(), muted: v.optional(v.boolean()) }).index("by_chat", ["chatId"]),
+  notifications: defineTable({ recipient: v.string(), key: v.string(), chatId: v.id("chats"), workspaceId: v.id("workspaces"), runId: v.id("runs"), kind: v.union(v.literal("completed"), v.literal("failed"), v.literal("input")), title: v.string(), body: v.string(), readAt: v.union(v.number(), v.null()), deliveredAt: v.union(v.number(), v.null()) })
+    .index("by_recipient", ["recipient"]).index("by_key", ["recipient", "key"]).index("by_run", ["runId"]),
   presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number() })
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),
 });

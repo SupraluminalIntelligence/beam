@@ -1,8 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, Notification, clipboard } from "electron";
+import { installPreviewHost } from "./preview";
 import { autoUpdater } from "electron-updater";
-import { spawn, type ChildProcess } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { execFile, spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 /**
  * Beam desktop shell. Owns a window that shows apps/web and a runner child process.
@@ -33,6 +36,8 @@ function setupUpdates() {
   setInterval(check, 6 * 60 * 60 * 1000);
 }
 let win: BrowserWindow | null = null;
+let quitting = false;
+const banners = new Map<string, Notification>();
 let pendingPair: string | null = null;
 const runnerLog: string[] = [];
 
@@ -62,12 +67,14 @@ function createWindow() {
     width: 1380, height: 860, minWidth: 900, minHeight: 600,
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: "#0F1214",
-    webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true },
+    webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
+  installPreviewHost(win.webContents);
   if (process.env["BEAM_DEV"]) { win.webContents.on("console-message", (_e, level, msg) => { if (level >= 2 || /convex|auth|beam/i.test(msg)) console.log(`[renderer] ${msg}`); }); }
   win.webContents.on("did-fail-load", (_e, code, desc, url) => console.log(`[renderer] failed to load ${url}: ${code} ${desc}`));
   if (process.env["BEAM_DEV"]) void win.loadURL("http://localhost:5173");
   else void win.loadFile(join(__dirname, "web", "index.html"));
+  win.on("close", (event) => { if (!quitting) { event.preventDefault(); win?.hide(); } });
   win.on("closed", () => { win = null; });
 }
 
@@ -78,6 +85,18 @@ ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
   } else {
     await shell.openExternal("about:blank"); // TODO: win32/linux terminal handoff
   }
+});
+let serverScan: Promise<unknown> | null = null;
+let serverScanAt = 0;
+ipcMain.handle("beam:localServers", event => {
+  if(event.sender!==win?.webContents || event.senderFrame!==win.webContents.mainFrame)throw new Error("Invalid sender");
+  if(!serverScan || Date.now()-serverScanAt>15_000) {
+    serverScanAt=Date.now();
+    const entry=app.isPackaged?join(__dirname.replace("app.asar","app.asar.unpacked"),"runner.mjs"):join(__dirname,"..","..","runner","src","cli.ts");
+    const args=app.isPackaged?[entry,"local-servers"]:["--experimental-strip-types","--no-warnings",entry,"local-servers"];
+    serverScan=new Promise((resolve,reject)=>execFile(process.execPath,args,{env:{...process.env,ELECTRON_RUN_AS_NODE:"1"},timeout:20_000,maxBuffer:1024*1024},(error,stdout)=>{if(error){reject(new Error("Could not discover local servers"));return;}try{resolve(JSON.parse(stdout));}catch{reject(new Error("Invalid discovery response"));}}));
+  }
+  return serverScan;
 });
 ipcMain.handle("beam:pickFolder", async () => { const r = await dialog.showOpenDialog({ properties: ["openDirectory"] }); return r.canceled ? null : (r.filePaths[0] ?? null); });
 ipcMain.handle("beam:version", () => app.getVersion());
@@ -91,5 +110,47 @@ ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRun
 
 app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", () => { runner?.kill("SIGTERM"); });
-app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app.on("before-quit", () => { quitting = true; runner?.kill("SIGTERM"); });
+app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); win?.show(); win?.focus(); });
+
+// Renderer is authenticated with Convex; only our own main frame may request a native banner.
+ipcMain.handle("beam:notify", (event, value: unknown) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || !Notification.isSupported()) return false;
+  const n = value as { id?: unknown; title?: unknown; body?: unknown; silent?: unknown; workspaceId?: unknown; chatId?: unknown } | null;
+  if (!n || typeof n.id !== "string" || typeof n.title !== "string" || typeof n.body !== "string" || n.id.length > 200 || n.title.length > 200 || n.body.length > 500) return false;
+  if (banners.has(n.id)) return true;
+  const banner = new Notification({ title: n.title, body: n.body, silent: n.silent === true });
+  const id = n.id;
+  banners.set(id, banner);
+  banner.on("click", () => {
+    win?.show(); if (win?.isMinimized()) win.restore(); win?.focus();
+    if (typeof n.workspaceId === "string" && typeof n.chatId === "string") win?.webContents.send("beam:notificationClick", { id, workspaceId: n.workspaceId, chatId: n.chatId });
+  });
+  banner.on("close", () => banners.delete(id));
+  banner.on("failed", () => banners.delete(id));
+  banner.show();
+  return true;
+});
+
+// Only files explicitly present in the native clipboard can be read by the renderer.
+ipcMain.handle("beam:clipboardFiles", async event => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  let paths: string[] = [];
+  const raw = clipboard.readBuffer("NSFilenamesPboardType");
+  if (process.platform === "darwin" && raw.length) {
+    const result = spawnSync("/usr/bin/plutil", ["-convert","json","-o","-","-"], {input:raw,maxBuffer:1024*1024});
+    if (result.status === 0) { const values: unknown = JSON.parse(result.stdout.toString()); if (Array.isArray(values)) paths = values.filter((p): p is string=>typeof p === "string"); }
+  }
+  if (!paths.length) {
+    const urls = clipboard.read("public.file-url") || clipboard.read("text/uri-list");
+    paths = urls.split(/\r?\n/).filter(u=>u.startsWith("file://")).map(u=>fileURLToPath(u));
+  }
+  if (paths.length > 10) throw new Error("Paste up to 10 files at a time");
+  const out: {name:string;base64:string}[] = [];
+  for (const path of paths) {
+    const info = await stat(path);
+    if (!info.isFile() || info.size > 20*1024*1024) throw new Error("Paste files of 20 MB or smaller; folders are not supported");
+    out.push({name:basename(path),base64:(await readFile(path)).toString("base64")});
+  }
+  return out;
+});
