@@ -40,6 +40,8 @@ export function RunAttribution({ run, nameOf }: { run: Doc<"runs">; nameOf: (log
       <dl>
         <dt>Requested by</dt><dd>{nameOf(run.dispatchedBy)}</dd>
         <dt>Account</dt><dd>{nameOf(execution.accountOwner)}{execution.accountEmail && <small>{execution.accountEmail}</small>}</dd>
+        <dt>Connection</dt><dd>{execution.connectionName ?? "Default account"}</dd>
+        <dt>Machine</dt><dd>{execution.machineName ?? "Not recorded"}</dd>
         <dt>Subscription</dt><dd>{execution.accountPlan ?? "Not reported"}</dd>
       </dl>
     </div>, document.body)}

@@ -96,7 +96,7 @@ it("does not allow muting a chat without access", async () => {
 
 it("subscribes the dispatcher even for runs started by the router", async () => {
   const { ctx, tables } = fixture(); tables.chatFollowers = [];
-  tables.runners = [{ _id: "runner", name: "Local", ownerLogin: "apek", online: true, lastSeen: Date.now(), launchedByApp: true, harnesses: [{ harness: "claude", auth: "authenticated" }] }];
+  tables.runners = [{ _id: "runner", name: "Local", ownerLogin: "apek", online: true, lastSeen: Date.now(), launchedByApp: true, harnesses: [{ harness: "claude", auth: "authenticated", connectionId: "default" }] }];
   tables.messages = [{ _id: "message", chatId: "chat", author: "apek", localRunnerId: "runner" }];
   await startRun(ctx, tables.chats![0], { ...tables.agents![0], harness: "claude", model: "sonnet", effort: "high" }, "message" as Id<"messages">, "apek");
   expect(tables.chatFollowers).toEqual([expect.objectContaining({ chatId: "chat", login: "apek" })]);

@@ -74,6 +74,8 @@ timing was not recorded. Restart the runner to enable segmentation for new runs.
 
 ## Personal agent settings and routing experiments
 
+See [account/machine selection and shared-workspace decision matrix](docs/decisions/2026-09-23-agent-connections.md) and [implementation, validation, and rollout](docs/agent-connections-plan.md) for current account routing, isolated profiles, concurrent agents, and shared resources.
+
 See [personal defaults, account attribution, and the Jev benchmark](docs/personal-agents-and-jev.md) for behavior, validation results and rollout instructions.
 
 See [notifications and typing](docs/notifications-and-typing.md) for completion alerts, followed chats, background behavior and live typing status.

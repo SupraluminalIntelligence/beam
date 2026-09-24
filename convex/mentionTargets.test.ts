@@ -14,3 +14,7 @@ it("ignores email, URLs, code, unknown people and agent handles", () => {
   expect(mentionTargets("me@Noah.com https://example.com/@Noah `@Noah`\n```ts\n@Noah\n```\n~~~\n@apek\n~~~\n@stranger @codex", [...people, { login: "codex" }], ["codex"])).toEqual([]);
   expect(mentionTargets("@Noah\n```\n@apek", people)).toEqual(["noah-dev"]);
 });
+
+it("resolves custom usernames to the original member identity", () => {
+  expect(mentionTargets("@apek and @apekshik", [{ login: "apekshik", name: "Apekshik Panigrahi", username: "apek" }])).toEqual(["apekshik"]);
+});

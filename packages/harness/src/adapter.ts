@@ -1,5 +1,6 @@
 import type { Agent, HarnessKind, HarnessStatus, RunEvent } from "@beam/contracts";
 import type { ZodTypeAny } from "zod";
+import type { HarnessProfile } from "./profile.ts";
 
 /** A tool Beam itself offers the model (attach a repo, list repos). Adapters expose these however their harness allows. */
 export interface BeamTool {
@@ -10,6 +11,7 @@ export interface BeamTool {
 }
 
 export interface StartSession {
+  profile?: HarnessProfile;
   runId: string;
   agent: Agent;
   cwd: string;             // the chat's worktree, or a scratch directory when no repo is attached
@@ -22,7 +24,7 @@ export interface StartSession {
 /** One shape per harness. Everything else in Beam talks to this. */
 export interface HarnessAdapter {
   readonly kind: HarnessKind;
-  probe(): Promise<HarnessStatus>;
+  probe(profile?: HarnessProfile, cwd?: string): Promise<HarnessStatus>;
   start(input: StartSession): Promise<Session>;
 }
 

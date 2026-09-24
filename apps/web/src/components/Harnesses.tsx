@@ -6,7 +6,7 @@ import { bridge } from "../bridge";
 import { AgentAvatar } from "./Avatar";
 import { toast } from "./Toast";
 
-type Status = { harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null; probedAt: number };
+type Status = { connectionId?: string; connectionName?: string; harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null; probedAt: number };
 const NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const LOGIN: Record<string, string> = { claude: "claude auth login", codex: "codex login", omp: "omp" };
 const INSTALL: Record<string, string> = { claude: "npm i -g @anthropic-ai/claude-code", codex: "npm i -g @openai/codex", omp: "curl -fsSL https://omp.sh/install | sh" };
@@ -40,9 +40,9 @@ export function Harnesses() {
             <button className="k" disabled={!r.online || busy === String(r.id)} onClick={async () => { setBusy(String(r.id)); await requestProbe({ runnerId: r.id as Id<"runners"> }); setTimeout(() => setBusy(null), 4000); toast("Re-probing"); }}>{busy === String(r.id) ? "probing…" : "refresh"}</button>
           </div>
           {((r.harnesses as Status[] | null) ?? []).map((s) => (
-            <div key={s.harness} className="hrow">
+            <div key={`${s.harness}:${s.connectionId ?? "default"}`} className="hrow">
               <AgentAvatar harness={s.harness} />
-              <span className="nm">{NAME[s.harness] ?? s.harness}</span>
+              <span className="nm">{NAME[s.harness] ?? s.harness}{s.connectionName && s.connectionId !== "default" ? ` · ${s.connectionName}` : ""}</span>
               <span className="k">{s.installed ? `v${s.version ?? "?"}` : "not installed"}</span>
               <span className={`st ${s.auth}`}>{s.auth === "authenticated" ? "signed in" : s.auth === "unauthenticated" ? "not signed in" : s.installed ? "unverified" : ""}</span>
               <span className="k">{[s.plan, s.email].filter(Boolean).join(" · ")}</span>

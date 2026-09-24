@@ -15,7 +15,7 @@ import { getFunctionName } from 'convex/server';
 const subscribers = new Set<()=>void>();
 const empty: any[] = [], object = {};
 const prefs = { enabled:true,mention:true,completed:true,failed:true,input:true,sound:true };
-const people = { apek:{name:'Apekshik'}, 'noah-dev':{name:'Noah Example'} };
+const people = { apek:{name:'apekshik'}, 'noah-dev':{name:'Noah Example'} };
 const messages = Array.from({length:70},(_,i)=>({_id:'m'+i,_creationTime:Date.now()-70000+i*1000,chatId:'chat',author:'apek',kind:'text',text:i===5?'@noah-dev Please review this exact message.':'Context message '+i,runId:null,reactions:[],attachments:[]}));
 let rows:any[] = [], version = 0;
 const emit=()=>{version++;subscribers.forEach(f=>f());};
@@ -62,10 +62,10 @@ try {
   // Banner navigation and visible highlight use the same message target.
   await page.evaluate(()=>window.fixture.click({...window.fixture.banners[0],id:'focused'}));
   await page.locator('[data-mid="m5"].notification-target').waitFor();
-  // Name search resolves the canonical account instead of requiring its GitHub login.
+  // Username search inserts the chosen Beam username instead of requiring its GitHub login.
   await page.locator('textarea').fill('@Apek');
-  await page.getByRole('button',{name:/Apekshik member/}).click();
-  assert.equal(await page.locator('textarea').inputValue(),'@apek ');
+  await page.getByRole('button',{name:/apekshik member/}).click();
+  assert.equal(await page.locator('textarea').inputValue(),'@apekshik ');
   assert.deepEqual(errors,[]);
   console.log('PASS: native payload, single delivery, inbox unread state, exact-message jump, highlight expiry, focused suppression, banner click, name picker; no live backend used.');
 } finally { await browser?.close();await server?.close();await rm(dir,{recursive:true,force:true}); }

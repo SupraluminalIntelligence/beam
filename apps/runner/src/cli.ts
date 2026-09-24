@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 import { ConvexClient } from "convex/browser";
 import { hostname } from "node:os";
-import { adapters, hydratePathFromLoginShell } from "@beam/harness";
+import { spawn } from "node:child_process";
+import { z } from "zod";
+import { adapters, which, profileEnv, hydratePathFromLoginShell } from "@beam/harness";
 import { api } from "../../../convex/_generated/api.js";
 import { readConfig } from "./config.ts";
+import { probeProfiles, manageProfiles, profileFor } from "./profiles.ts";
 import { login } from "./login.ts";
+import { contributeResource, watchResources } from "./resources.ts";
 import { watchRuns } from "./runs.ts";
 import { probeOpenFoam, runOpenFoam } from "./compute/openfoam.ts";
 import { watchCompute } from "./compute/watch.ts";
@@ -24,7 +28,7 @@ const opt = (f: string) => { const i = argv.indexOf(f); return i >= 0 ? argv[i +
 
 async function probeAll() {
   await hydratePathFromLoginShell();
-  return Promise.all(Object.values(adapters).map((a) => a.probe()));
+  return probeProfiles();
 }
 const line = (s: { harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null }) =>
   `${s.harness.padEnd(7)} ${(s.installed ? `v${s.version ?? "?"}` : "missing").padEnd(10)} ${s.auth.padEnd(15)} ${[s.plan, s.email].filter(Boolean).join(" · ")}${s.message ? `  (${s.message})` : ""}`;
@@ -36,6 +40,33 @@ if (cmd === "openfoam-job") {
 
 if (cmd === "local-servers") { const { discoverLocalServers } = await import("./localServers.ts"); console.log(JSON.stringify(await discoverLocalServers())); process.exit(0); }
 
+if (cmd === "resource-preview") {
+  const input = z.object({ chatId: z.string(), resourceId: z.string() }).parse(JSON.parse(argv[1] ?? "null"));
+  const cfg = await readConfig(); if (!cfg) throw new Error("Sign in to Beam first");
+  const { startResourcePreview } = await import("./resourcePreview.ts");
+  const { url } = await startResourcePreview(new ConvexClient(cfg.convexUrl), cfg.token, input.chatId as never, input.resourceId as never);
+  console.log(`BEAM_PREVIEW ${url}`);
+}
+
+if (cmd === "share-resource") {
+  const input = z.object({ chatId: z.string(), name: z.string().min(1).max(120), resource: z.unknown() }).parse(JSON.parse(argv[1] ?? "null"));
+  const cfg = await readConfig(); if (!cfg) throw new Error("Sign in to Beam first");
+  const client = new ConvexClient(cfg.convexUrl);
+  try { console.log(JSON.stringify({ id: await contributeResource(client, cfg.token, input.chatId as never, input.name, input.resource) })); } finally { await client.close(); }
+  process.exit(0);
+}
+
+if (cmd === "connection-login") {
+  const { harness, id } = z.object({ harness: z.enum(["codex", "claude"]), id: z.string() }).parse(JSON.parse(argv[1] ?? "null"));
+  await hydratePathFromLoginShell();
+  const bin = await which(harness); if (!bin) throw new Error(`Install ${harness} first`);
+  const profile = await profileFor(harness, id);
+  const child = spawn(bin, harness === "codex" ? ["login"] : ["auth", "login"], { env: profileEnv(harness, profile), stdio: "inherit" });
+  child.on("exit", code => process.exit(code ?? 1));
+  child.on("error", () => process.exit(1));
+}
+
+if (cmd === "connections") { console.log(JSON.stringify(await manageProfiles(JSON.parse(argv[1] ?? '{"action":"list"}')))); process.exit(0); }
 
 if (cmd === "probe") {
   for (const s of await probeAll()) console.log(line(s));
@@ -60,6 +91,7 @@ if (cmd === "start") {
     console.log("Connected in compatibility mode (compute capability not advertised)");
     return id;
   });
+  console.log(`BEAM_RUNNER ${runnerId}`);
   console.log(`beam-runner up as ${cfg.githubLogin} · ${statuses.filter((s) => s.installed).map((s) => `${s.harness}${s.auth === "authenticated" ? " ✓" : ""}`).join(", ") || "no harnesses found"}`);
   for (const s of statuses) console.log("  " + line(s));
 
@@ -74,6 +106,7 @@ if (cmd === "start") {
   setInterval(() => void reprobe("interval"), 5 * 60_000);
   client.onUpdate(api.runners.self, { token }, (row) => { if (row && row.probeRequestedAt > lastProbeReq) { lastProbeReq = row.probeRequestedAt; void reprobe("requested"); } });
   watchRuns(client, token);
+  watchResources(client, token);
   if (computeSupported) watchCompute(client, token);
 
   const bye = async () => { try { await client.mutation(api.runners.bye, { token, runnerId }); } catch {} process.exit(0); };

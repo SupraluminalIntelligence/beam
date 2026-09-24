@@ -104,10 +104,10 @@ export async function notifyMentions(ctx: MutationCtx, messageId: Id<"messages">
   for (const member of members) {
     if (chat.private && !chat.members.includes(member.githubLogin)) continue;
     const user = await ctx.db.query("users").withIndex("by_login", q => q.eq("githubLogin", member.githubLogin)).first();
-    if (user) people.push({ login: member.githubLogin, name: user.name });
+    if (user) people.push({ login: member.githubLogin, name: user.name, username: user.username });
   }
   const agents = await ctx.db.query("agents").withIndex("by_workspace", q => q.eq("workspaceId", chat.workspaceId)).collect();
-  const sender = people.find(p => p.login === message.author)?.name ?? message.author;
+  const sender = people.find(p => p.login === message.author)?.username ?? message.author;
   for (const recipient of mentionTargets(message.text, people, agents.map(a => a.handle))) {
     if (recipient === message.author) continue;
     const key = `${messageId}:mention`;

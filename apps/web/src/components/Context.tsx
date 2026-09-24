@@ -6,6 +6,7 @@ import {cadFormat} from "../cad/model";
 import {ui,useUi} from "../lib/ui";
 import {contextUploads,useContextUploads} from "../lib/contextUploads";
 import {DocumentPreview,FilePreview,useAttachments} from "./Files";
+import {SharedResources} from "./SharedResources";
 import {toast} from "./Toast";
 
 type SourceRow=NonNullable<ReturnType<typeof useQuery<typeof api.files.context>>>[number];
@@ -23,6 +24,7 @@ export function ContextPane({chatId}:{chatId:Id<"chats">}) {
     <div className="context-heading"><div><h2>Context</h2><p>Files, links, and sources for your work.</p></div><button className="context-add" onClick={()=>setAdding(!adding)}>{adding?"Done":"＋ Add"}</button></div>
     <div className="context-scopes" role="group" aria-label="Context scope">{([['chat','This chat'],['workspace','Workspace']] as const).map(([id,label])=><button key={id} aria-pressed={scope===id} onClick={()=>{ui.panel(chatId,{contextScope:id});setSearch("");}}>{label}</button>)}</div>
     <p className="context-help">{scope==="chat"?"Sources here are available to this chat’s agents. Draft files are included after you send them.":"Shared workspace sources. Choose what to add to this chat."}</p>
+    {scope==="workspace"&&<SharedResources chatId={chatId}/>}
     {adding&&<AddContext chatId={chatId} done={()=>setAdding(false)}/>}
     <input className="workspace-search" aria-label="Search context" placeholder="Find a source…" value={search} onChange={e=>setSearch(e.target.value)}/>
     {scope==="chat"&&uploads.map(upload=><div className="context-upload" key={upload.id} role="status"><span>{upload.error?"!":"◌"}</span><div><b>{upload.name}</b><small>{upload.status}</small></div>{upload.error&&<button aria-label={`Dismiss failed upload ${upload.name}`} onClick={()=>contextUploads.remove(upload.id)}>×</button>}</div>)}

@@ -1,9 +1,9 @@
 /** Resolve human mentions against authorized people only; never guess between names. */
-export function mentionTargets(text: string, people: { login: string; name?: string | undefined }[], agentHandles: string[] = []) {
+export function mentionTargets(text: string, people: { login: string; name?: string | undefined; username?: string | undefined }[], agentHandles: string[] = []) {
   const reserved = new Set(agentHandles.map(h => h.toLowerCase()));
   const aliases = new Map<string, Set<string>>();
   for (const person of people) {
-    for (const alias of [person.login, person.name?.trim().split(/\s+/)[0], person.name?.trim().replace(/\s+/g, "-")]) {
+    for (const alias of [person.login, person.username, person.name?.trim().split(/\s+/)[0], person.name?.trim().replace(/\s+/g, "-")]) {
       if (!alias) continue;
       const key = alias.toLowerCase();
       const matches = aliases.get(key) ?? new Set<string>(); matches.add(person.login); aliases.set(key, matches);

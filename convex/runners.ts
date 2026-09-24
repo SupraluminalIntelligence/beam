@@ -56,8 +56,8 @@ export const self = query({
 });
 
 const FRESH = 90_000;
-const shape = (r: { _id: unknown; name: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
-  ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
+const shape = (r: { _id: unknown; name: string; displayName?: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
+  ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.displayName ?? r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
 
 /** My runners, for Settings → Connected harnesses. */
 export const mine = query({
@@ -111,5 +111,15 @@ export const setSharing = mutation({
     const runner = await ctx.db.get(runnerId);
     if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("not your runner");
     await ctx.db.patch(runnerId, { allowSharedRuns: allow });
+  },
+});
+
+export const rename = mutation({
+  args: { runnerId: v.id("runners"), name: v.string() },
+  handler: async (ctx, { runnerId, name }) => {
+    const user = await me(ctx); const runner = await ctx.db.get(runnerId);
+    if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("Not your machine");
+    const displayName = name.trim(); if (!displayName || displayName.length > 80) throw new Error("Use a name between 1 and 80 characters");
+    await ctx.db.patch(runnerId, { displayName });
   },
 });

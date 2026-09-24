@@ -39,27 +39,31 @@ function setupUpdates() {
 let win: BrowserWindow | null = null;
 let quitting = false;
 let pendingPair: string | null = null;
+let localRunnerId: string | null = null;
 const runnerLog: string[] = [];
 
 function startRunner() {
+  localRunnerId = null;
   // Packaged: the esbuild bundle next to main.cjs, kept outside app.asar so the runtime can read it as a file.
   // Dev: the runner's TypeScript source, run with strip-types.
   const packaged = app.isPackaged;
   const entry = packaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
-  runner = spawn(process.execPath, packaged ? [entry, "start", "--app"] : ["--experimental-strip-types", "--no-warnings", entry, "start", "--app"], {
+  const child = runner = spawn(process.execPath, packaged ? [entry, "start", "--app"] : ["--experimental-strip-types", "--no-warnings", entry, "start", "--app"], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["ignore", "pipe", "pipe"],
     cwd: packaged ? app.getPath("home") : join(__dirname, "..", "..", ".."),
   });
   const push = (s: string) => { runnerLog.push(s); if (runnerLog.length > 200) runnerLog.shift(); win?.webContents.send("beam:runnerLog", s); };
   createInterface({ input: runner.stdout! }).on("line", (l) => {
+    const identity = l.match(/^BEAM_RUNNER ([a-zA-Z0-9_-]+)$/);
+    if (identity) { if (runner === child) localRunnerId = identity[1]!; return; }
     push(l);
     const m = l.match(/^BEAM_PAIR ([A-Z0-9-]+)$/);
     if (m) { pendingPair = m[1]!; win?.webContents.send("beam:pair", pendingPair); }
     if (/^Signed in as/.test(l)) pendingPair = null;
   });
   createInterface({ input: runner.stderr! }).on("line", (l) => push(`! ${l}`));
-  runner.on("exit", (code) => { push(`runner exited (${code})`); runner = null; });
+  runner.on("exit", (code) => { push(`runner exited (${code})`); if (runner === child) { runner = null; localRunnerId = null; } });
 }
 
 function createWindow() {
@@ -87,6 +91,67 @@ ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
   }
 });
 
+ipcMain.handle("beam:signInConnection", async (event, value: { harness: string; id: string }) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  if (!["codex", "claude"].includes(value?.harness) || !/^(default|[0-9a-f-]{36})$/.test(value.id)) throw new Error("Invalid profile");
+  const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  const args = [process.execPath, ...(app.isPackaged ? [] : ["--experimental-strip-types", "--no-warnings"]), entry, "connection-login", JSON.stringify(value)];
+  const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+  let terminal: ChildProcess;
+  if (process.platform === "win32") {
+    const psQuote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
+    terminal = spawn("powershell.exe", ["-NoExit", "-Command", `$env:ELECTRON_RUN_AS_NODE='1'; & ${args.map(psQuote).join(" ")}`], { detached: true, stdio: "ignore" });
+  } else {
+    const command = `ELECTRON_RUN_AS_NODE=1 ${args.map(quote).join(" ")}`;
+    if (process.platform === "darwin") terminal = spawn("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(command)}\ntell application "Terminal" to activate`]);
+    else terminal = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], { detached: true, stdio: "ignore" });
+  }
+  await new Promise<void>((resolve, reject) => { terminal.once("error", () => reject(new Error("Could not open a terminal for provider sign-in."))); terminal.once("spawn", () => { terminal.unref(); resolve(); }); });
+});
+
+const previewChildren = new Set<ChildProcess>();
+ipcMain.handle("beam:resourcePreview", (event, value: { chatId: string; resourceId: string }) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  if (!/^[a-zA-Z0-9_-]+$/.test(value?.chatId) || !/^[a-zA-Z0-9_-]+$/.test(value?.resourceId)) throw new Error("Invalid resource");
+  const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  const args = [...(app.isPackaged ? [] : ["--experimental-strip-types", "--no-warnings"]), entry, "resource-preview", JSON.stringify(value)];
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "ignore"] });
+    previewChildren.add(child);
+    const timeout = setTimeout(() => { child.kill(); reject(new Error("Preview host did not start")); }, 15000);
+    const lines = createInterface({ input: child.stdout! });
+    lines.on("line", line => { if (/^BEAM_PREVIEW http:\/\/127\.0\.0\.1:\d+\/\?beam_preview=[a-f0-9]+$/.test(line)) { clearTimeout(timeout); resolve(line.slice(13)); lines.close(); } });
+    child.on("error", () => { clearTimeout(timeout); previewChildren.delete(child); reject(new Error("Could not start preview")); });
+    child.on("exit", () => { clearTimeout(timeout); previewChildren.delete(child); reject(new Error("Preview closed")); });
+  });
+});
+app.on("before-quit", () => { for (const child of previewChildren) child.kill(); });
+
+ipcMain.handle("beam:shareResource", (event, value: unknown) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  const payload = JSON.stringify(value); if (!payload || payload.length > 8192) throw new Error("Invalid resource");
+  const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  const args = app.isPackaged ? [entry, "share-resource", payload] : ["--experimental-strip-types", "--no-warnings", entry, "share-resource", payload];
+  return new Promise((resolve, reject) => execFile(process.execPath, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 30000, maxBuffer: 65536 }, (error, stdout) => {
+    if (error) { reject(new Error("Could not share this resource. Check that your runner is online and the folder exists.")); return; }
+    try { resolve(JSON.parse(stdout)); } catch { reject(new Error("Invalid resource response")); }
+  }));
+});
+
+let profileMutation: Promise<unknown> = Promise.resolve();
+ipcMain.handle("beam:connections", (event, value: unknown) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  const payload = JSON.stringify(value);
+  if (!payload || payload.length > 8192) throw new Error("Invalid connection request");
+  const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  const args = app.isPackaged ? [entry, "connections", payload] : ["--experimental-strip-types", "--no-warnings", entry, "connections", payload];
+  const run = () => new Promise((resolve, reject) => execFile(process.execPath, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 15000, maxBuffer: 65536 }, (error, stdout) => {
+    if (error) { reject(new Error("Could not update connection profiles. Check the directory and profile name.")); return; }
+    try { resolve(JSON.parse(stdout)); } catch { reject(new Error("Invalid connection response")); }
+  }));
+  const result = profileMutation.then(run, run); profileMutation = result.catch(() => {}); return result;
+});
+
 let serverScan: Promise<unknown> | null = null;
 let serverScanAt = 0;
 ipcMain.handle("beam:localServers", event => {
@@ -106,7 +171,7 @@ ipcMain.handle("beam:update:check", () => { if (app.isPackaged) void autoUpdater
 ipcMain.handle("beam:update:download", () => { if (update.state === "available" || update.state === "error") { setUpdate({ state: "downloading", percent: 0, message: null }); void autoUpdater.downloadUpdate().catch((e) => setUpdate({ state: "error", message: (e as Error).message.slice(0, 200) })); } });
 ipcMain.handle("beam:update:install", () => { if (update.state === "ready") { try { runner?.kill("SIGTERM"); } catch {} setImmediate(() => autoUpdater.quitAndInstall(false, true)); } });
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
-ipcMain.handle("beam:runnerStatus", () => ({ running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
+ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId, running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
 ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRunner, 500); });
 
 app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });

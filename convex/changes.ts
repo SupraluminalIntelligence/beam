@@ -8,9 +8,9 @@ import { runnerForToken } from "./runners";
 export const threadRepos = (chat: Doc<"chats">) => chat.repos ?? (chat.repo ? [chat.repo] : []);
 
 /** The open change for a repo in a thread, if any. One open change per repo per thread. */
-export async function openChange(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">, repo: string) {
+export async function openChange(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">, repo: string, workScope?: string) {
   const rows = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
-  return rows.find((c) => c.repo === repo && c.state === "open") ?? null;
+  return rows.find((c) => c.repo === repo && c.state === "open" && c.workScope === workScope) ?? null;
 }
 
 /** Everyone in the thread sees its changes: header chips, landing cards, the done suggestion. */
@@ -45,12 +45,13 @@ export const land = mutation({
     const run = await ctx.db.get(a.runId);
     if (!run || run.runnerId !== runner._id) throw new Error("not this runner's run");
     const chat = (await ctx.db.get(run.chatId))!;
-    const existing = await openChange(ctx, chat._id, a.repo);
+    const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing && existing.branch === a.branch) {
       await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now() });
       return existing._id;
     }
     return ctx.db.insert("changes", {
+      ...(run.workScope ? { workScope: run.workScope } : {}),
       chatId: chat._id, workspaceId: chat.workspaceId, repo: a.repo, branch: a.branch, base: a.base, state: "open", title: a.title,
       prUrl: a.prUrl, prNumber: a.prNumber, add: a.add, del: a.del, files: a.files, adopted: false, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
     });
@@ -65,10 +66,11 @@ export const adopt = mutation({
     const run = await ctx.db.get(a.runId);
     if (!run || run.runnerId !== runner._id) throw new Error("not this runner's run");
     const chat = (await ctx.db.get(run.chatId))!;
-    const existing = await openChange(ctx, chat._id, a.repo);
+    const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing) throw new Error(`this thread already has an open change on ${a.repo} (${existing.branch}); land or close that first`);
     if (!threadRepos(chat).includes(a.repo)) await ctx.db.patch(chat._id, { repos: [...threadRepos(chat), a.repo] });
     return ctx.db.insert("changes", {
+      ...(run.workScope ? { workScope: run.workScope } : {}),
       chatId: chat._id, workspaceId: chat.workspaceId, repo: a.repo, branch: a.branch, base: a.base, state: "open", title: a.title,
       prUrl: a.prUrl, prNumber: a.prNumber, add: 0, del: 0, files: 0, adopted: true, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
     });
@@ -82,7 +84,7 @@ export const rotate = mutation({
     const runner = await runnerForToken(ctx, token);
     const run = await ctx.db.get(runId);
     if (!run || run.runnerId !== runner._id) throw new Error("not this runner's run");
-    const existing = await openChange(ctx, run.chatId, repo);
+    const existing = await openChange(ctx, run.chatId, repo, run.workScope);
     if (existing) await ctx.db.patch(existing._id, { state: "closed", resolvedAt: Date.now() });
     return existing?.branch ?? null;
   },

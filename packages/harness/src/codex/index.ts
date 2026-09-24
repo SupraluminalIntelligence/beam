@@ -5,6 +5,7 @@ import { which } from "../path.ts";
 import { withTimeout } from "../version.ts";
 import { JsonRpcChild } from "./rpc.ts";
 import { CodexSession } from "./session.ts";
+import { profileEnv, type HarnessProfile } from "../profile.ts";
 
 /**
  * Codex via `codex app-server` JSON-RPC over stdio. Probe: initialize, then account/read.
@@ -14,11 +15,11 @@ const PLAN: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro
 
 export const CLIENT_INFO = { name: "beam", title: "Beam", version: "0.0.1" };
 
-export async function probeCodex(): Promise<HarnessStatus> {
+export async function probeCodex(profile?: HarnessProfile, cwd?: string): Promise<HarnessStatus> {
   const base = { harness: "codex" as const, probedAt: Date.now(), plan: null, email: null };
   const bin = await which("codex");
   if (!bin) return { ...base, installed: false, version: null, auth: "unknown", message: "Codex (`codex`) is not on PATH. Install it, then run `codex login`." };
-  const rpc = new JsonRpcChild(bin, ["app-server"], process.env);
+  const rpc = new JsonRpcChild(bin, ["app-server"], profileEnv("codex", profile), cwd ?? profile?.configDir);
   try {
     const init = await withTimeout(rpc.request<{ userAgent?: string }>("initialize", { clientInfo: CLIENT_INFO, capabilities: { experimentalApi: true } }), 15_000, "codex initialize");
     rpc.notify("initialized");
@@ -53,6 +54,6 @@ export const codexAdapter: HarnessAdapter = {
   async start(input: StartSession): Promise<Session> {
     const bin = await which("codex");
     if (!bin) throw new Error("Codex (`codex`) is not on PATH on this runner. Install it and run `codex login`.");
-    return CodexSession.start(input, new JsonRpcChild(bin, ["app-server"], process.env, input.cwd));
+    return CodexSession.start(input, new JsonRpcChild(bin, ["app-server"], profileEnv("codex", input.profile), input.cwd));
   },
 };

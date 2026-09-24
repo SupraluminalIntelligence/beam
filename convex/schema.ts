@@ -6,6 +6,7 @@ export default defineSchema({
   ...authTables,
   users: defineTable({
     name: v.optional(v.string()),
+    username: v.optional(v.string()),
     githubToken: v.optional(v.string()),   // OAuth token from sign-in (repo scope); only read by github.ts actions, never returned to clients
     githubTokenScope: v.optional(v.string()),
     image: v.optional(v.string()),
@@ -16,8 +17,11 @@ export default defineSchema({
     isAnonymous: v.optional(v.boolean()),
     githubLogin: v.optional(v.string()),
     notificationPreferences: v.optional(v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean() })),
-    agentPreferences: v.optional(v.array(v.object({ harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")) }))),
-  }).index("email", ["email"]).index("by_login", ["githubLogin"]),
+    resourceSharing: v.optional(v.union(v.literal("auto"), v.literal("ask"))),
+    accountPreferences: v.optional(v.array(v.object({ harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
+    chatConnections: v.optional(v.array(v.object({ chatId: v.id("chats"), harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
+    agentPreferences: v.optional(v.array(v.object({ harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
+  }).index("email", ["email"]).index("by_login", ["githubLogin"]).index("by_username", ["username"]),
 
   workspaces: defineTable({ name: v.string(), repos: v.array(v.string()), createdBy: v.id("users") }),
   /** Membership is by GitHub login so an invite can precede the person's first sign-in. */
@@ -37,6 +41,7 @@ export default defineSchema({
   runners: defineTable({
     tokenId: v.id("runnerTokens"), ownerLogin: v.string(), name: v.string(), hostname: v.string(), platform: v.string(),
     allowSharedRuns: v.optional(v.boolean()),
+    displayName: v.optional(v.string()),
     computeBackend: v.optional(v.literal("local-process")),
     openfoam: v.optional(v.object({ready:v.boolean(),message:v.string(),image:v.string()})),
     online: v.boolean(), lastSeen: v.number(), harnesses: v.any(), probeRequestedAt: v.number(), launchedByApp: v.boolean(),
@@ -69,6 +74,7 @@ export default defineSchema({
     .index("by_chat", ["chatId"]).index("by_chat_source", ["chatId", "sourceId"]),
   messages: defineTable({
     chatId: v.id("chats"),
+    localRunnerId: v.optional(v.id("runners")),
     author: v.string(),        // github login, or "agent:<agentId>"
     kind: v.string(),          // text | dispatch | steer | ask | report
     text: v.string(),
@@ -83,11 +89,12 @@ export default defineSchema({
   }).index("by_chat", ["chatId"]),
   runs: defineTable({
     chatId: v.id("chats"), agentId: v.id("agents"), runnerId: v.id("runners"), dispatchedBy: v.string(),
+    workScope: v.optional(v.string()),
     dispatchMessageId: v.id("messages"), state: v.string(),
     studyId: v.optional(v.union(v.id("simulationCases"),v.null())),
     branch: v.union(v.string(), v.null()), worktree: v.union(v.string(), v.null()), resumeCursor: v.any(),
     landing: v.any(), startedAt: v.union(v.number(), v.null()), endedAt: v.union(v.number(), v.null()),
-    execution: v.optional(v.object({ model: v.string(), modelName: v.optional(v.string()), effort: v.string(), accountOwner: v.string(), accountEmail: v.union(v.string(), v.null()), accountPlan: v.union(v.string(), v.null()) })),
+    execution: v.optional(v.object({ model: v.string(), modelName: v.optional(v.string()), effort: v.string(), accountOwner: v.string(), accountEmail: v.union(v.string(), v.null()), accountPlan: v.union(v.string(), v.null()), connectionId: v.optional(v.string()), connectionName: v.optional(v.string()), machineName: v.optional(v.string()), accountIdentity: v.optional(v.string()) })),
     interruptRequestedAt: v.optional(v.number()),
   }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]),
   /** A change is one branch in one repo with its PR. A thread holds many, across repos and over time. */
@@ -96,6 +103,7 @@ export default defineSchema({
     state: v.string(),                       // open | merged | closed
     title: v.string(), prUrl: v.union(v.string(), v.null()), prNumber: v.union(v.number(), v.null()),
     add: v.number(), del: v.number(), files: v.number(),
+    workScope: v.optional(v.string()),
     adopted: v.boolean(),                    // came from an existing PR rather than a run
     createdBy: v.string(), updatedAt: v.number(), resolvedAt: v.union(v.number(), v.null()),
   }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
@@ -117,6 +125,8 @@ export default defineSchema({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
     author: v.string(), jobId: v.optional(v.id("computeJobs")),
   }).index("by_storage", ["storageId"]).index("by_job", ["jobId"]),
+  workspaceResources: defineTable({ workspaceId: v.id("workspaces"), chatId: v.id("chats"), runnerId: v.id("runners"), owner: v.string(), localId: v.string(), name: v.string(), kind: v.union(v.literal("folder"), v.literal("service")), shared: v.boolean(), allowInstall: v.boolean(), revoked: v.boolean() }).index("by_workspace", ["workspaceId"]).index("by_runner", ["runnerId"]),
+  resourceRequests: defineTable({ resourceId: v.id("workspaceResources"), runnerId: v.id("runners"), requesterRunnerId: v.id("runners"), requestedBy: v.string(), chatId: v.id("chats"), sourceRunId: v.optional(v.id("runs")), operation: v.any(), state: v.string(), createdAt: v.number(), result: v.optional(v.string()), error: v.optional(v.string()) }).index("by_runner_state", ["runnerId", "state"]),
   typing: defineTable({ chatId: v.id("chats"), login: v.string(), session: v.string(), expiresAt: v.number() })
     .index("by_chat", ["chatId"]).index("by_session", ["chatId", "login", "session"]),
   chatFollowers: defineTable({ chatId: v.id("chats"), login: v.string(), muted: v.optional(v.boolean()) }).index("by_chat", ["chatId"]),

@@ -21,6 +21,8 @@ import { useFollowScroll } from "../lib/followScroll";
 import { MessageFiles, useAttachments } from "./Files";
 import { ComposerPermissions } from "./Permissions";
 import { timeline } from "../lib/timeline";
+import { useLocalRunner } from "../lib/localRunner";
+import { ConnectionPicker } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
@@ -36,6 +38,7 @@ const QUICK = ["👍", "🔥", "👀", "✅"];
 const MORE = ["👍", "🔥", "👀", "✅", "💯", "🚀", "🤔", "😂", "🙏", "👎"];
 
 export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat: Doc<"chats">; detail: Detail; logins: Set<string>; setModal: (m: ModalKind) => void }) {
+  const localRunnerId = useLocalRunner();
   const typing = useTyping(chat._id);
   const attachments = useAttachments(chat._id);
   const fileDrop = useFileDrop(attachments.add);
@@ -86,8 +89,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     for (const [id, evs] of Object.entries(runEvents ?? {})) out[id] = fold(id, evs as never);
     return out;
   }, [runEvents]);
-  const liveRun = runs?.find((r) => isLive(r.state)) ?? null;
-  const liveAgent = liveRun ? detail.agents.find((a) => a._id === liveRun.agentId) ?? null : null;
+  const liveRuns = runs?.filter(r => isLive(r.state)) ?? [];
+  const [steerRunId, setSteerRunId] = useState<Id<"runs"> | null>(null);
 
   const [text, setText] = useState("");
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
@@ -104,6 +107,11 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const mentionedAgent = firstMention(text, handles);
   const permissionAgent = mentionedAgent ? chatAgents.find(a => a.handle === mentionedAgent) : chat.private ? pinned : null;
   const members = chat.private ? [me.githubLogin] : chat.members;
+  const liveRun = steerRunId ? liveRuns.find(r => r._id === steerRunId) ?? null : liveRuns.find(r => r.dispatchedBy === me.githubLogin && r.agentId === permissionAgent?._id) ?? null;
+  const liveAgent = liveRun ? detail.agents.find(a => a._id === liveRun.agentId) ?? null : null;
+  const composerAgent = liveAgent ?? permissionAgent;
+  useEffect(() => { if (steerRunId && runs && !runs.some(r => r._id === steerRunId && isLive(r.state))) setSteerRunId(null); }, [runs, steerRunId]);
+  const connectionPreview = useQuery(api.connections.preview, composerAgent && !liveRun ? { chatId: chat._id, harness: composerAgent.harness, ...(localRunnerId ? { localRunnerId } : {}) } : "skip");
 
   useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, [chat._id]);
   useEffect(() => {
@@ -115,6 +123,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const nameOf = (login: string) => (login === me.githubLogin ? me.name : people?.[login]?.name ?? login);
   const agentOf = (author: string) => detail.agents.find((a) => `agent:${a._id}` === author) ?? null;
 
+  const mentionNames = new Set([...logins].flatMap(login => [login.toLowerCase(), nameOf(login).toLowerCase()]));
   const attribution = (run: Doc<"runs"> | undefined) => run?.execution ? <RunAttribution run={run} nameOf={nameOf} /> : null;
 
   type PopItem = { v: string; label: string; d: string; kind: "agent" | "person"; harness?: string };
@@ -132,9 +141,11 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     setPop(m ? { q: m[1] ?? "", sel: 0 } : null);
   }
   function pick(v: string) {
+    const item = popItems.find(p => p.v === v);
+    const handle = item?.kind === "person" ? item.label : v;
     const el = inputRef.current!;
     const caret = el.selectionStart;
-    const before = text.slice(0, caret).replace(/@[a-z0-9-]*$/i, `@${v} `);
+    const before = text.slice(0, caret).replace(/@[a-z0-9-]*$/i, `@${handle} `);
     const next = before + text.slice(caret);
     setText(next); setPop(null);
     requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = before.length; });
@@ -143,12 +154,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   async function submit() {
     const body = text.trim();
     if ((!body && !attachments.drafts.length) || attachments.busy || sending) return;
+    if (composerAgent && !liveRun && !connectionPreview?.selected) { toast(connectionPreview?.error ?? "Checking account connection…"); return; }
     setSending(true);
     const mention = firstMention(body, handles);
     typing.stop();
     setText(""); setPop(null);
     try {
-      const r = await send({ chatId: chat._id, text: body, mentionHandle: mention, attachments: attachments.drafts.map(f=>f.id) });
+      const r = await send({ chatId: chat._id, text: body, mentionHandle: mention, ...(liveRun ? { targetRunId: liveRun._id } : {}), ...(localRunnerId ? { localRunnerId } : {}), ...(connectionPreview?.selected ? { expectedConnection: connectionPreview.selected.key } : {}), attachments: attachments.drafts.map(f=>f.id) });
       attachments.clear();
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
     } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); } finally { setSending(false); }
@@ -226,7 +238,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           const ag = agentOf(row.author);
           if (row.kind !== "message") {
             const run = row.run, view = views[run._id] ?? null;
-            const name = ag ? HARNESS_NAME[ag.harness]! : "Agent";
+            const name = `${nameOf(run.dispatchedBy)}’s ${ag ? HARNESS_NAME[ag.harness]! : "Agent"}`;
             const current = view?.turns.at(-1);
             const activeTable = rows.some((r) => r.kind === "activity" && r.run._id === run._id && r.live);
             return <div key={row.key} className={`msg report${row.cont ? " cont" : ""}`}>
@@ -249,9 +261,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <div key={m._id} data-mid={m._id} className={`msg${highlightedMessage?.id === m._id ? " notification-target" : ""}${row.cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
-                <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? HARNESS_NAME[ag.harness] : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
+                <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? `${nameOf(runs?.find(r => r._id === m.runId)?.dispatchedBy ?? "Unknown")}’s ${HARNESS_NAME[ag.harness]}` : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
                 {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · r{m.studyContext.revision}</div>}
-                {!m.simulationStudyId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={logins} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={logins} /></div>)}
+                {!m.simulationStudyId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
                 {m.simulationStudyId && <StudyCard id={m.simulationStudyId} chatId={chat._id} />}
                 {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
@@ -272,7 +284,14 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       <TypingIndicator chatId={chat._id} me={me.githubLogin} nameOf={nameOf} />
       <div className="composer">
         <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
+        {liveRuns.length > 0 && <div className="active-agents" aria-label="Active agents">{liveRuns.map(run => {
+          const agent = detail.agents.find(a => a._id === run.agentId);
+          const label = `${nameOf(run.dispatchedBy)}’s ${agent ? HARNESS_NAME[agent.harness] : "agent"}`;
+          return <div className="active-agent" key={run._id}><span className="sq run" /><span>{label} · {run.execution?.machineName ?? run.runnerName}</span><button className="ctl" aria-pressed={steerRunId === run._id} onClick={() => { setSteerRunId(steerRunId === run._id ? null : run._id); inputRef.current?.focus(); }}>{steerRunId === run._id ? "Cancel reply" : "Reply"}</button>{!run.interruptRequestedAt ? <button className="stopbtn" aria-label={`Stop ${label}`} onClick={() => void stopRun({ runId: run._id }).catch(e => toast(e.message))}>■ Stop</button> : tick - run.interruptRequestedAt > 15_000 ? <button className="stopbtn force" onClick={() => void abandonRun({ runId: run._id })}>Force stop</button> : <span className="hint">Stopping…</span>}</div>;
+        })}</div>}
         {attachments.chips}
+        {composerAgent && !liveRun && <ConnectionPicker chatId={chat._id} harness={composerAgent.harness} preview={connectionPreview} />}
+        {liveRun?.execution && <div className="composer-model">{nameOf(liveRun.execution.accountOwner)}’s {liveAgent ? HARNESS_NAME[liveAgent.harness] : "agent"} · {liveRun.execution.connectionName ?? liveRun.execution.accountEmail ?? "Account not reported"} · {liveRun.execution.machineName ?? liveRun.runnerName} · continuing current run</div>}
         {(() => { const target = liveAgent ?? chatAgents.find((a) => a.handle === firstMention(text, handles)) ?? (chat.private ? pinned : null); if (!target) return null; const p = preferences.find((p) => p.harness === target.harness); return <div className="composer-model">{HARNESS_NAME[target.harness]} · {liveRun?.execution?.modelName ?? liveRun?.execution?.model ?? p?.model ?? target.model} · {liveRun?.execution?.effort ?? p?.effort ?? target.effort}{liveRun ? " · continuing current run" : ""}</div>; })()}
         {pop && popItems.length > 0 && (
           <div className="popover">
@@ -297,11 +316,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <ComposerPermissions agents={permissionAgent ? [permissionAgent] : chatAgents} />
             {attachments.controls}
             <button onClick={() => { const el = inputRef.current!; const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; setText(v); el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = v.length; updatePop(v, v.length); }); }}>@ mention</button>
-            {liveRun && (!liveRun.interruptRequestedAt
-              ? <button className="stopbtn" onClick={() => void stopRun({ runId: liveRun._id }).then(() => toast(`Stopping ${liveAgent ? HARNESS_NAME[liveAgent.harness] : "the run"} · whatever changed is still pushed`))}>■ stop {liveAgent ? HARNESS_NAME[liveAgent.harness] : "run"}</button>
-              : tick - liveRun.interruptRequestedAt > 15_000
-                ? <button className="stopbtn force" title="The runner has not acknowledged stop. This ends the run from the chat side; nothing is pushed." onClick={() => void abandonRun({ runId: liveRun._id }).then(() => toast("Run ended · the thread is free again"))}>■ force stop</button>
-                : <span className="stopping">stopping…</span>)}
+
           </div>
           <button className="sendbtn" type="button" aria-label={sending ? "Sending message" : "Send message"} title={sending ? "Sending…" : "Send message (Enter)"} disabled={sending || attachments.busy || (!text.trim() && !attachments.drafts.length)} onClick={() => { void submit(); inputRef.current?.focus({ preventScroll: true }); }}>
             {ICO.arrowUp}
