@@ -5,6 +5,7 @@ import { preview, setPreference, preferences } from "./connections";
 import { send } from "./messages";
 import { claim } from "./runs";
 import { sha256 } from "./runnerAuth";
+import { hello, mine, nameForRun, rename } from "./runners";
 
 function fixture() {
   const status = { harness: "claude", auth: "authenticated", connectionId: "default", connectionName: "Personal", isDefault: true, email: "apex@example.test", plan: "Max" };
@@ -31,6 +32,29 @@ function fixture() {
 }
 const call = (fn: any, ctx: any, args: any) => fn._handler(ctx, args);
 const args = { chatId: "chat", harness: "claude", localRunnerId: "personal" };
+
+it("keeps machine aliases across restarts and resolves them for existing run details", async () => {
+  const { ctx, tables } = fixture();
+  tables.runners![0].tokenId = "token-id";
+  tables.runnerTokens = [{ _id: "token-id", tokenHash: await sha256("runner-token"), githubLogin: "apex", revokedAt: null }];
+  await call(send, ctx, { chatId: "chat", text: "@claude inspect", mentionHandle: "claude", localRunnerId: "personal" });
+  const run = tables.runs![0];
+  await call(rename, ctx, { runnerId: "personal", name: "  Apek’s MacBook Pro  " });
+  expect((await call(preview, ctx, args)).selected.machineName).toBe("Apek’s MacBook Pro");
+  await call(hello, ctx, { token: "runner-token", name: "system-name", hostname: "host.local", platform: "darwin", harnesses: [], launchedByApp: true });
+  expect((await call(mine, ctx, {}))[0].name).toBe("Apek’s MacBook Pro");
+  expect(await call(nameForRun, ctx, { runId: run._id })).toBe("Apek’s MacBook Pro");
+  expect(run.execution.machineName).toBe("personal"); // Preserve the historical record.
+});
+it("restricts renaming to the machine owner and run names to chat members", async () => {
+  const { ctx, tables } = fixture();
+  tables.runners![1].ownerLogin = "noah";
+  await expect(call(rename, ctx, { runnerId: "work", name: "Other machine" })).rejects.toThrow("Not your machine");
+  for (const name of ["  ", "x".repeat(81), "two\nlines"]) await expect(call(rename, ctx, { runnerId: "personal", name })).rejects.toThrow("Use a name");
+  tables.runs!.push({ _id: "private-run", chatId: "chat", runnerId: "work" });
+  Object.assign(tables.chats![0], { private: true, members: ["noah"] });
+  await expect(call(nameForRun, ctx, { runId: "private-run" })).rejects.toThrow("private chat");
+});
 
 it("uses chat override, then global account, then current-machine default", async () => {
   const { ctx, tables } = fixture();

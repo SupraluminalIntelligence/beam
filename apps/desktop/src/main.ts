@@ -19,9 +19,13 @@ let runner: ChildProcess | null = null;
  * Updates: electron-updater against the public releases repo (SupraluminalAI/beam-releases). The renderer shows a
  * pill when a version is available; downloading and installing are the person's clicks, never automatic.
  */
-type UpdateState = { state: "none" | "checking" | "available" | "downloading" | "ready" | "error"; version: string | null; percent: number; message: string | null };
+type UpdateState = { state: "none" | "checking" | "available" | "downloading" | "ready" | "installing" | "error"; version: string | null; percent: number; message: string | null };
 let update: UpdateState = { state: "none", version: null, percent: 0, message: null };
 function setUpdate(next: Partial<UpdateState>) { update = { ...update, ...next }; win?.webContents.send("beam:update", update); }
+function updateFailed(error: Error) {
+  if (update.state === "installing") quitting = false;
+  setUpdate({ state: update.version ? "error" : "none", message: error.message.slice(0, 200) });
+}
 function setupUpdates() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = false;
@@ -31,7 +35,7 @@ function setupUpdates() {
   autoUpdater.on("update-not-available", () => setUpdate({ state: "none", version: null }));
   autoUpdater.on("download-progress", (p) => setUpdate({ state: "downloading", percent: Math.round(p.percent) }));
   autoUpdater.on("update-downloaded", (info) => setUpdate({ state: "ready", version: info.version, percent: 100 }));
-  autoUpdater.on("error", (e) => setUpdate({ state: update.version ? "error" : "none", message: e.message.slice(0, 200) }));
+  autoUpdater.on("error", updateFailed);
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   setTimeout(check, 8_000);
   setInterval(check, 6 * 60 * 60 * 1000);
@@ -169,7 +173,17 @@ ipcMain.handle("beam:version", () => app.getVersion());
 ipcMain.handle("beam:update:status", () => update);
 ipcMain.handle("beam:update:check", () => { if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {}); return update; });
 ipcMain.handle("beam:update:download", () => { if (update.state === "available" || update.state === "error") { setUpdate({ state: "downloading", percent: 0, message: null }); void autoUpdater.downloadUpdate().catch((e) => setUpdate({ state: "error", message: (e as Error).message.slice(0, 200) })); } });
-ipcMain.handle("beam:update:install", () => { if (update.state === "ready") { try { runner?.kill("SIGTERM"); } catch {} setImmediate(() => autoUpdater.quitAndInstall(false, true)); } });
+ipcMain.handle("beam:update:install", () => {
+  if (update.state !== "ready") return;
+  setUpdate({ state: "installing", message: null });
+  setImmediate(() => {
+    // Squirrel closes windows BEFORE app.before-quit. Allow that close instead of
+    // hiding the window and cancelling the update. Stop the runner only on actual quit.
+    quitting = true;
+    try { autoUpdater.quitAndInstall(false, true); }
+    catch (error) { updateFailed(error instanceof Error ? error : new Error(String(error))); }
+  });
+});
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
 ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId, running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
 ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRunner, 500); });

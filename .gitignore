@@ -10,3 +10,7 @@ release
 convex/_generated
 .beam
 .vercel
+
+# Keep per-environment configuration out of public contributions.
+.env.*
+!.env.example

@@ -2,6 +2,8 @@
 
 A Supraluminal Intelligence desktop app where a team and their coding agents share one chat. Argue it out, then beam it.
 
+[Source & pull requests](https://github.com/SupraluminalAI/beam) · [Download Beam](https://github.com/SupraluminalAI/beam-releases/releases) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+
 - Design doc: https://claude.ai/code/artifact/68a1818d-97fe-4230-9fbc-a87830232698
 - Prototype: https://claude.ai/code/artifact/b7eb2f9a-8fe7-4f8a-9daa-bcd66dc9aa2c
 - Build plan: https://claude.ai/code/artifact/23861a5a-e745-461a-a052-a6c60afc2107
@@ -20,6 +22,8 @@ A Supraluminal Intelligence desktop app where a team and their coding agents sha
 | `convex/` | Shared plane: schema, auth, queries, mutations. |
 
 ## Run
+
+For a fresh clone or fork, follow [CONTRIBUTING.md](CONTRIBUTING.md) to configure your own development backend first. The commands below also serve the existing maintainer checkout.
 
 ```
 pnpm install
@@ -83,3 +87,7 @@ See [notifications and typing](docs/notifications-and-typing.md) for completion 
 See [tools, browser, and local compute](docs/compute-and-tools.md) for the Engineering pane, durable job lifecycle, T3 Code reuse, and the future remote/HPC executor boundary.
 
 See [CAD Viewer](docs/cad-viewer.md) for local model inspection, supported formats, artifact integration, and the CAD/CFD extension boundary.
+
+## License
+
+Beam is licensed under the [MIT License](LICENSE). Vendored components and dependencies retain their own licenses; preserve the notices alongside them and in `apps/web/public/third-party`.

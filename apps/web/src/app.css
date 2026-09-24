@@ -932,3 +932,6 @@ body.resizing .side-grip{pointer-events:auto}
 .username-controls{display:flex;align-items:center;gap:8px;min-width:0}
 .username-controls input{min-width:0;flex:1;border-radius:var(--r-1)}
 .username-setting p{margin:6px 0 0;line-height:1.5}
+.machine-name-controls{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
+.machine-name-controls input{min-width:120px;flex:1;border-radius:var(--r-1)}
+.machine-name-setting p{margin:6px 0 0;line-height:1.5;overflow-wrap:anywhere}

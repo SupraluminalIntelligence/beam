@@ -6,6 +6,7 @@ import { connectionStatuses } from "../../../../packages/contracts/src/connectio
 import { bridge } from "../bridge";
 import { useLocalRunner } from "../lib/localRunner";
 import { toast } from "./Toast";
+import { MachineNameSetting } from "./MachineNameSetting";
 
 const names: Record<string, string> = { codex: "Codex", claude: "Claude Code", omp: "omp" };
 const choiceValue = (runnerId: string, connectionId: string) => JSON.stringify([runnerId, connectionId]);
@@ -36,7 +37,6 @@ export function ConnectionSettings() {
   const runners = useQuery(api.runners.mine) ?? [];
   const preferences = useQuery(api.connections.preferences);
   const save = useMutation(api.connections.setPreference);
-  const rename = useMutation(api.runners.rename);
   const probe = useMutation(api.runners.requestProbe);
   const localId = useLocalRunner();
   const b = bridge();
@@ -59,7 +59,9 @@ export function ConnectionSettings() {
         {options.map(o => <option key={choiceValue(o.runner.id as string, o.connectionId)} value={choiceValue(o.runner.id as string, o.connectionId)}>{o.connectionName}{o.email ? ` · ${o.email}` : ""} · {o.runner.name}{o.runner.online ? "" : " · offline"}</option>)}
       </select></div>;
     })}
-    {runners.map(r => <div className="row" key={String(r.id)}><span>{r.id === localId ? "This machine" : "Machine"}</span><input type="text" aria-label={`Name for ${r.name}`} key={r.name} defaultValue={r.name} maxLength={80} onBlur={e => { if (e.target.value.trim() !== r.name) void rename({ runnerId: r.id as Id<"runners">, name: e.target.value }).catch(e => toast(e.message)); }} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} /></div>)}
+    <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Machine names</div>
+    <div className="row connection-note"><span className="hint">Choose a readable name, such as “Apek’s MacBook Pro” or “Office Mac”. Shown in run details and machine pickers throughout Beam.</span></div>
+    {runners.map(r => <MachineNameSetting key={String(r.id)} runner={{ ...r, id: r.id as Id<"runners"> }} local={r.id === localId} />)}
     {profiles && <>
       {(["codex", "claude"] as const).map(harness => <div className="row" key={harness}><span>Local {names[harness]} default</span><select aria-label={`Local ${names[harness]} default`} disabled={busy} value={profiles.defaults[harness] ?? "default"} onChange={async e => {
         setBusy(true); try { setProfiles(await b!.connections!({ action: "default", harness, id: e.target.value })); await refresh(); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
