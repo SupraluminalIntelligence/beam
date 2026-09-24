@@ -51,7 +51,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "SupraluminalAI",
+        "owner": "SupraluminalIntelligence",
         "repo": "beam-releases",
         "releaseType": "draft"
       }

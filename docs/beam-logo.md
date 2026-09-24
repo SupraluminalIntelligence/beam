@@ -10,4 +10,4 @@ Generated with the built-in image generation tool using this prompt:
 
 Release: Beam 0.0.8 was rebuilt with this selected icon. The universal app and DMG were notarized; DMG submission `ce662099-db80-40de-909b-170f3a8b11d8` was accepted. The installer was stapled, verified, and copied to the shared supraluminal folder. No update-feed release was published.
 
-Update: on September 20, 2026, the user authorized publishing. Release `v0.0.8` is now public and marked latest in `SupraluminalAI/beam-releases`, with the notarized universal app ZIP, notarized DMG, and `latest-mac.yml` containing their SHA-512 hashes. The public feed was compared with the local metadata. `/Applications/Beam.app` remains 0.0.6 for the user's update test.
+Update: on September 20, 2026, the user authorized publishing. Release `v0.0.8` is now public and marked latest in `SupraluminalIntelligence/beam-releases`, with the notarized universal app ZIP, notarized DMG, and `latest-mac.yml` containing their SHA-512 hashes. The public feed was compared with the local metadata. `/Applications/Beam.app` remains 0.0.6 for the user's update test.

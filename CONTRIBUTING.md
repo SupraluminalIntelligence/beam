@@ -1,13 +1,13 @@
 # Contributing to Beam
 
-Pull requests are welcome at https://github.com/SupraluminalAI/beam. Fork the repository, create a branch, and open a PR against `main`. For larger features, open an issue first so we can agree on the behavior and design.
+Pull requests are welcome at https://github.com/SupraluminalIntelligence/beam. Fork the repository, create a branch, and open a PR against `main`. For larger features, open an issue first so we can agree on the behavior and design.
 
 ## Development setup
 
 Use Node.js 22.16 or newer and pnpm 10.29.1 (the version in `package.json`).
 
 ```sh
-git clone https://github.com/SupraluminalAI/beam.git
+git clone https://github.com/SupraluminalIntelligence/beam.git
 cd beam
 pnpm install --frozen-lockfile
 pnpm exec convex dev --once

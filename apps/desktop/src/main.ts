@@ -16,7 +16,7 @@ import { basename, join } from "node:path";
 let runner: ChildProcess | null = null;
 
 /**
- * Updates: electron-updater against the public releases repo (SupraluminalAI/beam-releases). The renderer shows a
+ * Updates: electron-updater against the public releases repo (SupraluminalIntelligence/beam-releases). The renderer shows a
  * pill when a version is available; downloading and installing are the person's clicks, never automatic.
  */
 type UpdateState = { state: "none" | "checking" | "available" | "downloading" | "ready" | "error"; version: string | null; percent: number; message: string | null };

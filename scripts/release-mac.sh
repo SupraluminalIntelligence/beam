@@ -12,12 +12,12 @@ else
   NOTARIZE="--config.mac.notarize=false"
 fi
 # Create the draft once before parallel architecture uploads start.
-if ! gh release view "v$VERSION" --repo SupraluminalAI/beam-releases >/dev/null 2>&1; then
-  gh release create "v$VERSION" --repo SupraluminalAI/beam-releases --draft --title "Beam $VERSION" --notes ""
+if ! gh release view "v$VERSION" --repo SupraluminalIntelligence/beam-releases >/dev/null 2>&1; then
+  gh release create "v$VERSION" --repo SupraluminalIntelligence/beam-releases --draft --title "Beam $VERSION" --notes ""
 fi
 GH_TOKEN=$(gh auth token) npx electron-builder --mac --arm64 --x64 --publish always $NOTARIZE
 node ../../scripts/mac-feed.mjs "$VERSION"
-gh release upload "v$VERSION" --repo SupraluminalAI/beam-releases --clobber release/latest-mac.yml
+gh release upload "v$VERSION" --repo SupraluminalIntelligence/beam-releases --clobber release/latest-mac.yml
 node ../../scripts/verify-mac-release.mjs "$VERSION"
-gh release edit "v$VERSION" --repo SupraluminalAI/beam-releases --draft=false --latest
+gh release edit "v$VERSION" --repo SupraluminalIntelligence/beam-releases --draft=false --latest
 echo "released v$VERSION"

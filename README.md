@@ -2,7 +2,7 @@
 
 A Supraluminal Intelligence desktop app where a team and their coding agents share one chat. Argue it out, then beam it.
 
-[Source & pull requests](https://github.com/SupraluminalAI/beam) · [Download Beam](https://github.com/SupraluminalAI/beam-releases/releases) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Source & pull requests](https://github.com/SupraluminalIntelligence/beam) · [Download Beam](https://github.com/SupraluminalIntelligence/beam-releases/releases) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
 
 - Design doc: https://claude.ai/code/artifact/68a1818d-97fe-4230-9fbc-a87830232698
 - Prototype: https://claude.ai/code/artifact/b7eb2f9a-8fe7-4f8a-9daa-bcd66dc9aa2c

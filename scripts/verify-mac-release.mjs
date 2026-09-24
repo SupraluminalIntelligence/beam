@@ -12,7 +12,7 @@ for (const name of [`Beam-${version}-arm64-mac.zip`, `Beam-${version}-mac.zip`, 
 }
 expected.push("latest-mac.yml");
 // Draft releases are not always available through GitHub's tag endpoint.
-const releases = JSON.parse(execFileSync("gh", ["api", "repos/SupraluminalAI/beam-releases/releases", "--paginate", "--slurp"], { encoding: "utf8" })).flat();
+const releases = JSON.parse(execFileSync("gh", ["api", "repos/SupraluminalIntelligence/beam-releases/releases", "--paginate", "--slurp"], { encoding: "utf8" })).flat();
 const matches = releases.filter(r => r.tag_name === `v${version}`);
 if (matches.length !== 1) throw new Error(`Expected one release for ${version}, found ${matches.length}`);
 const { assets } = matches[0];
