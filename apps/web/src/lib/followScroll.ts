@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from "react";
 /** Follow real content growth only while the reader is at the bottom. */
 export function useFollowScroll(chatId: string, ready: boolean) {
   const viewport = useRef<HTMLDivElement>(null);
+  const pause = useRef(() => {});
   const content = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = viewport.current, body = content.current;
@@ -12,6 +13,7 @@ export function useFollowScroll(chatId: string, ready: boolean) {
     const bottom = () => Math.max(0, el.scrollHeight - el.clientHeight);
     const cancel = () => { cancelAnimationFrame(frame); frame = 0; lastTime = 0; };
     const stop = () => { following = false; cancel(); };
+    pause.current = stop;
     const step = (now: number) => {
       frame = 0;
       if (!following) return;
@@ -54,5 +56,5 @@ export function useFollowScroll(chatId: string, ready: boolean) {
       el.removeEventListener("keydown", key);
     };
   }, [chatId, ready]);
-  return { viewport, content };
+  return { viewport, content, pause };
 }

@@ -6,6 +6,7 @@ import { which } from "../path.ts";
 import { AsyncQueue } from "../queue.ts";
 import { describeTool, matchesAllow, truncate } from "../tools.ts";
 import { cliVersion, withTimeout } from "../version.ts";
+import { profileEnv, type HarnessProfile } from "../profile.ts";
 
 /**
  * Claude Code via the Agent SDK. The probe opens a query whose prompt never yields,
@@ -23,11 +24,11 @@ const planLabel = (s: string | undefined) => (s ? PLAN[s.toLowerCase().replace(/
 const MODEL_IDS: Record<string, string> = { "Fable 5.1": "claude-fable-5-1", "Fable 5.0": "claude-fable-5", "Opus 5.0": "claude-opus-5", "Sonnet 5.0": "claude-sonnet-5" };
 export const claudeModelId = (name: string) => MODEL_IDS[name] ?? name;
 
-const baseEnv = () => ({ ...process.env, CLAUDE_CODE_AUTO_CONNECT_IDE: "0" }) as Record<string, string>;
+const baseEnv = (profile?: HarnessProfile) => ({ ...profileEnv("claude", profile), CLAUDE_CODE_AUTO_CONNECT_IDE: "0" }) as Record<string, string>;
 
 async function* never(): AsyncGenerator<never> { await new Promise(() => {}); }
 
-export async function probeClaude(): Promise<HarnessStatus> {
+export async function probeClaude(profile?: HarnessProfile, cwd?: string): Promise<HarnessStatus> {
   const base = { harness: "claude" as const, probedAt: Date.now(), plan: null, email: null };
   const bin = await which("claude");
   if (!bin) return { ...base, installed: false, version: null, auth: "unknown", message: "Claude Code (`claude`) is not on PATH. Install it, then run `claude auth login`." };
@@ -36,7 +37,7 @@ export async function probeClaude(): Promise<HarnessStatus> {
   try {
     q = query({
       prompt: never() as AsyncIterable<never>,
-      options: { cwd: tmpdir(), persistSession: false, allowedTools: [], mcpServers: {}, strictMcpConfig: true, settingSources: [], env: baseEnv(), pathToClaudeCodeExecutable: bin },
+      options: { cwd: cwd ?? tmpdir(), persistSession: false, allowedTools: [], mcpServers: {}, strictMcpConfig: true, settingSources: ["user", "project"], env: baseEnv(profile), pathToClaudeCodeExecutable: bin },
     });
     const init = await withTimeout(q.initializationResult(), 25_000, "claude init");
     const acct = init.account ?? {};
@@ -101,7 +102,7 @@ class ClaudeSession implements Session {
         persistSession: true,
         settingSources: ["user", "project"],
         mcpServers: input.tools.length ? { beam } : {},
-        env: baseEnv(),
+        env: baseEnv(input.profile),
         pathToClaudeCodeExecutable: bin,
         ...(this.sessionId ? { resume: this.sessionId } : {}),
         ...(input.systemContext ? { systemPrompt: { type: "preset" as const, preset: "claude_code" as const, append: input.systemContext } } : {}),

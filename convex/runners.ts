@@ -4,6 +4,8 @@ import { mutation, query } from "./_generated/server";
 import { me, requireMember } from "./lib";
 import { sha256 } from "./runnerAuth";
 
+const foamCapability = v.object({ ready: v.boolean(), message: v.string(), image: v.string() });
+
 /** Runner calls authenticate with their token, not with Convex Auth. */
 export async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) {
   const hash = await sha256(token);
@@ -14,24 +16,24 @@ export async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) 
 
 /** First contact after start. Upserts the runner row for this token. */
 export const hello = mutation({
-  args: { token: v.string(), name: v.string(), hostname: v.string(), platform: v.string(), harnesses: v.any(), launchedByApp: v.boolean(), computeBackend: v.optional(v.literal("local-process")) },
+  args: { token: v.string(), name: v.string(), hostname: v.string(), platform: v.string(), harnesses: v.any(), launchedByApp: v.boolean(), openfoam: v.optional(foamCapability), computeBackend: v.optional(v.literal("local-process")) },
   handler: async (ctx, a) => {
     const t = await requireRunner(ctx, a.token);
     const existing = await ctx.db.query("runners").withIndex("by_token", (q) => q.eq("tokenId", t._id)).first();
-    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: a.harnesses, launchedByApp: a.launchedByApp, computeBackend: a.computeBackend };
+    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: a.harnesses, launchedByApp: a.launchedByApp, computeBackend: a.computeBackend, openfoam: a.openfoam };
     if (existing) { await ctx.db.patch(existing._id, fields); return existing._id; }
-    const { computeBackend, ...required } = fields;
-    return ctx.db.insert("runners", { tokenId: t._id, probeRequestedAt: 0, ...required, ...(computeBackend ? { computeBackend } : {}) });
+    const { computeBackend, openfoam, ...required } = fields;
+    return ctx.db.insert("runners", { tokenId: t._id, probeRequestedAt: 0, ...required, ...(computeBackend ? { computeBackend } : {}), ...(openfoam ? { openfoam } : {}) });
   },
 });
 
 export const heartbeat = mutation({
-  args: { token: v.string(), runnerId: v.id("runners"), harnesses: v.optional(v.any()) },
-  handler: async (ctx, { token, runnerId, harnesses }) => {
+  args: { token: v.string(), runnerId: v.id("runners"), harnesses: v.optional(v.any()), openfoam: v.optional(foamCapability) },
+  handler: async (ctx, { token, runnerId, harnesses, openfoam }) => {
     const t = await requireRunner(ctx, token);
     const r = await ctx.db.get(runnerId);
     if (!r || r.tokenId !== t._id) throw new Error("not your runner");
-    await ctx.db.patch(runnerId, { online: true, lastSeen: Date.now(), ...(harnesses === undefined ? {} : { harnesses }) });
+    await ctx.db.patch(runnerId, { online: true, lastSeen: Date.now(), ...(harnesses === undefined ? {} : { harnesses }), ...(openfoam === undefined ? {} : { openfoam }) });
   },
 });
 
@@ -54,8 +56,8 @@ export const self = query({
 });
 
 const FRESH = 90_000;
-const shape = (r: { _id: unknown; name: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
-  ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
+const shape = (r: { _id: unknown; name: string; displayName?: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
+  ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.displayName ?? r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
 
 /** My runners, for Settings → Connected harnesses. */
 export const mine = query({
@@ -109,5 +111,15 @@ export const setSharing = mutation({
     const runner = await ctx.db.get(runnerId);
     if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("not your runner");
     await ctx.db.patch(runnerId, { allowSharedRuns: allow });
+  },
+});
+
+export const rename = mutation({
+  args: { runnerId: v.id("runners"), name: v.string() },
+  handler: async (ctx, { runnerId, name }) => {
+    const user = await me(ctx); const runner = await ctx.db.get(runnerId);
+    if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("Not your machine");
+    const displayName = name.trim(); if (!displayName || displayName.length > 80) throw new Error("Use a name between 1 and 80 characters");
+    await ctx.db.patch(runnerId, { displayName });
   },
 });

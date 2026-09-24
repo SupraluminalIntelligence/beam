@@ -49,7 +49,7 @@ export const context = internalQuery({
     const recent = msgs.slice(Math.max(0, idx - 14), idx);
     const who = (author: string) => { if (!author.startsWith("agent:")) return author; const a = all.find((x) => `agent:${x._id}` === author); return a ? `@${a.handle} (agent)` : "agent"; };
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", m.chatId)).collect();
-    const live = runs.find((r) => isLive(r.state));
+    const live = runs.find((r) => isLive(r.state) && r.dispatchedBy === m.author);
     const liveHandle = live ? all.find((a) => a._id === live.agentId)?.handle ?? null : null;
     return {
       title: chat.title, repo: chat.repo, agents, liveHandle,
@@ -199,9 +199,8 @@ export const apply = internalMutation({
     const a = agents.find((x) => x.handle === agent && (!chat.agents || chat.agents.includes(x._id)));
     if (!a) { await ctx.db.patch(messageId, { routed: { agent: null, why: `no agent @${agent}` } }); return; }
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
-    const live = runs.find((r) => isLive(r.state));
-    if (live && live.agentId === a._id) { await ctx.db.patch(messageId, { kind: "steer", runId: live._id, routed: { agent, why } }); return; }
-    if (live) { await ctx.db.patch(messageId, { routed: { agent: null, why: "another agent is running" } }); return; }
+    const live = runs.find((r) => isLive(r.state) && r.agentId === a._id && r.dispatchedBy === m.author);
+    if (live) { await ctx.db.patch(messageId, { kind: "steer", runId: live._id, routed: { agent, why } }); return; }
     try {
       await startRun(ctx, chat, a, messageId, m.author);
       await ctx.db.patch(messageId, { kind: "dispatch", routed: { agent, why } });

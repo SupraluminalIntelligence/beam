@@ -20,7 +20,15 @@ const exists = (p: string) => stat(p).then(() => true, () => false);
  * One bare clone per repo per machine, with ordinary remote-tracking refs (origin/main). Worktrees hang off it,
  * so they share objects and see the same origin. Not a --mirror: those push every ref and refuse refspecs.
  */
-export async function ensureMirror(repo: string): Promise<string> {
+const mirrorWork = new Map<string, Promise<string>>();
+export function ensureMirror(repo: string): Promise<string> {
+  const previous = mirrorWork.get(repo) ?? Promise.resolve("");
+  const next = previous.catch(() => "").then(() => prepareMirror(repo));
+  mirrorWork.set(repo, next);
+  void next.finally(() => { if (mirrorWork.get(repo) === next) mirrorWork.delete(repo); }).catch(() => {});
+  return next;
+}
+async function prepareMirror(repo: string): Promise<string> {
   const path = mirrorPath(repo);
   if (!(await exists(path))) {
     await mkdir(join(beamHome(), "repos"), { recursive: true });

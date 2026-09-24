@@ -4,9 +4,13 @@ import { HarnessStatus } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { HARNESS_INFO } from "../lib/harness-info";
+import { useLocalRunner } from "../lib/localRunner";
+import { connectionStatuses } from "../../../../packages/contracts/src/connections";
 import { toast } from "./Toast";
 
 export function AgentModelSelect({ agent }: { agent: Doc<"agents"> }) {
+  const localRunnerId = useLocalRunner();
+  const accountPreferences = useQuery(api.connections.preferences);
   const preferences = useQuery(api.users.preferences);
   const mine = useQuery(api.runners.mine) ?? [];
   const shared = useQuery(api.runners.online, { workspaceId: agent.workspaceId }) ?? [];
@@ -28,8 +32,10 @@ export function AgentModelSelect({ agent }: { agent: Doc<"agents"> }) {
   const current = pref?.model ?? agent.model;
   const effort = pref?.effort ?? agent.effort;
   const runners = [...mine, ...shared.filter(r => r.allowSharedRuns && !mine.some(m => m.id === r.id))];
-  const runner = pref?.runnerId ? runners.find(r => r.id === pref.runnerId) : mine.filter(r => (Array.isArray(r.harnesses) ? r.harnesses : []).some((h: { harness: string; auth: string }) => h.harness === agent.harness && h.auth === "authenticated")).sort((a, b) => Number(b.online) - Number(a.online) || Number(b.launchedByApp) - Number(a.launchedByApp))[0];
-  const catalog = (Array.isArray(runner?.harnesses) ? runner.harnesses : []).map((h: unknown) => HarnessStatus.safeParse(h).data).find(h => h?.harness === agent.harness)?.models ?? [];
+  const account = accountPreferences?.find(p => p.harness === agent.harness) ?? pref;
+  const runner = runners.find(r => r.id === (account?.runnerId ?? localRunnerId));
+  const status = connectionStatuses(runner?.harnesses).find(s => s.harness === agent.harness && (account?.runnerId ? s.connectionId === (account.connectionId ?? "default") : s.isDefault));
+  const catalog = HarnessStatus.safeParse(status).data?.models ?? [];
   useEffect(() => {
     if (agent.harness !== "codex" || catalog.length || !runner?.online || requestedProbe.current === String(runner.id)) return;
     requestedProbe.current = String(runner.id);
@@ -44,7 +50,7 @@ export function AgentModelSelect({ agent }: { agent: Doc<"agents"> }) {
     setBusy(true);
     try {
       const nextEffort = effort === "max" || option.efforts.includes(effort) ? effort : option.efforts.includes("medium") ? "medium" : option.efforts[0] ?? "max";
-      await save({ harness: agent.harness, model, effort: nextEffort, ...(pref?.runnerId ? { runnerId: pref.runnerId } : {}) });
+      await save({ harness: agent.harness, model, effort: nextEffort, ...(pref?.runnerId ? { runnerId: pref.runnerId, ...(pref.connectionId ? { connectionId: pref.connectionId } : {}) } : {}) });
       toast(`${option.name} · your next run`);
       setOpen(false); trigger.current?.focus();
     } catch (e) { toast(e instanceof Error ? e.message : "Could not update model"); }
@@ -58,7 +64,7 @@ export function AgentModelSelect({ agent }: { agent: Doc<"agents"> }) {
     if (busy || !next) return;
     setBusy(true);
     try {
-      await save({ harness: agent.harness, model: selected?.model ?? current, effort: next, ...(pref?.runnerId ? { runnerId: pref.runnerId } : {}) });
+      await save({ harness: agent.harness, model: selected?.model ?? current, effort: next, ...(pref?.runnerId ? { runnerId: pref.runnerId, ...(pref.connectionId ? { connectionId: pref.connectionId } : {}) } : {}) });
       toast(`${next} effort · your next run`);
     } catch (e) { toast(e instanceof Error ? e.message : "Could not update effort"); }
     finally { setBusy(false); }

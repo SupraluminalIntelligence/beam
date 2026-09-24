@@ -6,7 +6,9 @@ import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
 import { threadRepos } from "./changes";
 import { notifyRun, resolveInputNotifications } from "./notifications";
-import { selectRunner, canResume } from "../packages/contracts/src/execution";
+import { resolveForChat } from "./connections";
+import { canResume } from "../packages/contracts/src/execution";
+import { connectionStatuses } from "../packages/contracts/src/connections";
 
 const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
@@ -42,19 +44,33 @@ export const detail = query({
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", run.chatId)).collect();
     const previous = runs.filter((r) => r._id !== runId && r.agentId === run.agentId && r.endedAt && canResume(r, run)).sort((a, b) => b.endedAt! - a.endedAt!)[0] ?? null;
     // Context policy "since-landing-plus-summary": messages after the last landing, before this dispatch.
-    const since = previous?.endedAt ?? 0;
+    const since = previous?.resumeCursor ? previous.endedAt ?? 0 : 0;
     const transcript = all.filter((m) => m._creationTime > since && m._creationTime < dispatch._creationTime && m.kind !== "steer").slice(-40);
+    const recentTranscript=all.filter(m=>m._creationTime<dispatch._creationTime).slice(-40);
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
-    const changes = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
-    return { run, chat: { ...chat, repos: threadRepos(chat) }, agent, dispatch, transcript, previous, changes, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
+    const allChanges = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
+    const changes = allChanges.filter(c => c.workScope === run.workScope);
+    return { run, chat: { ...chat, repos: threadRepos(chat) }, agent, dispatch, transcript, recentTranscript, previous, changes, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
   },
 });
 
 /** The runner has the thread directory ready and is about to start the harness. */
 export const claim = mutation({
-  args: { token: v.string(), runId: v.id("runs"), branch: v.union(v.string(), v.null()), worktree: v.string() },
-  handler: async (ctx, { token, runId, branch, worktree }) => {
-    await ownRun(ctx, token, runId);
+  args: { token: v.string(), runId: v.id("runs"), branch: v.union(v.string(), v.null()), worktree: v.string(), workScope: v.optional(v.string()) },
+  handler: async (ctx, { token, runId, branch, worktree, workScope }) => {
+    const { run, runner } = await ownRun(ctx, token, runId);
+    if (run.state !== "queued") throw new Error("This run has already been claimed or ended");
+    if (run.workScope !== workScope) throw new Error("Update and restart this Beam runner to use isolated agent workspaces.");
+    const chat = await ctx.db.get(run.chatId);
+    if (!chat || chat.state === "deleted" || (chat.private && !chat.members.includes(run.dispatchedBy))) throw new Error("Chat access was revoked");
+    const members = await ctx.db.query("members").withIndex("by_workspace", q => q.eq("workspaceId", chat.workspaceId)).collect();
+    if (![runner.ownerLogin, run.dispatchedBy].every(login => members.some(m => m.githubLogin === login))) throw new Error("Workspace access was revoked");
+    if (runner.ownerLogin !== run.dispatchedBy && !runner.allowSharedRuns) throw new Error("Account sharing was revoked");
+    if (run.execution?.connectionId) {
+      const agent = await ctx.db.get(run.agentId);
+      const selected = connectionStatuses(runner.harnesses).find(s => s.harness === agent?.harness && s.connectionId === run.execution!.connectionId);
+      if (!selected || selected.auth !== "authenticated" || (selected.email ?? null) !== run.execution.accountEmail || (selected.plan ?? null) !== run.execution.accountPlan || selected.accountIdentity !== run.execution.accountIdentity) throw new Error("The selected account changed before this run started");
+    }
     await ctx.db.patch(runId, { state: "working", branch, worktree, startedAt: Date.now() });
   },
 });
@@ -244,12 +260,7 @@ export const interrupt = mutation({
 });
 
 /** Personal connection by default. Using another member's account requires both parties to opt in. */
-export async function chooseRunner(ctx: QueryCtx | MutationCtx, chat: Doc<"chats">, login: string, harness: string) {
-  const user = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
-  const selected = user?.agentPreferences?.find((p) => p.harness === harness)?.runnerId;
-  const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
-  if (!members.some((m) => m.githubLogin === login)) throw new Error("Dispatcher is no longer a workspace member");
-  const mine = await ctx.db.query("runners").withIndex("by_owner", (q) => q.eq("ownerLogin", login)).collect();
-  const candidates = selected ? [await ctx.db.get(selected)].filter((r): r is Doc<"runners"> => !!r) : mine;
-  return selectRunner(candidates, { login, harness, selected, pinned: chat.pinnedRunner, members: members.map((m) => m.githubLogin), now: Date.now() });
+export async function chooseRunner(ctx: QueryCtx | MutationCtx, chat: Doc<"chats">, login: string, harness: string, localRunnerId?: Id<"runners">) {
+  const { runner, status } = await resolveForChat(ctx, chat, login, harness, localRunnerId);
+  return { ...runner, name: runner.displayName ?? runner.name, harnesses: [status], connection: status };
 }

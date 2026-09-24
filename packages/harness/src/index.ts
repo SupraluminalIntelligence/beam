@@ -1,4 +1,5 @@
 export * from "./adapter.ts";
+export * from "./profile.ts";
 export * from "./path.ts";
 export * from "./version.ts";
 export * from "./queue.ts";

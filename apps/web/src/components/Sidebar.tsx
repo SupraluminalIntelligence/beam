@@ -158,7 +158,7 @@ function NewPop({ open, wsName, onPick }: { open: boolean; wsName: string; onPic
   return (
     <div className="newpop" hidden={!open}>
       <button onClick={() => onPick("team")}>{ICO.team}<span>Team chat<small>starts with just you · invite from the header</small></span></button>
-      <button onClick={() => onPick("private")}>{ICO.lock}<span>Private chat<small>just you · pin a default agent</small></span></button>
+      <button onClick={() => onPick("private")}>{ICO.lock}<span>Private chat<small>just you · @mention an agent</small></span></button>
       <span className="k" style={{ display: "none" }}>{wsName}</span>
     </div>
   );

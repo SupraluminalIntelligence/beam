@@ -11,7 +11,11 @@ for (const name of [`Beam-${version}-arm64-mac.zip`, `Beam-${version}-mac.zip`, 
   if (!expected.includes(name)) throw new Error(`Missing local installer: ${name}`);
 }
 expected.push("latest-mac.yml");
-const { assets } = JSON.parse(execFileSync("gh", ["api", `repos/SupraluminalAI/beam-releases/releases/tags/v${version}`], { encoding: "utf8" }));
+// Draft releases are not always available through GitHub's tag endpoint.
+const releases = JSON.parse(execFileSync("gh", ["api", "repos/SupraluminalAI/beam-releases/releases", "--paginate", "--slurp"], { encoding: "utf8" })).flat();
+const matches = releases.filter(r => r.tag_name === `v${version}`);
+if (matches.length !== 1) throw new Error(`Expected one release for ${version}, found ${matches.length}`);
+const { assets } = matches[0];
 for (const name of expected) {
   const asset = assets.find(a => a.name === name);
   if (!asset || asset.state !== "uploaded" || asset.size !== statSync(join(dir, name)).size) throw new Error(`Missing or incomplete release asset: ${name}`);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 export * from "./compute.ts";
+export * from "./simulation.ts";
 
 // ---- ids ----
 const id = (name: string) => z.string().min(1).brand(name);
@@ -36,6 +37,10 @@ export type Agent = z.infer<typeof Agent>;
 
 /** What a probe learned about a harness on one machine. Never contains a credential. */
 export const HarnessStatus = z.object({
+  connectionId: z.string().optional(),
+  connectionName: z.string().optional(),
+  isDefault: z.boolean().optional(),
+  accountIdentity: z.string().optional(),
   harness: HarnessKind,
   installed: z.boolean(),
   version: z.string().nullable(),

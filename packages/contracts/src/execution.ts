@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const ModelCatalog = z.array(z.object({ model: z.string(), name: z.string(), efforts: z.array(z.string()) }));
 const Statuses = z.array(z.object({ harness: z.string(), auth: z.string(), email: z.string().nullable().optional(), plan: z.string().nullable().optional(), models: ModelCatalog.optional() }));
-export type Preference = { harness: string; model: string; effort: string; runnerId?: string };
+export type Preference = { harness: string; model: string; effort: string; runnerId?: string; connectionId?: string };
 type Runner = { _id: string; ownerLogin: string; online: boolean; lastSeen: number; harnesses: unknown; launchedByApp: boolean; allowSharedRuns?: boolean };
 export function selectRunner<R extends Runner>(runners: R[], options: { login: string; harness: string; selected?: string | undefined; pinned?: string | null; members: string[]; now: number }): R {
   const ready = runners.filter((r) => (!options.selected || options.selected === r._id)
@@ -34,11 +34,13 @@ export function resolveExecution(agent: { harness: string; model: string; effort
   return { model, modelName, effort, accountOwner: runner.ownerLogin, accountEmail: status.email ?? null, accountPlan: status.plan ?? null };
 }
 
-type Resumable = { runnerId: string; dispatchedBy: string; execution?: { accountOwner: string; accountEmail: string | null; model: string; effort: string } };
+type Resumable = { runnerId: string; dispatchedBy: string; execution?: { accountOwner: string; accountEmail: string | null; model: string; effort: string; connectionId?: string; accountIdentity?: string } };
 export function canResume(previous: Resumable, next: Resumable) {
   return previous.runnerId === next.runnerId && previous.dispatchedBy === next.dispatchedBy
     && !!previous.execution && !!next.execution
     && previous.execution.accountOwner === next.execution.accountOwner
     && previous.execution.accountEmail === next.execution.accountEmail
+    && (previous.execution.connectionId ?? "default") === (next.execution.connectionId ?? "default")
+    && previous.execution.accountIdentity === next.execution.accountIdentity
     && previous.execution.model === next.execution.model && previous.execution.effort === next.execution.effort;
 }

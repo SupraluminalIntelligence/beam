@@ -5,6 +5,7 @@ import type { Session, StartSession } from "../adapter.ts";
 import { AsyncQueue } from "../queue.ts";
 import { matchesAllow, truncate } from "../tools.ts";
 import type { JsonRpcChild } from "./rpc.ts";
+import { createHash } from "node:crypto";
 import { isAbsolute, relative } from "node:path";
 
 // The subset of the app-server v2 protocol Beam consumes. Validate at the wire,
@@ -30,6 +31,7 @@ type Pending = { rpcId: string | number | null; answer: (decision: string) => vo
 export class CodexSession implements Session {
   readonly events = new AsyncQueue<RunEvent>();
   private threadId = "";
+  private toolsHash = "";
   private turnId: string | null = null;
   private logicalTurn: string | null = null;
   private stopped = false;
@@ -104,14 +106,15 @@ export class CodexSession implements Session {
       model: this.model, cwd: this.input.cwd, approvalPolicy: this.approvalPolicy, approvalsReviewer: "user",
       sandbox: this.planning ? "read-only" : this.autoApprove ? "danger-full-access" : "workspace-write", developerInstructions: this.input.systemContext,
     };
-    const resume = z.object({ threadId: z.string() }).safeParse(this.input.resumeCursor);
-    // Dynamic tools are persisted by Codex and restored on resume; dispatch uses the current handlers below.
-    const result = resume.success
+    const dynamicTools=this.input.tools.map(t=>({type:"function",name:t.name,description:t.description,inputSchema:zodToJsonSchema(z.object(t.schema),{$refStrategy:"none"})}));
+    this.toolsHash=createHash("sha256").update(JSON.stringify(dynamicTools)).digest("hex");
+    const resume = z.object({ threadId: z.string(), toolsHash:z.string().optional() }).safeParse(this.input.resumeCursor);
+    // Resumed Codex threads retain their original tool schemas. Start a fresh session with
+    // Beam's chat context when tools change, rather than leaving old chats on stale capabilities.
+    const compatible=resume.success&&(resume.data.toolsHash===this.toolsHash||(!resume.data.toolsHash&&!dynamicTools.length));
+    const result = compatible
       ? await this.rpc.request("thread/resume", { ...params, threadId: resume.data.threadId })
-      : await this.rpc.request("thread/start", { ...params, dynamicTools: this.input.tools.map((t) => ({
-        type: "function", name: t.name, description: t.description,
-        inputSchema: zodToJsonSchema(z.object(t.schema), { $refStrategy: "none" }),
-      })) });
+      : await this.rpc.request("thread/start", { ...params, developerInstructions:this.input.fallbackSystemContext??params.developerInstructions, dynamicTools });
     this.threadId = Thread.parse(result).thread.id;
     this.emit({ type: "session.started", resumeCursor: this.resumeCursor() });
   }
@@ -320,5 +323,5 @@ export class CodexSession implements Session {
     });
     return this.stopping;
   }
-  resumeCursor() { return this.threadId ? { threadId: this.threadId } : null; }
+  resumeCursor() { return this.threadId ? { threadId: this.threadId, toolsHash:this.toolsHash } : null; }
 }

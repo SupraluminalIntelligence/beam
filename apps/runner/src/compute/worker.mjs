@@ -47,6 +47,14 @@ finally {
   finished = true; clearInterval(ticker); clearTimeout(timeout); clearTimeout(killing);
   // Jobs must not leave descendants running after their main process exits.
   killTree("SIGKILL");
+  if (/^beam-foam-[a-f0-9]{20}$/.test(spec.dockerContainer ?? "")) {
+    await new Promise(resolve => {
+      const cleanup = spawn("docker", ["rm", "-f", spec.dockerContainer], { stdio: "ignore" });
+      const deadline = setTimeout(() => { cleanup.kill("SIGKILL"); resolve(); }, 10000);
+      const done = () => { clearTimeout(deadline); resolve(); };
+      cleanup.once("error", done); cleanup.once("close", done);
+    });
+  }
   error = cancelled ? "Cancelled" : timedOut ? "Runtime limit exceeded" : error ?? (exitCode === 0 ? null : `Process exited with code ${exitCode}`);
   await receipt("result.json", { state: cancelled ? "cancelled" : error ? "failed" : "succeeded", log, error, exitCode });
 }
