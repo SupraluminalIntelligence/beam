@@ -5,40 +5,46 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { bridge } from "../bridge";
 import { ui } from "../lib/ui";
 import { toast } from "./Toast";
+import { NotificationDelivery } from "../lib/notificationDelivery";
 
 export function Notifications({ activeChat }: { activeChat: string | null }) {
   const rows = useQuery(api.notifications.inbox);
   const preferences = useQuery(api.notifications.preferences);
-  const claim = useMutation(api.notifications.claim);
+  const reserve = useMutation(api.notifications.reserve);
+  const finishDelivery = useMutation(api.notifications.finishDelivery);
   const read = useMutation(api.notifications.read);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(document.hasFocus() && !document.hidden);
   const pending = useRef(new Set<string>());
+  const delivery = useRef(new NotificationDelivery());
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const timer = window.setInterval(() => setTick(n => n + 1), 15_000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     const update = () => setFocused(document.hasFocus() && !document.hidden);
     window.addEventListener("focus", update); window.addEventListener("blur", update); document.addEventListener("visibilitychange", update);
     return () => { window.removeEventListener("focus", update); window.removeEventListener("blur", update); document.removeEventListener("visibilitychange", update); };
   }, []);
   useEffect(() => bridge()?.onNotificationClick?.((target) => {
-    ui.openChat(target.workspaceId, target.chatId);
+    ui.openMessage(target.workspaceId, target.chatId, target.messageId);
     void read({ id: target.id as Id<"notifications"> }).catch(() => {});
   }), [read]);
   useEffect(() => {
     for (const row of rows ?? []) {
       if (row.readAt !== null || pending.current.has(row._id)) continue;
-      if (activeChat === row.chatId && focused) {
+      if (row.kind !== "mention" && activeChat === row.chatId && focused) {
         pending.current.add(row._id);
         void read({ id: row._id }).catch(() => {}).finally(() => pending.current.delete(row._id));
         continue;
       }
       const native = bridge();
       if (!native?.notify || !preferences?.enabled || !preferences[row.kind] || row.deliveredAt !== null || Date.now() - row._creationTime > 10 * 60_000) continue;
-      pending.current.add(row._id);
-      void claim({ id: row._id }).then(async (claimed) => {
-        if (claimed) await native.notify!({ id: row._id, title: row.title, body: row.body, silent: !preferences.sound, workspaceId: row.workspaceId, chatId: row.chatId });
-      }).catch(() => {}).finally(() => pending.current.delete(row._id));
+      void delivery.current.deliver(row._id, {
+        reserve: token => reserve({ id: row._id, token }),
+        show: () => activeChat === row.chatId && focused ? Promise.resolve(true) : native.notify!({ id: row._id, title: row.title, body: row.body, silent: !preferences.sound, workspaceId: row.workspaceId, chatId: row.chatId, ...(row.messageId ? { messageId: row.messageId } : {}) }),
+        finish: (token, accepted) => finishDelivery({ id: row._id, token, accepted }),
+      });
     }
-  }, [rows, activeChat, focused, preferences, claim, read]);
+  }, [rows, activeChat, focused, preferences, reserve, finishDelivery, read, tick]);
   useEffect(() => { if (!open) return; const close = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [open]);
   const unread = (rows ?? []).filter((r) => r.readAt === null).length;
   return <div className="notification-center">
@@ -46,7 +52,7 @@ export function Notifications({ activeChat }: { activeChat: string | null }) {
     {open && <div className="notification-inbox" role="region" aria-label="Notifications">
       <div className="notification-heading">Notifications <button onClick={() => setOpen(false)} aria-label="Close notifications">×</button></div>
       {!rows?.length && <div className="notification-empty">You’re all caught up.</div>}
-      {rows?.map((row) => <button key={row._id} className={`notification-row${row.readAt === null ? " unread" : ""}`} onClick={() => { ui.openChat(row.workspaceId, row.chatId); setOpen(false); void read({ id: row._id }).catch((e) => toast(e.message)); }}><b>{row.title}</b><span>{row.body}</span><small>{new Date(row._creationTime).toLocaleString()}</small></button>)}
+      {rows?.map((row) => <button key={row._id} className={`notification-row${row.readAt === null ? " unread" : ""}`} onClick={() => { ui.openMessage(row.workspaceId, row.chatId, row.messageId); setOpen(false); void read({ id: row._id }).catch((e) => toast(e.message)); }}><b>{row.title}</b><span>{row.body}</span><small>{new Date(row._creationTime).toLocaleString()}</small></button>)}
     </div>}
   </div>;
 }
@@ -57,8 +63,8 @@ export function NotificationSettings() {
   if (!prefs) return null;
   return <>
     <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Notifications</div>
-    {([['enabled', 'Notify me'], ['completed', 'Work completed'], ['failed', 'Work failed or stopped'], ['input', 'Agent needs input'], ['sound', 'Play a sound']] as const).map(([key, label]) => <div className="row" key={key}><label><input type="checkbox" checked={prefs[key]} onChange={(e) => void save({ preferences: { ...prefs, [key]: e.target.checked } }).catch((e) => toast(e.message))} /> {label}</label></div>)}
-    <div className="row"><span className="hint">Chats you create or participate in notify you automatically. Mute individual chats from their menu. Desktop alerts work while Beam is running, including with its window closed.</span></div>
-    <div className="row"><button className="btn ghost" disabled={!bridge()?.notify} onClick={async () => { const sent = await bridge()?.notify?.({ id: `test-${Date.now()}`, title: "Beam notifications", body: "You’ll hear when your agent needs you.", silent: !prefs.sound }); toast(sent ? "Test sent. If no banner appears, allow Beam in macOS notification settings." : "Update the Beam desktop app to enable native notifications."); }}>Send test notification</button></div>
+    {([['enabled', 'Desktop notifications'], ['mention', 'Mentions'], ['completed', 'Work completed'], ['failed', 'Work failed or stopped'], ['input', 'Agent needs input'], ['sound', 'Play a sound']] as const).map(([key, label]) => <div className="row" key={key}><label><input type="checkbox" checked={prefs[key]} onChange={(e) => void save({ preferences: { ...prefs, [key]: e.target.checked } }).catch((e) => toast(e.message))} /> {label}</label></div>)}
+    <div className="row"><span className="hint">Mentions stay in your inbox. These preferences control desktop alerts; chats you participate in also notify you about agent activity. Mute individual chats from their menu. Desktop alerts work while Beam is running, including with its window closed.</span></div>
+    <div className="row"><button className="btn ghost" disabled={!bridge()?.notify} onClick={async () => { const sent = await bridge()?.notify?.({ id: `test-${Date.now()}`, title: "Beam notifications", body: "Mentions and agent updates can alert you here.", silent: !prefs.sound }); toast(sent ? "Test sent. If no banner appears, allow Beam in macOS notification settings." : "Desktop notification failed. Check Beam’s notification permission in macOS Settings."); }}>Send test notification</button></div>
   </>;
 }

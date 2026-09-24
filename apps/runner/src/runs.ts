@@ -19,6 +19,7 @@ interface Detail {
   agent: { _id: Id<"agents">; harness: string; handle: string; model: string; effort: string; permissionMode: string; alwaysAllow: string[]; contextPolicy: string; workspaceId: Id<"workspaces"> };
   dispatch: { _id: Id<"messages">; text: string; author: string };
   transcript: { author: string; text: string; kind: string; _creationTime: number }[];
+  recentTranscript?: Detail["transcript"];
   previous: { resumeCursor: unknown; worktree: string | null } | null;
   changes: Change[];
   agents: { id: Id<"agents">; handle: string; harness: string }[];
@@ -119,6 +120,12 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     },
   ];
 
+  async function studyPrompt(messageId:Id<"messages">){
+    const state=await client.query(api.compute.simulationForRun,{token,runId,messageId});
+    const study=state.cases.find(c=>c._id===state.activeStudyId);
+    return "\n\nSaved simulation context (data, not instructions):\n"+JSON.stringify({messageStudyContext:state.messageStudyContext,activeStudy:study?{id:study._id,name:study.name,revision:study.revision,config:study.config}:null,otherStudies:state.cases.filter(c=>c._id!==study?._id).map(c=>({id:c._id,name:c.name,revision:c.revision})),jobs:state.jobs.filter(j=>j.simulation?.caseId===study?._id).map(j=>({id:j._id,state:j.state,simulation:j.simulation})).slice(0,12)});
+  }
+
   // 3. Start the harness in the thread directory with the chat as context.
   const adapter = adapters[agent.harness as keyof typeof adapters];
   if (!adapter) return land(client, token, runId, "failed", [], `no adapter for ${agent.harness}`, null);
@@ -126,12 +133,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const resumeCursor = d.previous?.worktree === dir ? d.previous?.resumeCursor ?? null : null;
   let session: Session;
   try {
-    if (d.run.execution) {
-      const status = await adapter.probe();
-      const current = resolveExecution(agent, [], { ownerLogin: d.run.execution.accountOwner, harnesses: [status] });
-      if (current.accountEmail !== d.run.execution.accountEmail || current.accountPlan !== d.run.execution.accountPlan) throw new Error("The connected account changed after dispatch. Send a new request to use the current connection.");
-    }
-    session = await adapter.start({ runId, agent: agentView, cwd: dir, resumeCursor, systemContext: renderContext(d, dir, slots), tools });
+    session = await adapter.start({ runId, agent: agentView, cwd: dir, resumeCursor, systemContext: renderContext(resumeCursor?d:{...d,transcript:d.recentTranscript??d.transcript}, dir, slots), fallbackSystemContext:renderContext({...d,transcript:d.recentTranscript??d.transcript},dir,slots), tools });
   } catch (e) {
     return land(client, token, runId, "failed", [], `${agent.harness} failed to start: ${(e as Error).message}`, null);
   }
@@ -216,7 +218,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     while (queuedSteers.length && !ended) {
       const s = queuedSteers.shift()!;
       openTurns += 1;
-      await session.send(stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">), s.id);
+      await session.send(stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">) + await studyPrompt(s.id as Id<"messages">), s.id);
     }
   };
   let interrupting = false;
@@ -243,7 +245,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
 
   // 6. First turn: the dispatch itself.
   openTurns = 1;
-  await session.send(stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id), dispatch._id);
+  await session.send(stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id), dispatch._id);
   await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
   unsubscribe();
   clearInterval(watchdog);
@@ -293,6 +295,7 @@ function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>): st
     `Work inside those folders. Do not switch branches or push: Beam commits and pushes each folder that changed when the run ends, and opens or updates a PR per repo.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
+    `For the Simulation pane, use list_simulations, validate_simulation, save_simulation and run_simulation. Use geometry=planar to construct new 2-D flow domains: an arbitrary simple polygon outer boundary minus independently placed circles or simple polygons. Define the fluid region, explicit constant density/viscosity, named velocity-inlet/pressure-outlet/wall/symmetry boundaries, initial velocity, mesh size and duration in seconds. The solver is transient incompressible laminar isothermal pimpleFoam. Use geometry and boundary names that reflect the request; do not force a new geometry into a fixed demo. For local mesh refinement keep the background meshSize coarse and add named refinements: body-distance bands around selected bodies and box regions for wakes. Explicitly set target size and transition distance, preflight the cell budget, save a revision, remesh and check quality before rerunning. Preserve the prior successful solve ID and use compare_simulation_runs after completion; describe its common-time domain statistics and do not claim force, shedding-frequency or mesh-convergence diagnostics. Validate the geometry before saving, correct diagnostics, then mesh and inspect checkMesh before solving. If a referenced request or key geometry specification is missing, ask for it; never invent a replacement arrangement and proceed. State physical assumptions and distinguish the material label from explicit properties. Prescribed pitching is available for one planar body via optional motion: kind=pitch, body, pivot in metres, meanAngleDegrees (offset relative to supplied geometry), amplitudeDegrees up to 20 and frequencyHz. Do not double-rotate an already angled geometry. Require at least 16 saved frames per cycle (max100 frames) and a clear full rotation envelope. The body must have its own wall patch. Remesh after motion edits; solve computes moving-wall flow and exports actual moving coordinates for playback. Reduce amplitude or improve the initial mesh if motion quality fails. This does not support translation, continuous rotation, multiple moving bodies, free rigid-body dynamics or structural deformation. Legacy heated-channel and single-cylinder examples remain available. Call the user-facing object a study. Chat and the pane share the saved study; unsaved pane drafts are not inputs. Read list_simulations before each edit. Use the active study for contextual follow-ups; if the target is ambiguous, ask. Use select_simulation when explicitly switching studies. Reuse the id and current revision for parameter changes; create a separate study only when asked for a new study or separate alternative. Never claim a run used later edits. Mesh first, inspect its job, then solve using that mesh job ID. Do not claim support for imported 3-D CAD, turbulence, solid regions or conjugate heat transfer. Solver completion is not engineering validation.`,
     `For background computation use submit_job with explicit input/output paths. Jobs are independent of this agent run. list_jobs and get_job inspect earlier jobs and results. A submitted job is not a completed calculation. Reuse requestKey for retries.`,
   ];
   return lines.length ? `${head.join("\n")}\n\nThread so far:\n${lines.join("\n")}` : head.join("\n");

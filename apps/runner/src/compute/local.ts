@@ -1,3 +1,4 @@
+import { foamProcess, stopFoamContainer } from "./openfoam.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile, rename } from "node:fs/promises";
@@ -68,7 +69,7 @@ export class LocalExecutor implements ComputeExecutor {
         const dest = join(root, "work", input.path);
         await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, bytes, { flag: "wx" });
       }
-      await writeFile(join(root, "spec.json"), JSON.stringify(spec));
+      await writeFile(join(root, "spec.json"), JSON.stringify(spec.simulation ? foamProcess(spec, root) : spec));
       const child = spawn(process.execPath, [fileURLToPath(new URL("./worker.mjs", import.meta.url)), root], {
         detached: true, stdio: "ignore", env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       });
@@ -89,6 +90,8 @@ export class LocalExecutor implements ComputeExecutor {
     if (!launch) throw new Error("Local execution receipt is missing; the job will not be replayed");
     if (Date.now() - (status?.heartbeatAt ?? launch.at) > 90_000) {
       await this.cancel(handle);
+      const stored = await json(join(root, "spec.json")) as { simulation?: unknown } | null;
+      if (stored?.simulation) await stopFoamContainer(root).catch(() => {});
       return { state: "failed", log: status?.log ?? "", error: "Local supervisor stopped responding. Inspect the machine before submitting a new job; this execution was not replayed.", exitCode: null };
     }
     return { state: "running", log: status?.log ?? "" };

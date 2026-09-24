@@ -15,6 +15,7 @@ export interface StartSession {
   cwd: string;             // the chat's worktree, or a scratch directory when no repo is attached
   resumeCursor: unknown;   // adapter-specific, opaque to everyone else
   systemContext: string;   // chat transcript per context policy, rendered as text
+  fallbackSystemContext?: string; // recent history when a fresh session replaces an incompatible cursor
   tools: BeamTool[];
 }
 

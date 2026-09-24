@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SimulationJob, simulationOutputs } from "./simulation.ts";
 
 /** Portable paths within a job's immutable input snapshot / private working directory. */
 export const JobPath = z.string().min(1).max(240).refine(
@@ -14,7 +15,13 @@ export const ProcessJobSpec = z.object({
   inputs: z.array(z.object({ assetId: z.string().min(1).max(128), path: JobPath }).strict()).max(64),
   outputs: z.array(JobPath).max(16),
   timeoutSeconds: z.number().int().min(1).max(86400),
+  simulation: SimulationJob.optional(),
 }).strict().superRefine((spec, ctx) => {
+  if (spec.simulation || spec.executable === "beam:openfoam") {
+    const sim = spec.simulation;
+    if (!sim || spec.executable !== "beam:openfoam" || spec.args.length || JSON.stringify(spec.outputs)!==JSON.stringify(simulationOutputs(sim.stage,sim.config)) || (sim.stage==="mesh" ? spec.inputs.length!==0 : spec.inputs.length!==1 || spec.inputs[0]?.path!=="mesh-input.json" || !sim.meshJobId))
+      ctx.addIssue({code:"custom",message:"Invalid OpenFOAM job manifest"});
+  }
   if (JSON.stringify(spec).length > 48_000)
     ctx.addIssue({ code: "custom", message: "Job specification must be smaller than 48,000 characters" });
   for (const paths of [spec.inputs.map(i => i.path), spec.outputs]) {

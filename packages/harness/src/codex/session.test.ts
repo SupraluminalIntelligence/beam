@@ -50,7 +50,7 @@ describe("Codex app-server adapter", () => {
     expect(rpc.request).toHaveBeenCalledWith("thread/start", expect.objectContaining({ model: "gpt-5.6-sol", developerInstructions: "The shared chat", approvalPolicy: "untrusted", sandbox: "workspace-write", dynamicTools: [expect.objectContaining({ type: "function", name: "attach_repo", inputSchema: expect.objectContaining({ type: "object", required: ["repo"] }) })] }));
     await session.send("hello", "m1");
     expect(rpc.request).toHaveBeenCalledWith("turn/start", expect.objectContaining({ effort: "xhigh", clientUserMessageId: "m1" }));
-    expect(session.resumeCursor()).toEqual({ threadId: "thread" });
+    expect(session.resumeCursor()).toMatchObject({ threadId: "thread", toolsHash:expect.any(String) });
   });
 
   it("resumes a persisted thread with current settings without replaying history", async () => {
@@ -235,4 +235,12 @@ describe("Codex app-server adapter", () => {
     expect(rpc.respond).toHaveBeenCalledWith(10, { answers: {} });
     expect(events.filter((e) => e.type === "request.opened")).toHaveLength(0);
   });
+});
+
+it("refreshes persisted agent tools when their schemas change",async()=>{
+ const tool={name:"save_simulation",description:"Save",schema:{config:z.string()},run:async()=>"ok"};
+ const initial=await setup({tools:[tool]});const cursor=initial.session.resumeCursor();await initial.session.stop();
+ const same=await setup({tools:[tool],resumeCursor:cursor});expect(same.rpc.request).toHaveBeenCalledWith("thread/resume",expect.anything());await same.session.stop();
+ const changed=await setup({tools:[{...tool,schema:{config:z.number()}}],resumeCursor:cursor,fallbackSystemContext:"Full original geometry request"});expect(changed.rpc.request).toHaveBeenCalledWith("thread/start",expect.objectContaining({dynamicTools:expect.any(Array),developerInstructions:"Full original geometry request"}));await changed.session.stop();
+ const legacy=await setup({tools:[tool],resumeCursor:{threadId:"old"}});expect(legacy.rpc.request).toHaveBeenCalledWith("thread/start",expect.anything());await legacy.session.stop();
 });

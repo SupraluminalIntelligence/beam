@@ -1,10 +1,10 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
 import { create } from "./chats";
 import { send, startRun } from "./messages";
-import { claim, muted, setMuted, followParticipant, notifyRun, resolveInputNotifications } from "./notifications";
+import { claim, muted, setMuted, followParticipant, notifyRun, resolveInputNotifications, notifyMentions, reserve, finishDelivery } from "./notifications";
 function fixture(privateChat = false) {
   const tables: Record<string, any[]> = {
     runs: [{ _id: "run", chatId: "chat", agentId: "agent", dispatchedBy: "apek", runnerId: "george-machine" }],
@@ -17,7 +17,7 @@ function fixture(privateChat = false) {
   };
   const db = {
     get: async (id: string) => Object.values(tables).flat().find((r) => r._id === id) ?? null,
-    insert: async (table: string, value: any) => { const row = { _id: `${table}${tables[table]!.length}`, ...value }; tables[table]!.push(row); return row._id; },
+    insert: async (table: string, value: any) => { const row = { _id: `${table}${tables[table]!.length}`, _creationTime: Date.now(), ...value }; tables[table]!.push(row); return row._id; },
     patch: async (id: string, patch: any) => { Object.assign(await db.get(id), patch); },
     query: (table: string) => ({ withIndex: (_: string, fn: any) => {
       const filters: [string, any][] = []; const q = { eq: (k: string, v: any) => { filters.push([k,v]); return q; } }; fn(q);
@@ -97,7 +97,70 @@ it("does not allow muting a chat without access", async () => {
 it("subscribes the dispatcher even for runs started by the router", async () => {
   const { ctx, tables } = fixture(); tables.chatFollowers = [];
   tables.runners = [{ _id: "runner", name: "Local", ownerLogin: "apek", online: true, lastSeen: Date.now(), launchedByApp: true, harnesses: [{ harness: "claude", auth: "authenticated" }] }];
-  tables.messages = [{ _id: "message", chatId: "chat", author: "apek" }];
+  tables.messages = [{ _id: "message", chatId: "chat", author: "apek", localRunnerId: "runner" }];
   await startRun(ctx, tables.chats![0], { ...tables.agents![0], harness: "claude", model: "sonnet", effort: "high" }, "message" as Id<"messages">, "apek");
   expect(tables.chatFollowers).toEqual([expect.objectContaining({ chatId: "chat", login: "apek" })]);
+});
+
+
+afterEach(() => vi.useRealTimers());
+it("creates one message-linked mention per person through send, including display-name aliases", async () => {
+  const { ctx, tables } = fixture(); tables.agents = []; tables.runs = [];
+  tables.users![1].name = "Noah Example";
+  const result = await call(send, ctx, { chatId: "chat", text: "@Noah can you review? @george @apek @outsider", mentionHandle: null });
+  await notifyMentions(ctx, result.id);
+  expect(tables.notifications).toEqual([expect.objectContaining({ recipient: "george", kind: "mention", messageId: result.id, readAt: null, deliveredAt: null, body: expect.stringContaining("can you review?") })]);
+  expect(tables.notifications![0].runId).toBeUndefined();
+});
+it("does not ping people outside a private chat or from agent-authored text", async () => {
+  const { ctx, tables } = fixture(true); tables.agents = []; tables.runs = [];
+  await call(send, ctx, { chatId: "chat", text: "@george @outsider", mentionHandle: null });
+  expect(tables.notifications).toHaveLength(0);
+  tables.chats![0].private = false;
+  tables.messages!.push({ _id: "agent-message", chatId: "chat", author: "agent:one", text: "@george" });
+  await notifyMentions(ctx, "agent-message" as Id<"messages">);
+  expect(tables.notifications).toHaveLength(0);
+});
+it("keeps mentions in the inbox when desktop alerts are disabled or chat is muted", async () => {
+  const { ctx, tables } = fixture(); tables.agents = []; tables.runs = [];
+  tables.users![1].notificationPreferences = { enabled: false, mention: false };
+  tables.chatFollowers![0].muted = true;
+  await call(send, ctx, { chatId: "chat", text: "@george", mentionHandle: null });
+  expect(tables.notifications).toHaveLength(1);
+  tables.users![0].githubLogin = "george";
+  tables.users![0].notificationPreferences = { enabled: true, mention: true };
+  expect(await call(reserve, ctx, { id: tables.notifications![0]._id, token: "muted" })).toBe(false);
+  tables.chatFollowers![0].muted = false;
+  tables.users![0].notificationPreferences.mention = false;
+  expect(await call(reserve, ctx, { id: tables.notifications![0]._id, token: "disabled" })).toBe(false);
+});
+it("leases once, releases failed delivery, rejects stale tokens and acknowledges successful delivery", async () => {
+  vi.useFakeTimers(); const { ctx, tables } = fixture();
+  await notifyRun(ctx, runId, "completed", "ended"); const row = tables.notifications![0], id = row._id;
+  expect(await call(reserve, ctx, { id, token: "first" })).toBe(true);
+  expect(row.deliveredAt).toBeNull();
+  expect(await call(reserve, ctx, { id, token: "other-device" })).toBe(false);
+  expect(await call(claim, ctx, { id })).toBe(false);
+  await call(finishDelivery, ctx, { id, token: "first", accepted: false });
+  expect(row.deliveredAt).toBeNull(); expect(row.deliveryToken).toBeUndefined();
+  expect(await call(reserve, ctx, { id, token: "second" })).toBe(true);
+  vi.advanceTimersByTime(30_001);
+  expect(await call(reserve, ctx, { id, token: "replacement" })).toBe(true);
+  await call(finishDelivery, ctx, { id, token: "second", accepted: true });
+  expect(row.deliveredAt).toBeNull();
+  await call(finishDelivery, ctx, { id, token: "replacement", accepted: true });
+  expect(row.deliveredAt).toEqual(expect.any(Number)); expect(row.readAt).toBeNull();
+  expect(await call(reserve, ctx, { id, token: "again" })).toBe(false);
+});
+it("refuses another recipient, revoked chat access, and stale desktop alerts", async () => {
+  vi.useFakeTimers(); const { ctx, tables } = fixture();
+  await notifyRun(ctx, runId, "completed", "ended");
+  const mine = tables.notifications![0]._id, theirs = tables.notifications![1]._id;
+  expect(await call(reserve, ctx, { id: theirs, token: "wrong-user" })).toBe(false);
+  await expect(call(finishDelivery, ctx, { id: theirs, token: "wrong-user", accepted: true })).rejects.toThrow("Not your notification");
+  const members = tables.members; tables.members = [];
+  await expect(call(reserve, ctx, { id: mine, token: "revoked" })).rejects.toThrow("not a member");
+  tables.members = members!;
+  vi.advanceTimersByTime(10 * 60_000 + 1);
+  expect(await call(reserve, ctx, { id: mine, token: "stale" })).toBe(false);
 });

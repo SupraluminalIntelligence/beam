@@ -1,3 +1,4 @@
+import { showNotification } from "./notifications";
 import { app, BrowserWindow, dialog, ipcMain, shell, Notification, clipboard } from "electron";
 import { installPreviewHost } from "./preview";
 import { autoUpdater } from "electron-updater";
@@ -37,7 +38,6 @@ function setupUpdates() {
 }
 let win: BrowserWindow | null = null;
 let quitting = false;
-const banners = new Map<string, Notification>();
 let pendingPair: string | null = null;
 const runnerLog: string[] = [];
 
@@ -86,6 +86,7 @@ ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
     await shell.openExternal("about:blank"); // TODO: win32/linux terminal handoff
   }
 });
+
 let serverScan: Promise<unknown> | null = null;
 let serverScanAt = 0;
 ipcMain.handle("beam:localServers", event => {
@@ -116,20 +117,18 @@ app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) creat
 // Renderer is authenticated with Convex; only our own main frame may request a native banner.
 ipcMain.handle("beam:notify", (event, value: unknown) => {
   if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame || !Notification.isSupported()) return false;
-  const n = value as { id?: unknown; title?: unknown; body?: unknown; silent?: unknown; workspaceId?: unknown; chatId?: unknown } | null;
+  const n = value as { id?: unknown; title?: unknown; body?: unknown; silent?: unknown; workspaceId?: unknown; chatId?: unknown; messageId?: unknown } | null;
   if (!n || typeof n.id !== "string" || typeof n.title !== "string" || typeof n.body !== "string" || n.id.length > 200 || n.title.length > 200 || n.body.length > 500) return false;
-  if (banners.has(n.id)) return true;
-  const banner = new Notification({ title: n.title, body: n.body, silent: n.silent === true });
-  const id = n.id;
-  banners.set(id, banner);
-  banner.on("click", () => {
+  const target = {
+    id: n.id, title: n.title, body: n.body, silent: n.silent === true,
+    ...(typeof n.workspaceId === "string" ? { workspaceId: n.workspaceId } : {}),
+    ...(typeof n.chatId === "string" ? { chatId: n.chatId } : {}),
+    ...(typeof n.messageId === "string" ? { messageId: n.messageId } : {}),
+  };
+  return showNotification(target, () => {
     win?.show(); if (win?.isMinimized()) win.restore(); win?.focus();
-    if (typeof n.workspaceId === "string" && typeof n.chatId === "string") win?.webContents.send("beam:notificationClick", { id, workspaceId: n.workspaceId, chatId: n.chatId });
+    if (target.workspaceId && target.chatId) win?.webContents.send("beam:notificationClick", target);
   });
-  banner.on("close", () => banners.delete(id));
-  banner.on("failed", () => banners.delete(id));
-  banner.show();
-  return true;
 });
 
 // Only files explicitly present in the native clipboard can be read by the renderer.

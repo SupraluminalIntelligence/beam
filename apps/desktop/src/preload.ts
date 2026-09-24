@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("beam", {
   localServers: () => ipcRenderer.invoke("beam:localServers"),
   clipboardFiles: () => ipcRenderer.invoke("beam:clipboardFiles"),
   notify: (value: unknown) => ipcRenderer.invoke("beam:notify", value),
-  onNotificationClick: (cb: (value: { id: string; workspaceId: string; chatId: string }) => void) => { const h = (_e: unknown, value: { id: string; workspaceId: string; chatId: string }) => cb(value); ipcRenderer.on("beam:notificationClick", h); return () => ipcRenderer.off("beam:notificationClick", h); },
+  onNotificationClick: (cb: (value: { id: string; workspaceId: string; chatId: string; messageId?: string }) => void) => { const h = (_e: unknown, value: { id: string; workspaceId: string; chatId: string; messageId?: string }) => cb(value); ipcRenderer.on("beam:notificationClick", h); return () => ipcRenderer.off("beam:notificationClick", h); },
   openTerminalWith: (command: string) => ipcRenderer.invoke("beam:openTerminalWith", command),
   pickFolder: () => ipcRenderer.invoke("beam:pickFolder"),
   openExternal: (url: string) => ipcRenderer.invoke("beam:openExternal", url),

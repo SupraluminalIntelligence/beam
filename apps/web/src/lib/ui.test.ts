@@ -60,3 +60,56 @@ it("opens CAD attachments and durable result references in a single per-chat too
   expect(ui.get().panels.b?.active).toBe("files");
   expect(ui.get().panels.a?.cadReference).toEqual({ kind: "result", jobId: "job", assetId: "asset" });
 });
+
+it("opens an exact study run without duplicating the Simulation tab",async()=>{
+ const {ui}=await import("./ui");ui.openSimulation("a","study","results","run-1");
+ expect(ui.get().panels.a?.simulationSelection).toMatchObject({studyId:"study",stage:"results",jobId:"run-1"});
+ ui.openSimulation("a","study-2","setup");expect(ui.get().panels.a?.tabs).toEqual(["cfd"]);
+ expect(ui.get().panels.a?.simulationSelection?.jobId).toBeUndefined();expect(ui.get().panels.b).toBeUndefined();
+});
+
+it("opens Simulation beside a 480px chat with the sidebar collapsed", async () => {
+  const { ui } = await import("./ui");
+  ui.panel("a", { width: 520, maximized: true });
+  ui.openSimulation("a", "study");
+  expect(ui.get().sidebarHidden).toBe(true);
+  expect(ui.get().panels.a).toMatchObject({ open: true, active: "cfd", fitChat: true, maximized: false });
+  ui.panel("a", { width: 900 });
+  expect(ui.get().panels.a?.fitChat).toBe(false);
+  ui.panel("a", { open: false });
+  ui.toggleSidebar();
+  ui.panel("a", { open: true });
+  expect(ui.get().sidebarHidden).toBe(true);
+  expect(ui.get().panels.a?.fitChat).toBe(true);
+});
+
+it("applies the Simulation layout through the launcher and tab, leaving other tools unchanged", async () => {
+  const { ui } = await import("./ui");
+  ui.openSurface("a", "files");
+  expect(ui.get().sidebarHidden).toBe(false);
+  expect(ui.get().panels.a?.fitChat).not.toBe(true);
+  ui.openSurface("a", "cfd");
+  expect(ui.get().panels.a?.fitChat).toBe(true);
+  ui.openSurface("a", "files");
+  expect(ui.get().panels.a?.fitChat).toBe(false);
+  ui.toggleSidebar();
+  ui.panel("a", { active: "cfd" });
+  expect(ui.get().sidebarHidden).toBe(true);
+  expect(ui.get().panels.a?.fitChat).toBe(true);
+  ui.panel("a", { maximized: true });
+  expect(ui.get().panels.a?.maximized).toBe(true);
+});
+
+
+it("opens a mentioned message across workspaces and reveals it from a maximized tool", async () => {
+  const { ui } = await import("./ui");
+  ui.openChat("one", "a"); ui.openSurface("b", "files"); ui.panel("b", { maximized: true });
+  ui.openMessage("two", "b", "message");
+  expect(ui.get().ws).toBe("two"); expect(ui.get().active.two).toBe("b");
+  expect(ui.get().messageTarget).toMatchObject({ chatId: "b", messageId: "message" });
+  expect(ui.get().panels.b).toMatchObject({ open: false, maximized: false });
+  const saved = vi.mocked(localStorage.setItem).mock.calls.at(-1)![1];
+  vi.stubGlobal("localStorage", { getItem: () => saved, setItem: vi.fn() }); vi.resetModules();
+  expect((await import("./ui")).ui.get().messageTarget).toBeNull();
+  ui.clearMessageTarget(); expect(ui.get().messageTarget).toBeNull();
+});

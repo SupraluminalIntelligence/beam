@@ -56,8 +56,8 @@ button:focus-visible,[tabindex]:focus-visible,input:focus-visible,textarea:focus
 .app.sidebar-hidden>.side{transform:translateX(-100%);visibility:hidden;pointer-events:none;transition:transform .24s cubic-bezier(.2,.8,.2,1),visibility 0s .24s}
 body.resizing .app,body.resizing .app>.side{transition:none}
 @media(prefers-reduced-motion:reduce){.app,.app>.side,.app.sidebar-hidden>.side{transition:none}}
-.app.sidebar-hidden .tb-ws{padding-left:190px}
-.app.browser.sidebar-hidden .tb-ws{padding-left:110px}
+.app.sidebar-hidden .tb-ws{margin-left:190px;padding-left:0}
+.app.browser.sidebar-hidden .tb-ws{margin-left:110px;padding-left:0}
 .app:not(.browser) .sb-top{padding-left:84px}
 .sb-brand{font-family:var(--font-display);font-weight:700;letter-spacing:.08em;font-size:13px}
 .sb-act{height:36px;padding:0 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-weight:500;flex:none;width:100%;text-align:left}
@@ -172,9 +172,6 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .dd .ddf{display:block;padding:6px 10px 8px;font-size:10.5px;color:var(--ink-3);border-top:1px solid var(--line)}
 .thead .share{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px}
 .thead .share:hover{color:var(--ink)}
-.pinsel{border:0;padding:0;color:var(--ink-3);font-size:11px}
-.pinsel:hover{color:var(--ink)}
-.pinsel .dd{bottom:calc(100% + 6px);top:auto;left:0}
 .kindpick{display:flex;gap:6px}
 .kindpick button{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);color:var(--ink-2);flex:1;text-align:left}
 .kindpick button svg{flex:none}
@@ -210,7 +207,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .workspace-expand:hover,.workspace-expand[aria-pressed="true"]{background:var(--surface-3);color:var(--ink)}
 .workspace-tabs{display:flex;align-self:stretch;flex:1;min-width:0;overflow:auto;scrollbar-width:thin}
 .workspace-tab{display:flex;align-items:center;flex:none;border-right:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap;font-size:12px}
-.workspace-tab.selected{color:var(--ink);background:rgba(128,128,128,.08);box-shadow:inset 0 -2px var(--ink)}
+.workspace-tab.selected{color:var(--ink);background:rgba(128,128,128,.08);box-shadow:inset 0 2px var(--ink)}
 .workspace-tab button{padding:9px}
 .workspace-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
 .workspace-surface{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
@@ -326,7 +323,8 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .composer{margin:0 auto 16px;width:min(880px,calc(100% - 36px));border:1px solid var(--line-2);border-radius:var(--r-3);padding:14px 14px 8px;background:var(--surface);position:relative;flex:none}
 .composer textarea{display:block;width:100%;resize:none;border:0;background:transparent;color:var(--ink);font:inherit;padding:12px 0;min-height:44px;max-height:160px;outline:none}
 .composer textarea::placeholder{color:var(--ink-3)}
-.composer .ft{display:flex;flex-wrap:wrap;gap:12px;padding:8px 0 2px;border-top:0;font-size:11px;color:var(--ink-3);font-family:var(--font-mono);align-items:center}
+.composer .ft{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:8px 0 2px;border-top:0;font-size:11px;color:var(--ink-3);font-family:var(--font-mono);align-items:end}
+.composer-tools{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:32px;min-width:0}
 .composer-permissions{position:relative;flex:none}
 .permission-trigger{display:flex;align-items:center;gap:6px;white-space:nowrap;border-radius:var(--r-1);padding:4px 6px}
 .permission-trigger:hover,.permission-trigger[aria-expanded=true]{background:var(--surface-2)}
@@ -340,8 +338,10 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .permission-options small{display:block;font-size:12px;line-height:1.5;margin-top:3px}
 .permission-options button:hover,.permission-options button[aria-pressed=true]{background:var(--surface-2)}
 .permission-options button:disabled{opacity:.6;cursor:wait}
-.composer .ft .sp{flex:1}
 .composer .ft button{color:var(--ink-3)}.composer .ft button:hover{color:var(--ink)}
+.composer .ft .sendbtn{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--ink);border-radius:var(--r-1);background:var(--ink);color:var(--surface)}
+.composer .ft .sendbtn:hover:not(:disabled),.composer .ft .sendbtn:focus-visible{background:var(--surface);color:var(--ink)}
+.composer .ft .sendbtn:disabled{border-color:var(--line-2);background:transparent;color:var(--ink-3);cursor:default}
 .composer .ft .warn{color:var(--warn)}
 .popover{position:absolute;left:12px;bottom:calc(100% + 6px);width:340px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--shadow);z-index:5}
 .popover .ph{font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);padding:8px 12px 4px}
@@ -518,6 +518,10 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 
 /* ---- markdown in messages ---- */
 .md{line-height:1.5}
+.md .katex{font-size:1.1em}
+.md .katex-display{margin:12px 0;max-width:100%;overflow-x:auto;overflow-y:hidden;padding:4px 0;text-align:left}
+.md .katex-display>.katex{text-align:left}
+.md .katex-error{font-family:var(--font-mono);font-size:.9em;white-space:pre-wrap;overflow-wrap:anywhere}
 .md>*:first-child{margin-top:0}.md>*:last-child{margin-bottom:0}
 .md p{margin:0 0 .7em}
 .md ul,.md ol{margin:0 0 .7em;padding-left:1.4em}
@@ -777,6 +781,8 @@ body.resizing .side-grip{pointer-events:auto}
 /* Keep native drag regions clear of the overlaid navigation buttons. */
 .titlebar::before,.sb-top::before{content:"";position:absolute;top:0;bottom:0;left:190px;right:0;-webkit-app-region:drag}
 .titlebar>*,.sb-top>*{position:relative;-webkit-app-region:no-drag}
+/* The workspace label fills the empty header; retain native title-bar actions there. */
+.titlebar>.tb-ws{height:100%;-webkit-app-region:drag}
 .app-navigation *{-webkit-app-region:no-drag}
 
 /* ---- PLATE components: shape carries state, hairlines carry structure, ink carries identity ---- */
@@ -808,6 +814,11 @@ body.resizing .side-grip{pointer-events:auto}
 .act{border:0;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line);background:transparent;margin-top:10px}
 .act .ah{background:transparent;padding:7px 0;gap:10px}
 .act .ah .ttl{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+.act .ah .activity-heading{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 10px}
+.act .ah .activity-summary{min-width:0;max-width:100%;font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act .ah:hover .activity-summary{color:var(--ink)}
+.act .ah .activity-failed{color:var(--bad)}
+.act .ah .tog,.act .ah .st{flex-shrink:0}
 .act .ah .tog{width:7px;font-size:10px}
 .act .ah .st{font-size:10px;letter-spacing:var(--track-status);text-transform:uppercase;color:var(--ink-3)}
 .act .ah .st i{width:6px;height:6px;background:transparent;border:1px solid var(--line-2);box-sizing:border-box}
@@ -885,3 +896,5 @@ body.resizing .side-grip{pointer-events:auto}
 .compute-card{background:transparent;border-radius:var(--r-2);border-color:var(--line-2)}
 .compute-card:hover{background:transparent;border-color:var(--ink-3)}
 .signin h1{font-family:var(--font-display)}
+
+.msg.notification-target{background:var(--surface-3);outline:1px solid var(--line-2);outline-offset:4px}

@@ -8,6 +8,7 @@ import { normalizePreviewUrl } from "../vendor/t3code/previewUrl";
 import { browserAction, useBrowserStatus } from "../browser/BrowserHost";
 import { bridge } from "../bridge";
 
+const SimulationPane = lazy(() => import("../simulation/SimulationPane"));
 const CadPane = lazy(() => import("../cad/CadPane"));
 
 const tools = [
@@ -15,7 +16,7 @@ const tools = [
   { id: "files", label: "Context", icon: "▤", group: "General", detail: "Files, links, and sources" },
   { id: "compute", label: "Compute Jobs", icon: "⌁", group: "Engineering", detail: "Run, monitor, and collect results" },
   { id: "cad", label: "CAD Viewer", icon: "◇", group: "Engineering", detail: "Inspect models, parts, and sections" },
-  { id: "cfd", label: "CFD Editor", icon: "≋", group: "Engineering", detail: "Case setup, mesh, and flow results", upcoming: true },
+  { id: "cfd", label: "Simulation", icon: "≋", group: "Engineering", detail: "Study setup, mesh, and flow results", upcoming: false },
 ];
 const MIN_TOOL_WIDTH = 340;
 const MIN_CHAT_WIDTH = 480;
@@ -38,7 +39,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
   useEffect(() => () => resizeCleanup.current?.(), []);
   const compact = availableWidth < MIN_TOOL_WIDTH + MIN_CHAT_WIDTH;
   const maxWidth = Math.max(MIN_TOOL_WIDTH, availableWidth - MIN_CHAT_WIDTH);
-  const paneWidth = Math.min(maxWidth, Math.max(MIN_TOOL_WIDTH, panel.width));
+  const paneWidth = panel.fitChat ? maxWidth : Math.min(maxWidth, Math.max(MIN_TOOL_WIDTH, panel.width));
   useEffect(() => {
     if (!panel.open || !panel.maximized) return;
     const restore = (event: KeyboardEvent) => {
@@ -67,7 +68,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     <div className="workspace-content">
       {panel.active === null && <div className="workspace-launcher"><span className="workspace-eyebrow">TOOLS</span><h2>Open a tool</h2><p>Keep your work beside the conversation.</p>{["General","Engineering"].map(group=><section key={group}><h3>{group}</h3>{tools.filter(t=>t.group===group).map(t=><button key={t.id} disabled={t.upcoming} onClick={()=>activate(t.id)} title={t.upcoming ? `${t.label} integration is coming next` : t.detail}><span className="tool-icon">{t.icon}</span><span><b>{t.label}</b><small>{t.detail}</small></span><span className="tool-action">{t.upcoming?"Coming next":"↗"}</span></button>)}</section>)}</div>}
       {panel.tabs.map(id=><div key={id} className="workspace-surface" hidden={panel.active!==id}><ToolBoundary>
-        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : null}
+        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id==="cfd" ? <Suspense fallback={<div className="workspace-empty">Loading Simulation…</div>}><SimulationPane key={chatId} chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : null}
       </ToolBoundary></div>)}
     </div>
   </aside>;

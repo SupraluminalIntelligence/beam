@@ -1,4 +1,4 @@
 {
-  "compilerOptions": { "target": "ESNext", "module": "ESNext", "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "lib": ["ES2021", "DOM"], "jsx": "react-jsx", "noEmit": true, "isolatedModules": true },
+  "compilerOptions": { "target": "ESNext", "module": "ESNext", "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "lib": ["ES2021", "DOM"], "jsx": "react-jsx", "noEmit": true, "allowImportingTsExtensions": true, "isolatedModules": true },
   "include": ["./**/*"], "exclude": ["./_generated"]
 }

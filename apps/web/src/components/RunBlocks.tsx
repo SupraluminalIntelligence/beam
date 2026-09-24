@@ -4,6 +4,7 @@ import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
+import { activityLabel, activitySummary } from "../lib/activity";
 
 type Run = Doc<"runs"> & { runnerName: string };
 export const isLive = (state: string) => state === "queued" || state === "starting" || state === "working" || state === "landing";
@@ -26,17 +27,17 @@ function Step({ a, now }: { a: ActivityLine; now: number }) {
   const running = a.ok === null && a.startedAt ? ms(Math.max(0, now - a.startedAt)) : null;
   const label = KIND_LABEL[a.kind] ?? a.kind.slice(0, 5);
   // "Read src/x.ts" → the file, since the kind column already says read
-  const text = ["read", "edit", "write", "search", "web", "agent"].includes(a.kind) ? a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : a.summary;
+  const text = ["read", "edit", "write", "search", "web", "agent"].includes(a.kind) ? a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : activityLabel(a);
   return (
     <div className={`step${open ? " open" : ""}`}>
-      <button className="stepline" onClick={() => setOpen(!open)} title={open ? "collapse" : "show full command and output"}>
+      <button className="stepline" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? "collapse" : "show full command and output"}>
         <span className={`sq ${a.ok === null ? "run" : a.ok ? "ok" : "bad"}`} />
         <span className="kind">{label}</span>
         <span className="what">{text}</span>
         <span className={`r${running ? " live" : ""}`}>{running ?? ms(a.ms)}</span>
       </button>
       {open && <div className="stepdetail">
-        {a.kind === "bash" && <pre className="cmd">{a.summary}</pre>}
+        {(a.kind === "bash" || activityLabel(a) !== a.summary) && <pre className="cmd">{a.summary}</pre>}
         <pre className="out">{a.detail ?? (a.ok === null ? "still running" : "no output")}</pre>
       </div>}
     </div>
@@ -53,10 +54,16 @@ export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }
   const quiet = live && lastAt ? Math.max(0, now - lastAt) : 0;
   const elapsed = live && t.startedAt ? ms(Math.max(0, now - t.startedAt)) : "";
   const title = live ? (n ? `${agentName} is working · ${n} step${n === 1 ? "" : "s"}` : `${agentName} is thinking`) : `${n} step${n === 1 ? "" : "s"}`;
+  const summary = activitySummary(t.activity);
+  const failed = t.activity.filter((a) => a.ok === false).length;
   return (
     <div className={`act${isOpen ? "" : " closed"}${live && (note || quiet > QUIET_MS) ? " quiet" : ""}`}>
-      <button className="ah" onClick={() => setOpen(!isOpen)}>
-        <span className="tog">{isOpen ? "▾" : "▸"}</span><span className="ttl">{title}</span>
+      <button className="ah" onClick={() => setOpen(!isOpen)} aria-expanded={isOpen} title={summary.full || title}>
+        <span className="tog">{isOpen ? "▾" : "▸"}</span>
+        <span className="activity-heading">
+          {n > 0 && <span className="activity-summary">{summary.text}</span>}
+          <span className="ttl">{title}{failed > 0 && <span className="activity-failed"> · {failed} failed</span>}</span>
+        </span>
         {queued > 0 && <span className="chip" title={`${queued} message${queued === 1 ? "" : "s"} handed over; the agent reads them when this turn ends`}>{queued} queued</span>}
         <span className={`st ${live ? "work" : "done"}`}>
           {live && note && <span className="quietnote" title="What the harness reports it is waiting on">{note}</span>}
@@ -64,7 +71,7 @@ export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }
           <i />{live ? elapsed : span(t)}
         </span>
       </button>
-      <div className="stepwrap"><div className="steps">
+      <div className="stepwrap" inert={!isOpen} aria-hidden={!isOpen}><div className="steps">
         {t.activity.map((a) => <Step key={a.itemId} a={a} now={now} />)}
       </div></div>
     </div>

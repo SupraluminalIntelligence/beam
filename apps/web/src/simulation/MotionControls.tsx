@@ -1,0 +1,10 @@
+import type { PlanarCase, PitchMotion } from "@beam/contracts";
+export function MotionControls({config:c,change}:{config:PlanarCase;change?:(c:PlanarCase)=>void}){
+ const m=c.motion;
+ const update=(next:PitchMotion)=>change?.({...c,motion:next});
+ const number=(label:string,value:number,set:(n:number)=>void,unit:string)=><label className="sim-value" key={label}><span>{label}</span><span>{change?<input aria-label={label} type="number" step="any" value={value} onChange={e=>{if(e.target.value!==""&&Number.isFinite(e.target.valueAsNumber))set(e.target.valueAsNumber);}}/>:value}<i>{unit}</i></span></label>;
+ return <><div className="sim-section-title">MOTION <span>{m?"prescribed":"stationary"}</span></div>
+ {change&&<label className="sim-value"><span>body</span><select aria-label="Moving body" value={m?.body??""} onChange={e=>{const b=c.bodies.find(b=>b.name===e.target.value);if(!b){const {motion,...rest}=c;change(rest);return;}const pivot=b.shape==="circle"?b.centre:[b.vertices.reduce((s,p)=>s+p[0],0)/b.vertices.length,b.vertices.reduce((s,p)=>s+p[1],0)/b.vertices.length] as [number,number];update(m?{...m,body:b.name,pivot}:{kind:"pitch",body:b.name,pivot,meanAngleDegrees:0,amplitudeDegrees:5,frequencyHz:Math.min(1,c.frames/c.duration/20)});}}><option value="">Stationary</option>{c.bodies.map(b=><option key={b.name} value={b.name}>{b.name} · pitch</option>)}</select></label>}
+ {m&&<>{!change&&<div className="sim-value"><span>body</span><span>{m.body}</span></div>}{([0,1] as const).map(k=>number(`pivot ${k===0?"x":"y"}`,m.pivot[k],n=>update({...m,pivot:k===0?[n,m.pivot[1]]:[m.pivot[0],n]}),"m"))}{number("mean rotation",m.meanAngleDegrees,n=>update({...m,meanAngleDegrees:n}),"°")}{number("amplitude",m.amplitudeDegrees,n=>update({...m,amplitudeDegrees:n}),"°")}{number("frequency",m.frequencyHz,n=>update({...m,frequencyHz:n}),"Hz")}<p>Rotation from the supplied geometry: mean + amplitude × sin(2πft). One body, with a deforming fluid mesh. At least 16 saved frames per cycle; amplitude up to 20°.</p></>}
+ </>;
+}

@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { autoTitle, requireChat } from "./lib";
 import { resolveExecution } from "../packages/contracts/src/execution";
-import { followParticipant } from "./notifications";
+import { followParticipant, notifyMentions } from "./notifications";
 import { chooseRunner, isLive } from "./runs";
 
 export const list = query({
@@ -19,10 +19,13 @@ export const list = query({
 /** Create a run for a dispatch. Throws when nobody can host it. */
 export async function startRun(ctx: MutationCtx, chat: Doc<"chats">, agent: Doc<"agents">, messageId: Id<"messages">, login: string) {
   if (chat.state === "deleted") throw new Error("This chat has been deleted.");
+  const dispatch = await ctx.db.get(messageId);
   const runner = await chooseRunner(ctx, chat, login, agent.harness);
   const user = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
   const execution = resolveExecution(agent, user?.agentPreferences ?? [], runner);
+  const studyId = dispatch?.studyContext === undefined ? chat.activeStudyId ?? null : dispatch.studyContext?.id ?? null;
   const runId = await ctx.db.insert("runs", {
+    studyId,
     execution,
     chatId: chat._id, agentId: agent._id, runnerId: runner._id, dispatchedBy: login, dispatchMessageId: messageId, state: "queued",
     branch: chat.activeBranch, worktree: null, resumeCursor: null, landing: null, startedAt: null, endedAt: null,
@@ -63,9 +66,12 @@ export const send = mutation({
     if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body || "Attached files") });
     if (chat.state && chat.state !== "open") patch["state"] = "open"; // a message reopens a done or settled thread
     await ctx.db.patch(chatId, patch);
-    const id = await ctx.db.insert("messages", { chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [], attachments });
+    const study = chat.activeStudyId ? await ctx.db.get(chat.activeStudyId) : null;
+    const studyContext = study?.chatId === chatId ? {id:study._id,revision:study.revision,name:study.name} : null;
+    const id = await ctx.db.insert("messages", { studyContext, chatId, author: u.githubLogin!, kind, text: body, runId: live?._id ?? null, reactions: [], attachments });
     for (const fileId of attachments) await ctx.db.patch(fileId, { messageId: id });
     await followParticipant(ctx, chatId, u.githubLogin!);
+    await notifyMentions(ctx, id);
     let runner: string | null = null;
     if (kind === "dispatch") runner = (await startRun(ctx, chat, target!, id, u.githubLogin!)).runnerName;
     // Plain messages in a team chat with agents go to the router: it decides whether an agent should act.

@@ -6,7 +6,7 @@ import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
 import { threadRepos } from "./changes";
 import { notifyRun, resolveInputNotifications } from "./notifications";
-import { selectRunner, canResume } from "../packages/contracts/src/execution";
+import { canResume, selectRunner } from "../packages/contracts/src/execution";
 
 const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
@@ -42,11 +42,12 @@ export const detail = query({
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", run.chatId)).collect();
     const previous = runs.filter((r) => r._id !== runId && r.agentId === run.agentId && r.endedAt && canResume(r, run)).sort((a, b) => b.endedAt! - a.endedAt!)[0] ?? null;
     // Context policy "since-landing-plus-summary": messages after the last landing, before this dispatch.
-    const since = previous?.endedAt ?? 0;
+    const since = previous?.resumeCursor ? previous.endedAt ?? 0 : 0;
     const transcript = all.filter((m) => m._creationTime > since && m._creationTime < dispatch._creationTime && m.kind !== "steer").slice(-40);
+    const recentTranscript=all.filter(m=>m._creationTime<dispatch._creationTime).slice(-40);
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
     const changes = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
-    return { run, chat: { ...chat, repos: threadRepos(chat) }, agent, dispatch, transcript, previous, changes, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
+    return { run, chat: { ...chat, repos: threadRepos(chat) }, agent, dispatch, transcript, recentTranscript, previous, changes, agents: agents.map((a) => ({ id: a._id, handle: a.handle, harness: a.harness })) };
   },
 });
 

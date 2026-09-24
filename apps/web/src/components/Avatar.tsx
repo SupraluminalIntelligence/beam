@@ -34,6 +34,7 @@ export function PersonAvatar({ login, name, image, className = "" }: { login: st
 }
 
 export const ICO = {
+  arrowUp: <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3 8l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="1.3"/></svg>,
   team: <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="5.5" cy="5.5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.3"/><circle cx="11" cy="6.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.3"/><path d="M1.5 13.5c0-2.5 2-4 4-4s4 1.5 4 4" fill="none" stroke="currentColor" strokeWidth="1.3"/><path d="M10 13.5c0-2 1.5-3.2 3-3.2s2.5 1.2 2.5 3.2" fill="none" stroke="currentColor" strokeWidth="1.3"/></svg>,
   lock: <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" fill="none" stroke="currentColor" strokeWidth="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="currentColor" strokeWidth="1.3"/></svg>,
 };

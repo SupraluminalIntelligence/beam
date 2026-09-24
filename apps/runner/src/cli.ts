@@ -6,6 +6,7 @@ import { api } from "../../../convex/_generated/api.js";
 import { readConfig } from "./config.ts";
 import { login } from "./login.ts";
 import { watchRuns } from "./runs.ts";
+import { probeOpenFoam, runOpenFoam } from "./compute/openfoam.ts";
 import { watchCompute } from "./compute/watch.ts";
 
 /**
@@ -28,7 +29,13 @@ async function probeAll() {
 const line = (s: { harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null }) =>
   `${s.harness.padEnd(7)} ${(s.installed ? `v${s.version ?? "?"}` : "missing").padEnd(10)} ${s.auth.padEnd(15)} ${[s.plan, s.email].filter(Boolean).join(" · ")}${s.message ? `  (${s.message})` : ""}`;
 
+if (cmd === "openfoam-job") {
+  try { await runOpenFoam(JSON.parse(argv[1] ?? "null"), argv[2] ?? ""); process.exit(0); }
+  catch (error) { console.error((error as Error).message); process.exit(1); }
+}
+
 if (cmd === "local-servers") { const { discoverLocalServers } = await import("./localServers.ts"); console.log(JSON.stringify(await discoverLocalServers())); process.exit(0); }
+
 
 if (cmd === "probe") {
   for (const s of await probeAll()) console.log(line(s));
@@ -46,7 +53,7 @@ if (cmd === "start") {
   let computeSupported = process.platform !== "win32";
   const registration = { token, name: cfg.name, hostname: hostname(), platform: process.platform, harnesses: statuses, launchedByApp: flag("--app") };
   // Older deployments do not accept the optional compute capability yet.
-  const runnerId = await client.mutation(api.runners.hello, { ...registration, ...(process.platform !== "win32" ? { computeBackend: "local-process" as const } : {}) }).catch(async (error) => {
+  const runnerId = await client.mutation(api.runners.hello, { ...registration, openfoam: await probeOpenFoam(), ...(process.platform !== "win32" ? { computeBackend: "local-process" as const } : {}) }).catch(async (error) => {
     if (process.platform === "win32") throw error;
     const id = await client.mutation(api.runners.hello, registration);
     computeSupported = false;
@@ -59,7 +66,7 @@ if (cmd === "start") {
   let lastProbeReq = 0, probing = false;
   const reprobe = async (why: string) => {
     if (probing) return; probing = true;
-    try { statuses = await probeAll(); await client.mutation(api.runners.heartbeat, { token, runnerId, harnesses: statuses }); console.log(`re-probed (${why})`); }
+    try { statuses = await probeAll(); await client.mutation(api.runners.heartbeat, { token, runnerId, harnesses: statuses, ...(computeSupported ? { openfoam: await probeOpenFoam() } : {}) }); console.log(`re-probed (${why})`); }
     catch (e) { console.error("probe failed", (e as Error).message); }
     finally { probing = false; }
   };

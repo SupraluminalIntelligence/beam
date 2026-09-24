@@ -1,5 +1,6 @@
 import { z } from "zod";
 export * from "./compute.ts";
+export * from "./simulation.ts";
 
 // ---- ids ----
 const id = (name: string) => z.string().min(1).brand(name);
