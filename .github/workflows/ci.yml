@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # convex/_generated is gitignored and normally written by `convex dev`
+      # against a deployment. --system-udfs writes the same bindings offline,
+      # so CI needs no Convex project or secrets.
+      - name: Generate Convex bindings
+        run: pnpm exec convex codegen --system-udfs --typecheck disable
+
+      - run: pnpm typecheck
+
+      - name: Typecheck convex/
+        run: pnpm exec tsc -p convex --noEmit
+
+      - run: pnpm test
+
+      - run: pnpm --filter @beam/web build
