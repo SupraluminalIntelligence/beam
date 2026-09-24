@@ -173,6 +173,29 @@ describe("worktree and landing", () => {
     expect(await remoteHead(repo, branch)).toBe(await git(["rev-parse", "HEAD"], wt));
   });
 
+  it("merges a diverged branch even when merge.ff is set to only", async () => {
+    await remote(repo);
+    let wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), branch, "main");
+    await git(["config", "merge.ff", "only"], mirrorPath(repo));
+    await write(join(wt, "a.txt"), "one\n");
+    await landRepo(wt, branch, "main", "Run 1");
+
+    wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), branch, "main");
+    await write(join(wt, "b.txt"), "two\n");
+    await pushFromElsewhere(repo, branch, "teammate.txt");
+    const r = await landRepo(wt, branch, "main", "Run 2");
+    expect(r.pushed).toBe(true);
+    expect(await remoteHead(repo, branch)).toBe(await git(["rev-parse", "HEAD"], wt));
+  });
+
+  it("reports the push's own error when a new branch is refused", async () => {
+    const { bare } = await remote(repo);
+    await writeFile(join(bare, "hooks", "pre-receive"), "#!/bin/sh\necho 'no pushes today' >&2\nexit 1\n", { mode: 0o755 });
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), branch, "main");
+    await write(join(wt, "a.txt"), "one\n");
+    await expect(landRepo(wt, branch, "main", "Run 1")).rejects.toThrow(/no pushes today/);
+  });
+
   it("fails the push without leaving a half-done merge when the teammate's push conflicts", async () => {
     await remote(repo);
     const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), branch, "main");

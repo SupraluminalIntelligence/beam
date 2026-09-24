@@ -150,7 +150,8 @@ const beamIdentity = ["-c", "user.name=Beam", "-c", "user.email=beam@supralumina
 async function catchUp(wt: string, branch: string): Promise<void> {
   const remote = `origin/${branch}`;
   if (await git(["merge", "--ff-only", remote], wt).then(() => true, () => false)) return;
-  await git([...beamIdentity, "merge", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
+  // --no-ff overrides a person's merge.ff=only, which would otherwise refuse the merge too.
+  await git([...beamIdentity, "merge", "--no-ff", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
 }
 
 export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number }
@@ -164,9 +165,11 @@ export async function landRepo(wt: string, branch: string, base: string, message
   if (dirty) await git([...beamIdentity, "commit", "-m", message], wt);
   const ahead = await git(["rev-list", "--count", `origin/${base}..HEAD`], wt).catch(() => "0");
   if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0 };
-  await git(["push", "-u", "origin", branch], wt).catch(async () => {
-    // Someone pushed to the branch while the run worked: take their commits and push once more.
-    await git(["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], wt);
+  await git(["push", "-u", "origin", branch], wt).catch(async (pushError: unknown) => {
+    // Someone pushed to the branch while the run worked: take their commits and push once more. When the branch is
+    // not on the remote, the push failed for another reason (access, a hook, the network), and that error is the one to report.
+    const fetched = await git(["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], wt).then(() => true, () => false);
+    if (!fetched) throw pushError;
     await catchUp(wt, branch);
     await git(["push", "-u", "origin", branch], wt);
   });
