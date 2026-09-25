@@ -254,7 +254,9 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     while (queuedSteers.length && !ended) {
       const s = queuedSteers.shift()!;
       openTurns += 1;
-      await session.send(stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">) + await studyPrompt(s.id as Id<"messages">), s.id);
+      const text = stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">) + await studyPrompt(s.id as Id<"messages">);
+      if (ended) return; // the run ended while the prompt was being put together
+      await session.send(text, s.id);
     }
   };
   let interrupting = false;
@@ -306,7 +308,9 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   // 6. First turn: the dispatch itself. A failure from here on still lands whatever the run did.
   try {
     openTurns = 1;
-    await session.send(stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id), dispatch._id);
+    const text = stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id);
+    // The run may have been ended (by the server, or a stop) while the prompt was being put together: never start it then.
+    if (!ended) await session.send(text, dispatch._id);
     await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
   } catch (e) {
     fail(`${agent.harness} failed: ${(e as Error).message}`);

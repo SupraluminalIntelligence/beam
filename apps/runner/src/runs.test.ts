@@ -57,7 +57,7 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean } = {}) {
+function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQuery?: (name: string) => void } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
   const detail = {
@@ -77,6 +77,7 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean } = {}
     query: async (ref: never) => {
       const name = getFunctionName(ref);
       if (name === "runs:detail" && opts.detailError) throw new Error(opts.detailError);
+      opts.onQuery?.(name);
       return answers[name];
     },
     mutation: async (ref: never, args: Record<string, unknown>) => {
@@ -241,6 +242,24 @@ it("keeps the server's failure when it arrives just after the agent finished", a
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("failed");
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("never starts the agent when the server ends the run while the prompt is being put together", async () => {
+  let sent = 0;
+  script.send = async () => { sent += 1; };
+  const { watchRuns } = await import("./runs.ts");
+  let told = false;
+  const fake = fakeClient({ onQuery: (name) => {
+    if (name !== "compute:simulationForRun" || told) return;
+    told = true;
+    fake.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  } });
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(told).toBe(true);
+  expect(sent).toBe(0);
+  expect(fake.landed()?.state).toBe("failed");
 }, 30_000);
 
 it("ends a run it cannot even read instead of leaving it queued", async () => {
