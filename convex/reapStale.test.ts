@@ -1,7 +1,8 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
 vi.mock("./notifications", () => ({ notifyRun: async () => {}, resolveInputNotifications: async () => {} }));
-import { reapStale } from "./runs";
+vi.mock("./runners", async (original) => ({ ...(await original<typeof import("./runners")>()), runnerForToken: async () => ({ _id: "asleep" }) }));
+import { land, reapStale } from "./runs";
 
 const NOW = 1_000_000_000;
 
@@ -54,4 +55,14 @@ it("ends runs whose runner went quiet or never acknowledged a stop, and nothing 
   const messages = f.tables["runEvents"]!.map((e) => `${e.runId}: ${e.event.message}`);
   expect(messages).toEqual(expect.arrayContaining(["stranded: run ended: the runner went offline", "unacked: run ended: the runner did not acknowledge stop"]));
   expect(messages).toHaveLength(3);
+});
+
+it("keeps a reaped run failed when its runner wakes up and lands it", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(NOW);
+  const f = fixture();
+  await (reapStale as any)._handler({ db: f.db }, {});
+  const landing = { repos: [{ repo: "acme/app", pushed: true }], error: null };
+  await (land as any)._handler({ db: f.db }, { token: "t", runId: "stranded", state: "landed", landing, resumeCursor: null });
+  expect(f.state("stranded")).toBe("failed");
+  expect(f.tables["runs"]!.find((r) => r._id === "stranded")!.landing).toEqual(landing);
 });

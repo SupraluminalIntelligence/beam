@@ -226,6 +226,23 @@ it("stops and lands a run the server already ended while the runner was away", a
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
 }, 30_000);
 
+it("keeps the server's failure when it arrives just after the agent finished", async () => {
+  let fake: ReturnType<typeof fakeClient> | null = null;
+  script.send = async (s) => {
+    await edit(s);
+    s.emit(turnDone);
+    await new Promise((r) => setTimeout(r, 20)); // the runner has seen the turn close
+    fake!.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  };
+  const { watchRuns } = await import("./runs.ts");
+  fake = fakeClient();
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("failed");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
 it("ends a run it cannot even read instead of leaving it queued", async () => {
   const { watchRuns } = await import("./runs.ts");
   const fake = fakeClient({ detailError: "Server Error" });

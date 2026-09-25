@@ -263,7 +263,8 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     // Ended elsewhere while this runner was away (asleep, offline): stop, so a newer run never shares this folder.
     if (!LIVE_STATES.has(c.state)) {
       fail(`this run was already ended (${c.state}) while the runner was away; stopping the agent`);
-      if (c.state === "interrupted") state = "interrupted"; // stopped from the chat: keep saying so
+      // The server's verdict stands even when the agent finished its turn a moment ago; "interrupted" means stopped from the chat.
+      state = c.state === "interrupted" ? "interrupted" : "failed";
       return;
     }
     for (const s of c.steers) if (!seenSteers.has(s.id)) { seenSteers.add(s.id); transcript.split(); queuedSteers.push({ id: s.id, text: s.text }); log(runId, `steer from ${s.author}`); }

@@ -159,7 +159,9 @@ export const workspaceRepos = query({
 export const land = mutation({
   args: { token: v.string(), runId: v.id("runs"), state: v.string(), landing: v.any(), resumeCursor: v.any() },
   handler: async (ctx, { token, runId, state, landing, resumeCursor }) => {
-    await ownRun(ctx, token, runId);
+    const { run } = await ownRun(ctx, token, runId);
+    // A run the server already ended (reaped while its runner slept) stays ended; the report still says what was pushed.
+    if (!isLive(run.state)) state = run.state;
     await ctx.db.patch(runId, { state, landing, resumeCursor, endedAt: Date.now() });
     await resolveInputNotifications(ctx, runId);
     const failed = state !== "landed" || !!landing?.error || (Array.isArray(landing?.repos) && landing.repos.some((r: { error?: string; pushed?: boolean }) => r.error || r.pushed === false));
