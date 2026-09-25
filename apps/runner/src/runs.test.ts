@@ -170,20 +170,19 @@ it("ends and lands the run when a steer cannot be delivered", async () => {
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
 }, 30_000);
 
-it("keeps the run going when an approval cannot be delivered, and says so", async () => {
+it("ends and lands the run when an approval cannot be delivered", async () => {
   let fakeSession: FakeSession | null = null;
-  script.send = async (s) => { fakeSession = s; await edit(s); };
+  script.send = async (s) => { fakeSession = s; await edit(s); s.emit({ type: "request.opened", runId: "run1" } as unknown as RunEvent); };
   script.respond = async () => { throw new Error("request already closed"); };
   const { watchRuns } = await import("./runs.ts");
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
   fake.control({ steers: [], resolutions: [{ requestId: "req1", decision: "allow", by: "george" }], interruptRequestedAt: null });
-  await vi.waitFor(() => expect(fake.errors().length).toBeGreaterThan(0));
-  fakeSession!.emit(turnDone);
   await Promise.all(active.values());
-  expect(fake.landed()?.state).toBe("landed");
-  expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/request already closed/);
+  expect(fake.landed()?.state).toBe("failed");
+  expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/george's answer.*request already closed/);
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
 }, 30_000);
 
 it("lands even when stopping the harness fails", async () => {

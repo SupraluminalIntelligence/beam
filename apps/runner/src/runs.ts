@@ -250,7 +250,8 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     if (queuedSteers.length) void deliver().catch((e) => fail(`could not deliver a message to ${agent.harness}: ${(e as Error).message}`));
     for (const r of c.resolutions) if (!seenResolutions.has(r.requestId)) {
       seenResolutions.add(r.requestId);
-      void session.respond(r.requestId, r.decision, r.by).catch((e) => queue({ type: "error", runId: runId as never, message: `could not deliver ${r.by ?? "a person"}'s answer to ${agent.harness}: ${(e as Error).message}`, fatal: false }));
+      // The harness would wait forever on an answer it never got, and the watchdog ignores runs waiting on a person.
+      void session.respond(r.requestId, r.decision, r.by).catch((e) => fail(`could not deliver ${r.by ?? "a person"}'s answer to ${agent.harness}: ${(e as Error).message}`));
     }
     if (c.interruptRequestedAt && !interrupting) {
       interrupting = true; state = "interrupted"; log(runId, "interrupt requested");
