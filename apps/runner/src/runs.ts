@@ -38,11 +38,16 @@ export function watchRuns(client: ConvexClient, token: string) {
   client.onUpdate(api.runs.queuedFor, { token }, (runs) => {
     for (const r of runs) {
       if (active.has(r._id)) continue;
-      const p = hostRun(client, token, r._id).catch(async (e) => {
+      const progress: Progress = { title: "", slots: new Map(), landing: null };
+      const p = hostRun(client, token, r._id, progress).catch(async (e) => {
         console.error(`[run ${r._id.slice(-6)}] crashed`, e);
-        // Still end it, or it waits in the chat as queued or working until someone notices.
-        await client.mutation(api.runs.land, { token, runId: r._id, state: "failed", landing: { repos: [], error: `the runner could not host this run: ${(e as Error).message}` }, resumeCursor: null })
-          .catch((err) => console.error(`[run ${r._id.slice(-6)}] could not report the crash`, err));
+        // Still end it, or it waits in the chat as queued or working until someone notices. Edits made so far are
+        // pushed the normal way; a landing that already happened is reported again rather than replaced.
+        try {
+          const l = progress.landing;
+          if (l) await land(client, token, r._id, l.state, l.repos, l.error, l.cursor);
+          else await land(client, token, r._id, "failed", await landSlots(client, token, r._id, progress.title, progress.slots), `the runner could not host this run: ${(e as Error).message}`, null);
+        } catch (err) { console.error(`[run ${r._id.slice(-6)}] could not report the crash`, err); }
       }).finally(() => active.delete(r._id));
       active.set(r._id, p);
     }
@@ -52,9 +57,12 @@ export function watchRuns(client: ConvexClient, token: string) {
 
 /** One repo's place in the thread directory. */
 interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null }
+/** What a run has set up so far, so a crash can still land it. */
+interface Progress { title: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null }
 
-async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
+async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, progress: Progress) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
+  progress.title = d.chat.title;
   const { chat, agent, dispatch } = d;
   log(runId, `dispatch from ${dispatch.author} → @${agent.handle}${chat.repos.length ? ` in ${chat.repos.join(", ")}` : " (no repo yet)"}`);
 
@@ -62,7 +70,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const scope = d.run.workScope;
   const dir = scope ? join(threadDir(chat.workspaceId, chat._id), scope) : threadDir(chat.workspaceId, chat._id);
   await mkdir(dir, { recursive: true });
-  const slots = new Map<string, RepoSlot>();
+  const slots = progress.slots;
   const changes = [...d.changes];
   const mount = async (repo: string): Promise<RepoSlot> => {
     const have = slots.get(repo);
@@ -312,14 +320,21 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   await flush();
 
   // 7. Land every repo that changed: commit, push, open or update its PR. Always, even after a failure or interrupt.
+  const landings = await landSlots(client, token, runId, chat.title, slots);
+  progress.landing = { state, repos: landings, error: null, cursor };
+  await land(client, token, runId, state, landings, null, cursor);
+}
+
+/** Commit, push and open or update a PR for every repo in the thread directory that changed. */
+async function landSlots(client: ConvexClient, token: string, runId: Id<"runs">, title: string, slots: Map<string, RepoSlot>): Promise<RepoLanding[]> {
   const landings: RepoLanding[] = [];
   for (const s of slots.values()) {
     try {
-      const r = await landRepo(s.dir, s.branch, s.base, `${chat.title}\n\nRun in Beam · ${runId}`);
+      const r = await landRepo(s.dir, s.branch, s.base, `${title}\n\nRun in Beam · ${runId}`);
       if (!r.pushed) continue;
       let pr = s.change?.prUrl ? { url: s.change.prUrl, number: s.change.prNumber } : await prForBranch(s.repo, s.branch).then((p) => (p ? { url: p.url, number: p.number } : null));
-      if (!pr && r.files > 0) { const url = await draftPullRequest(s.dir, s.repo, s.branch, s.base, chat.title, "Opened from Beam."); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
-      await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title: chat.title, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
+      if (!pr && r.files > 0) { const url = await draftPullRequest(s.dir, s.repo, s.branch, s.base, title, "Opened from Beam."); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
+      await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
       landings.push({ repo: s.repo, branch: s.branch, base: s.base, pushed: true, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, compareUrl: compareUrl(s.repo, s.base, s.branch), error: null });
       log(runId, `landed ${s.repo} · ${s.branch} · +${r.add} −${r.del} · ${r.files} files${pr ? ` · ${pr.url}` : ""}`);
     } catch (e) {
@@ -327,7 +342,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
       log(runId, `push failed for ${s.repo}`, (e as Error).message);
     }
   }
-  await land(client, token, runId, state, landings, null, cursor);
+  return landings;
 }
 
 async function land(client: ConvexClient, token: string, runId: Id<"runs">, state: string, repos: RepoLanding[], error: string | null, cursor: unknown) {

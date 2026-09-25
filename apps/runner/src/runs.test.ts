@@ -17,6 +17,7 @@ interface Script {
   send?(s: FakeSession, text: string, messageId: string): Promise<void>;
   respond?(): Promise<void>;
   stop?(): Promise<void>;
+  resumeCursor?(): unknown;
 }
 let script: Script = {};
 const turnDone = { type: "turn.completed", runId: "run1", turnId: "t1" } as unknown as RunEvent;
@@ -33,7 +34,7 @@ class FakeSession implements Session {
   async interrupt() { this.emit(turnDone); this.close(); }
   respond() { return script.respond ? script.respond() : Promise.resolve(); }
   stop() { this.close(); return script.stop ? script.stop() : Promise.resolve(); }
-  resumeCursor() { return null; }
+  resumeCursor() { return script.resumeCursor ? script.resumeCursor() : null; }
   get events(): AsyncIterable<RunEvent> {
     const self = this;
     return { async *[Symbol.asyncIterator]() {
@@ -56,7 +57,7 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient(opts: { detailError?: string } = {}) {
+function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
   const detail = {
@@ -80,6 +81,7 @@ function fakeClient(opts: { detailError?: string } = {}) {
     },
     mutation: async (ref: never, args: Record<string, unknown>) => {
       const name = getFunctionName(ref);
+      if (name === "runs:land" && opts.landFailsOnce) { opts.landFailsOnce = false; throw new Error("Connection lost"); }
       mutations.push({ name, args });
       if (name === "runs:say") return "said1";
       if (name === "resources:contribute") return "resource1";
@@ -230,4 +232,24 @@ it("ends a run it cannot even read instead of leaving it queued", async () => {
   watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fake.landed()).toBeDefined(), { timeout: 3000 });
   expect(fake.landed()).toMatchObject({ state: "failed", landing: { repos: [], error: expect.stringMatching(/Server Error/) } });
+}, 30_000);
+
+it("pushes the work of a run that crashes before its landing step", async () => {
+  script.send = async (s) => { await edit(s); s.emit(turnDone); };
+  script.resumeCursor = () => { throw new Error("cursor unreadable"); };
+  const fake = await host();
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { error: expect.stringMatching(/cursor unreadable/) } });
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+  expect(await pushedBranches()).toHaveLength(1);
+}, 30_000);
+
+it("reports the real landing again when reporting it failed the first time", async () => {
+  script.send = async (s) => { await edit(s); s.emit(turnDone); };
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient({ landFailsOnce: true });
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("landed");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
 }, 30_000);
