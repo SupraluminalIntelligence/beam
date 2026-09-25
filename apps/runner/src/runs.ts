@@ -198,6 +198,14 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
 
   let turn = 0, openTurns = 0, ended = false, state = "landed", cursor: unknown = resumeCursor;
   let lastEventAt = Date.now(), waitingOnPerson = 0;
+  /** End the run as failed, say why in the chat, and let it land what it has. */
+  const fail = (message: string) => {
+    if (ended) return;
+    log(runId, message);
+    queue({ type: "error", runId: runId as never, message, fatal: true });
+    state = "failed"; ended = true;
+    void session.interrupt().catch(() => {});
+  };
   const SILENCE_MS = 15 * 60_000;
   const turnDone = new Promise<void>((res) => {
     void (async () => {
@@ -239,8 +247,12 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   const unsubscribe = client.onUpdate(api.runs.control, { token, runId }, (c) => {
     if (!c) return;
     for (const s of c.steers) if (!seenSteers.has(s.id)) { seenSteers.add(s.id); transcript.split(); queuedSteers.push({ id: s.id, text: s.text }); log(runId, `steer from ${s.author}`); }
-    if (queuedSteers.length) void deliver();
-    for (const r of c.resolutions) if (!seenResolutions.has(r.requestId)) { seenResolutions.add(r.requestId); void session.respond(r.requestId, r.decision, r.by); }
+    if (queuedSteers.length) void deliver().catch((e) => fail(`could not deliver a message to ${agent.harness}: ${(e as Error).message}`));
+    for (const r of c.resolutions) if (!seenResolutions.has(r.requestId)) {
+      seenResolutions.add(r.requestId);
+      // The harness would wait forever on an answer it never got, and the watchdog ignores runs waiting on a person.
+      void session.respond(r.requestId, r.decision, r.by).catch((e) => fail(`could not deliver ${r.by ?? "a person"}'s answer to ${agent.harness}: ${(e as Error).message}`));
+    }
     if (c.interruptRequestedAt && !interrupting) {
       interrupting = true; state = "interrupted"; log(runId, "interrupt requested");
       // Ask nicely, then insist: a hung harness never answers an interrupt.
@@ -270,14 +282,18 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
     }).catch(() => {}).finally(() => { checkingAccount = false; });
   }, 60_000);
 
-  // 6. First turn: the dispatch itself.
-  openTurns = 1;
-  await session.send(stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id), dispatch._id);
-  await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
+  // 6. First turn: the dispatch itself. A failure from here on still lands whatever the run did.
+  try {
+    openTurns = 1;
+    await session.send(stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id), dispatch._id);
+    await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
+  } catch (e) {
+    fail(`${agent.harness} failed: ${(e as Error).message}`);
+  }
   unsubscribe();
   clearInterval(watchdog);
   clearInterval(accountWatch);
-  await Promise.race([session.stop(), new Promise((r) => setTimeout(r, 5000))]);
+  await Promise.race([session.stop().catch((e) => log(runId, "stop failed", (e as Error).message)), new Promise((r) => setTimeout(r, 5000))]);
   cursor = session.resumeCursor() ?? cursor;
   for (const key of said.keys()) { const s = said.get(key)!; await s.id.catch(() => {}); if (s.timer) clearTimeout(s.timer); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); await sayFlush(key); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); }
   if (flushTimer) clearTimeout(flushTimer);
