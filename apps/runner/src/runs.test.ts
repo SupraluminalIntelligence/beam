@@ -17,6 +17,7 @@ interface Script {
   send?(s: FakeSession, text: string, messageId: string): Promise<void>;
   respond?(): Promise<void>;
   stop?(): Promise<void>;
+  resumeCursor?(): unknown;
 }
 let script: Script = {};
 const turnDone = { type: "turn.completed", runId: "run1", turnId: "t1" } as unknown as RunEvent;
@@ -33,7 +34,7 @@ class FakeSession implements Session {
   async interrupt() { this.emit(turnDone); this.close(); }
   respond() { return script.respond ? script.respond() : Promise.resolve(); }
   stop() { this.close(); return script.stop ? script.stop() : Promise.resolve(); }
-  resumeCursor() { return null; }
+  resumeCursor() { return script.resumeCursor ? script.resumeCursor() : null; }
   get events(): AsyncIterable<RunEvent> {
     const self = this;
     return { async *[Symbol.asyncIterator]() {
@@ -56,7 +57,7 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient() {
+function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQuery?: (name: string) => void; claimError?: string; stateAfterClaim?: string; slowAppend?: number } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
   const detail = {
@@ -71,11 +72,20 @@ function fakeClient() {
     "files:forRun": [],
     "files:contextForRun": [],
     "compute:simulationForRun": { cases: [], jobs: [], activeStudyId: null, messageStudyContext: null },
+    "runs:control": { state: opts.stateAfterClaim ?? "working", steers: [], resolutions: [], interruptRequestedAt: null },
   };
   const client = {
-    query: async (ref: never) => answers[getFunctionName(ref)],
+    query: async (ref: never) => {
+      const name = getFunctionName(ref);
+      if (name === "runs:detail" && opts.detailError) throw new Error(opts.detailError);
+      opts.onQuery?.(name);
+      return answers[name];
+    },
     mutation: async (ref: never, args: Record<string, unknown>) => {
       const name = getFunctionName(ref);
+      if (name === "runs:land" && opts.landFailsOnce) { opts.landFailsOnce = false; throw new Error("Connection lost"); }
+      if (name === "runs:claim" && opts.claimError) throw new Error(opts.claimError);
+      if (name === "runs:appendEvents" && opts.slowAppend) { const ms = opts.slowAppend; delete opts.slowAppend; await new Promise((r) => setTimeout(r, ms)); } // the first batch is slow; recorded once written
       mutations.push({ name, args });
       if (name === "runs:say") return "said1";
       if (name === "resources:contribute") return "resource1";
@@ -124,9 +134,9 @@ afterEach(async () => {
 });
 
 /** Host the one queued run to its end and return what the runner told Convex. */
-async function host() {
+async function host(opts: Parameters<typeof fakeClient>[0] = {}) {
   const { watchRuns } = await import("./runs.ts");
-  const fake = fakeClient();
+  const fake = fakeClient(opts);
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(active.size).toBe(1));
   await Promise.all(active.values());
@@ -163,7 +173,7 @@ it("ends and lands the run when a steer cannot be delivered", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [{ id: "msg1", text: "also this", author: "george" }], resolutions: [], interruptRequestedAt: null });
+  fake.control({ state: "working", steers: [{ id: "msg1", text: "also this", author: "george" }], resolutions: [], interruptRequestedAt: null });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("failed");
   expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/steer rejected/);
@@ -178,7 +188,7 @@ it("ends and lands the run when an approval cannot be delivered", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [], resolutions: [{ requestId: "req1", decision: "allow", by: "george" }], interruptRequestedAt: null });
+  fake.control({ state: "working", steers: [], resolutions: [{ requestId: "req1", decision: "allow", by: "george" }], interruptRequestedAt: null });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("failed");
   expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/george's answer.*request already closed/);
@@ -200,8 +210,100 @@ it("lands an interrupted run with the work done so far", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [], resolutions: [], interruptRequestedAt: Date.now() });
+  fake.control({ state: "working", steers: [], resolutions: [], interruptRequestedAt: Date.now() });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("interrupted");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("stops and lands a run the server already ended while the runner was away", async () => {
+  let fakeSession: FakeSession | null = null;
+  script.send = async (s) => { fakeSession = s; await edit(s); };
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient();
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fakeSession).not.toBeNull());
+  fake.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("failed");
+  expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/already ended/);
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("keeps the server's failure when it arrives just after the agent finished", async () => {
+  let fake: ReturnType<typeof fakeClient> | null = null;
+  script.send = async (s) => {
+    await edit(s);
+    s.emit(turnDone);
+    await new Promise((r) => setTimeout(r, 20)); // the runner has seen the turn close
+    fake!.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  };
+  const { watchRuns } = await import("./runs.ts");
+  fake = fakeClient();
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("failed");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("never starts the agent when the server ends the run while the prompt is being put together", async () => {
+  let sent = 0;
+  script.send = async () => { sent += 1; };
+  const { watchRuns } = await import("./runs.ts");
+  let told = false;
+  const fake = fakeClient({ onQuery: (name) => {
+    if (name !== "compute:simulationForRun" || told) return;
+    told = true;
+    fake.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  } });
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(told).toBe(true);
+  expect(sent).toBe(0);
+  expect(fake.landed()?.state).toBe("failed");
+}, 30_000);
+
+it("leaves a run alone when another runner process on this machine claimed it first", async () => {
+  script.send = async () => { throw new Error("should not start"); };
+  const fake = await host({ claimError: "This run has already been claimed or ended", stateAfterClaim: "working" });
+  expect(fake.landed()).toBeUndefined();
+}, 30_000);
+
+it("ends a run whose claim is refused while it is still queued", async () => {
+  const fake = await host({ claimError: "Chat access was revoked", stateAfterClaim: "queued" });
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { repos: [], error: expect.stringMatching(/access was revoked/) } });
+}, 30_000);
+
+it("ends a run it cannot even read instead of leaving it queued", async () => {
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient({ detailError: "Server Error" });
+  watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fake.landed()).toBeDefined(), { timeout: 3000 });
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { repos: [], error: expect.stringMatching(/Server Error/) } });
+}, 30_000);
+
+it("pushes the work of a run that crashes before its landing step", async () => {
+  script.send = async (s) => { await edit(s); s.emit(turnDone); };
+  script.resumeCursor = () => { throw new Error("cursor unreadable"); };
+  const fake = await host({ slowAppend: 3000 });
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { error: expect.stringMatching(/cursor unreadable/) } });
+  const names = fake.mutations.map((m) => m.name);
+  const turnEvents = fake.mutations.findIndex((m) => m.name === "runs:appendEvents" && (m.args["events"] as RunEvent[]).some((e) => e.type === "turn.completed"));
+  expect(turnEvents).toBeGreaterThanOrEqual(0);
+  expect(turnEvents).toBeLessThan(names.indexOf("runs:land")); // the run's own events are written before it is reported ended
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+  expect(await pushedBranches()).toHaveLength(1);
+}, 30_000);
+
+it("reports the real landing again when reporting it failed the first time", async () => {
+  script.send = async (s) => { await edit(s); s.emit(turnDone); };
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient({ landFailsOnce: true });
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(active.size).toBe(1));
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("landed");
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
 }, 30_000);

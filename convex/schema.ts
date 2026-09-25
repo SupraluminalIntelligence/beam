@@ -96,7 +96,7 @@ export default defineSchema({
     landing: v.any(), startedAt: v.union(v.number(), v.null()), endedAt: v.union(v.number(), v.null()),
     execution: v.optional(v.object({ model: v.string(), modelName: v.optional(v.string()), effort: v.string(), accountOwner: v.string(), accountEmail: v.union(v.string(), v.null()), accountPlan: v.union(v.string(), v.null()), connectionId: v.optional(v.string()), connectionName: v.optional(v.string()), machineName: v.optional(v.string()), accountIdentity: v.optional(v.string()) })),
     interruptRequestedAt: v.optional(v.number()),
-  }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]),
+  }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]).index("by_state", ["state"]),
   /** A change is one branch in one repo with its PR. A thread holds many, across repos and over time. */
   changes: defineTable({
     chatId: v.id("chats"), workspaceId: v.id("workspaces"), repo: v.string(), branch: v.string(), base: v.string(),
