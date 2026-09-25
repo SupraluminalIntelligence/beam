@@ -57,7 +57,7 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQuery?: (name: string) => void } = {}) {
+function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQuery?: (name: string) => void; claimError?: string; stateAfterClaim?: string; slowAppend?: number } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
   const detail = {
@@ -72,6 +72,7 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQue
     "files:forRun": [],
     "files:contextForRun": [],
     "compute:simulationForRun": { cases: [], jobs: [], activeStudyId: null, messageStudyContext: null },
+    "runs:control": { state: opts.stateAfterClaim ?? "working", steers: [], resolutions: [], interruptRequestedAt: null },
   };
   const client = {
     query: async (ref: never) => {
@@ -83,6 +84,8 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQue
     mutation: async (ref: never, args: Record<string, unknown>) => {
       const name = getFunctionName(ref);
       if (name === "runs:land" && opts.landFailsOnce) { opts.landFailsOnce = false; throw new Error("Connection lost"); }
+      if (name === "runs:claim" && opts.claimError) throw new Error(opts.claimError);
+      if (name === "runs:appendEvents" && opts.slowAppend) { const ms = opts.slowAppend; delete opts.slowAppend; await new Promise((r) => setTimeout(r, ms)); } // the first batch is slow; recorded once written
       mutations.push({ name, args });
       if (name === "runs:say") return "said1";
       if (name === "resources:contribute") return "resource1";
@@ -131,9 +134,9 @@ afterEach(async () => {
 });
 
 /** Host the one queued run to its end and return what the runner told Convex. */
-async function host() {
+async function host(opts: Parameters<typeof fakeClient>[0] = {}) {
   const { watchRuns } = await import("./runs.ts");
-  const fake = fakeClient();
+  const fake = fakeClient(opts);
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(active.size).toBe(1));
   await Promise.all(active.values());
@@ -262,6 +265,17 @@ it("never starts the agent when the server ends the run while the prompt is bein
   expect(fake.landed()?.state).toBe("failed");
 }, 30_000);
 
+it("leaves a run alone when another runner process on this machine claimed it first", async () => {
+  script.send = async () => { throw new Error("should not start"); };
+  const fake = await host({ claimError: "This run has already been claimed or ended", stateAfterClaim: "working" });
+  expect(fake.landed()).toBeUndefined();
+}, 30_000);
+
+it("ends a run whose claim is refused while it is still queued", async () => {
+  const fake = await host({ claimError: "Chat access was revoked", stateAfterClaim: "queued" });
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { repos: [], error: expect.stringMatching(/access was revoked/) } });
+}, 30_000);
+
 it("ends a run it cannot even read instead of leaving it queued", async () => {
   const { watchRuns } = await import("./runs.ts");
   const fake = fakeClient({ detailError: "Server Error" });
@@ -273,8 +287,12 @@ it("ends a run it cannot even read instead of leaving it queued", async () => {
 it("pushes the work of a run that crashes before its landing step", async () => {
   script.send = async (s) => { await edit(s); s.emit(turnDone); };
   script.resumeCursor = () => { throw new Error("cursor unreadable"); };
-  const fake = await host();
+  const fake = await host({ slowAppend: 3000 });
   expect(fake.landed()).toMatchObject({ state: "failed", landing: { error: expect.stringMatching(/cursor unreadable/) } });
+  const names = fake.mutations.map((m) => m.name);
+  const turnEvents = fake.mutations.findIndex((m) => m.name === "runs:appendEvents" && (m.args["events"] as RunEvent[]).some((e) => e.type === "turn.completed"));
+  expect(turnEvents).toBeGreaterThanOrEqual(0);
+  expect(turnEvents).toBeLessThan(names.indexOf("runs:land")); // the run's own events are written before it is reported ended
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
   expect(await pushedBranches()).toHaveLength(1);
 }, 30_000);

@@ -90,7 +90,13 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   try { for (const repo of chat.repos) await mount(repo); }
   catch (e) { return land(client, token, runId, "failed", [], `could not prepare a worktree: ${(e as Error).message}`, null); }
   try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); }
-  catch (error) { return land(client, token, runId, "failed", [], (error as Error).message, null); }
+  catch (error) {
+    // Another runner process with this machine's token (the desktop app's and a standalone one) may have won the claim,
+    // or the run ended before it started: either way it is not this process's to end.
+    const now = await client.query(api.runs.control, { token, runId }).catch(() => null);
+    if (now && now.state !== "queued") { log(runId, `not hosting: ${(error as Error).message}`); return; }
+    return land(client, token, runId, "failed", [], (error as Error).message, null);
+  }
 
   const files = fileAccess(client, token, runId, dir);
 
@@ -315,14 +321,18 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   } catch (e) {
     fail(`${agent.harness} failed: ${(e as Error).message}`);
   }
-  unsubscribe();
-  clearInterval(watchdog);
-  clearInterval(accountWatch);
-  await Promise.race([session.stop().catch((e) => log(runId, "stop failed", (e as Error).message)), new Promise((r) => setTimeout(r, 5000))]);
-  cursor = session.resumeCursor() ?? cursor;
-  for (const key of said.keys()) { const s = said.get(key)!; await s.id.catch(() => {}); if (s.timer) clearTimeout(s.timer); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); await sayFlush(key); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); }
-  if (flushTimer) clearTimeout(flushTimer);
-  await flush();
+  try {
+    unsubscribe();
+    clearInterval(watchdog);
+    clearInterval(accountWatch);
+    await Promise.race([session.stop().catch((e) => log(runId, "stop failed", (e as Error).message)), new Promise((r) => setTimeout(r, 5000))]);
+    cursor = session.resumeCursor() ?? cursor;
+  } finally {
+    // Drain even if cleanup throws: the crash landing must come after every event and reply, or a late one reopens the run.
+    for (const key of said.keys()) { const s = said.get(key)!; await s.id.catch(() => {}); if (s.timer) clearTimeout(s.timer); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); await sayFlush(key); while (s.inflight) await new Promise((r) => setTimeout(r, 20)); }
+    if (flushTimer) clearTimeout(flushTimer);
+    await flush();
+  }
 
   // 7. Land every repo that changed: commit, push, open or update its PR. Always, even after a failure or interrupt.
   const landings = await landSlots(client, token, runId, chat.title, slots);
