@@ -116,7 +116,11 @@ export function repoDirName(repo: string, all: readonly string[]): string {
 /** beam/<thread-slug>-<6 chars of the thread id>, then -2, -3 as changes on that repo resolve. */
 export const threadBranch = (title: string, chatId: string, n: number) => `beam/${slug(title)}-${chatId.slice(-6).toLowerCase()}${n > 0 ? `-${n + 1}` : ""}`;
 
-/** A worktree for `repo` at `path`, on `branch` (created from origin/<base> when new). */
+/**
+ * A worktree for `repo` at `path`, on `branch` (created from origin/<base> when new). When the branch already exists
+ * on the remote, the worktree catches up with it first, so work pushed from another machine or by a teammate is not
+ * rejected as non-fast-forward when this run lands.
+ */
 export async function ensureRepoWorktree(repo: string, path: string, branch: string, base: string): Promise<string> {
   const mirror = await ensureMirror(repo);
   const localHas = await git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], mirror).catch(() => "");
@@ -127,12 +131,27 @@ export async function ensureRepoWorktree(repo: string, path: string, branch: str
       if (localHas) await git(["checkout", branch], path);
       else await git(["checkout", "-b", branch, remoteHas ? `origin/${branch}` : `origin/${base}`], path);
     }
-    return path;
+  } else {
+    await mkdir(join(path, ".."), { recursive: true });
+    // A worktree folder deleted by hand stays registered in the mirror and blocks `worktree add` until pruned.
+    await git(["worktree", "prune"], mirror);
+    if (localHas) await git(["worktree", "add", path, branch], mirror);
+    else await git(["worktree", "add", "-b", branch, path, remoteHas ? `origin/${branch}` : `origin/${base}`], mirror);
   }
-  await mkdir(join(path, ".."), { recursive: true });
-  if (localHas) await git(["worktree", "add", path, branch], mirror);
-  else await git(["worktree", "add", "-b", branch, path, remoteHas ? `origin/${branch}` : `origin/${base}`], mirror);
+  if (remoteHas) await catchUp(path, branch);
   return path;
+}
+
+const beamIdentity = ["-c", "user.name=Beam", "-c", "user.email=beam@supraluminal.dev"];
+/**
+ * Bring the worktree's branch up to origin/<branch>: a fast-forward when it is simply behind, a merge when both sides
+ * moved. A merge that conflicts is abandoned and the branch is left as it was; the push then fails and says so.
+ */
+async function catchUp(wt: string, branch: string): Promise<void> {
+  const remote = `origin/${branch}`;
+  if (await git(["merge", "--ff-only", remote], wt).then(() => true, () => false)) return;
+  // --no-ff overrides a person's merge.ff=only, which would otherwise refuse the merge too.
+  await git([...beamIdentity, "merge", "--no-ff", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
 }
 
 export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number }
@@ -143,10 +162,17 @@ export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: bo
 export async function landRepo(wt: string, branch: string, base: string, message: string): Promise<RepoLandResult> {
   await git(["add", "-A"], wt);
   const dirty = !!(await git(["status", "--porcelain"], wt));
-  if (dirty) await git(["-c", "user.name=Beam", "-c", "user.email=beam@supraluminal.dev", "commit", "-m", message], wt);
+  if (dirty) await git([...beamIdentity, "commit", "-m", message], wt);
   const ahead = await git(["rev-list", "--count", `origin/${base}..HEAD`], wt).catch(() => "0");
   if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0 };
-  await git(["push", "-u", "origin", branch], wt);
+  await git(["push", "-u", "origin", branch], wt).catch(async (pushError: unknown) => {
+    // Someone pushed to the branch while the run worked: take their commits and push once more. When the branch is
+    // not on the remote, the push failed for another reason (access, a hook, the network), and that error is the one to report.
+    const fetched = await git(["fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], wt).then(() => true, () => false);
+    if (!fetched) throw pushError;
+    await catchUp(wt, branch);
+    await git(["push", "-u", "origin", branch], wt);
+  });
   const stat = await diffStat(wt, `origin/${base}`);
   return { dirty, committed: dirty, pushed: true, ...stat };
 }
