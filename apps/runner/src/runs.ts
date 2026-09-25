@@ -28,6 +28,7 @@ interface Detail {
   agents: { id: Id<"agents">; handle: string; harness: string }[];
 }
 
+const LIVE_STATES = new Set(["queued", "starting", "working", "landing"]);
 const log = (runId: string, ...a: unknown[]) => console.log(`[run ${runId.slice(-6)}]`, ...a);
 const stripMention = (text: string, handle: string) => text.replace(new RegExp(`(^|\\s)@${handle}\\b`, "gi"), "$1").trim();
 
@@ -37,7 +38,12 @@ export function watchRuns(client: ConvexClient, token: string) {
   client.onUpdate(api.runs.queuedFor, { token }, (runs) => {
     for (const r of runs) {
       if (active.has(r._id)) continue;
-      const p = hostRun(client, token, r._id).catch((e) => console.error(`[run ${r._id.slice(-6)}] crashed`, e)).finally(() => active.delete(r._id));
+      const p = hostRun(client, token, r._id).catch(async (e) => {
+        console.error(`[run ${r._id.slice(-6)}] crashed`, e);
+        // Still end it, or it waits in the chat as queued or working until someone notices.
+        await client.mutation(api.runs.land, { token, runId: r._id, state: "failed", landing: { repos: [], error: `the runner could not host this run: ${(e as Error).message}` }, resumeCursor: null })
+          .catch((err) => console.error(`[run ${r._id.slice(-6)}] could not report the crash`, err));
+      }).finally(() => active.delete(r._id));
       active.set(r._id, p);
     }
   });
@@ -246,6 +252,12 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">) {
   let interrupting = false;
   const unsubscribe = client.onUpdate(api.runs.control, { token, runId }, (c) => {
     if (!c) return;
+    // Ended elsewhere while this runner was away (asleep, offline): stop, so a newer run never shares this folder.
+    if (!LIVE_STATES.has(c.state)) {
+      fail(`this run was already ended (${c.state}) while the runner was away; stopping the agent`);
+      if (c.state === "interrupted") state = "interrupted"; // stopped from the chat: keep saying so
+      return;
+    }
     for (const s of c.steers) if (!seenSteers.has(s.id)) { seenSteers.add(s.id); transcript.split(); queuedSteers.push({ id: s.id, text: s.text }); log(runId, `steer from ${s.author}`); }
     if (queuedSteers.length) void deliver().catch((e) => fail(`could not deliver a message to ${agent.harness}: ${(e as Error).message}`));
     for (const r of c.resolutions) if (!seenResolutions.has(r.requestId)) {

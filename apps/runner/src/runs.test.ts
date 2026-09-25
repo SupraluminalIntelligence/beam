@@ -56,7 +56,7 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient() {
+function fakeClient(opts: { detailError?: string } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
   const detail = {
@@ -73,7 +73,11 @@ function fakeClient() {
     "compute:simulationForRun": { cases: [], jobs: [], activeStudyId: null, messageStudyContext: null },
   };
   const client = {
-    query: async (ref: never) => answers[getFunctionName(ref)],
+    query: async (ref: never) => {
+      const name = getFunctionName(ref);
+      if (name === "runs:detail" && opts.detailError) throw new Error(opts.detailError);
+      return answers[name];
+    },
     mutation: async (ref: never, args: Record<string, unknown>) => {
       const name = getFunctionName(ref);
       mutations.push({ name, args });
@@ -163,7 +167,7 @@ it("ends and lands the run when a steer cannot be delivered", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [{ id: "msg1", text: "also this", author: "george" }], resolutions: [], interruptRequestedAt: null });
+  fake.control({ state: "working", steers: [{ id: "msg1", text: "also this", author: "george" }], resolutions: [], interruptRequestedAt: null });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("failed");
   expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/steer rejected/);
@@ -178,7 +182,7 @@ it("ends and lands the run when an approval cannot be delivered", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [], resolutions: [{ requestId: "req1", decision: "allow", by: "george" }], interruptRequestedAt: null });
+  fake.control({ state: "working", steers: [], resolutions: [{ requestId: "req1", decision: "allow", by: "george" }], interruptRequestedAt: null });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("failed");
   expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/george's answer.*request already closed/);
@@ -200,8 +204,30 @@ it("lands an interrupted run with the work done so far", async () => {
   const fake = fakeClient();
   const { active } = watchRuns(fake.client as never, "token");
   await vi.waitFor(() => expect(fakeSession).not.toBeNull());
-  fake.control({ steers: [], resolutions: [], interruptRequestedAt: Date.now() });
+  fake.control({ state: "working", steers: [], resolutions: [], interruptRequestedAt: Date.now() });
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("interrupted");
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("stops and lands a run the server already ended while the runner was away", async () => {
+  let fakeSession: FakeSession | null = null;
+  script.send = async (s) => { fakeSession = s; await edit(s); };
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient();
+  const { active } = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fakeSession).not.toBeNull());
+  fake.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
+  await Promise.all(active.values());
+  expect(fake.landed()?.state).toBe("failed");
+  expect(fake.errors().map((e) => (e as { message: string }).message).join()).toMatch(/already ended/);
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("ends a run it cannot even read instead of leaving it queued", async () => {
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient({ detailError: "Server Error" });
+  watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fake.landed()).toBeDefined(), { timeout: 3000 });
+  expect(fake.landed()).toMatchObject({ state: "failed", landing: { repos: [], error: expect.stringMatching(/Server Error/) } });
 }, 30_000);

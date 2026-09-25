@@ -232,8 +232,9 @@ export const reapStale = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    for (const state of ["queued", "starting", "working", "landing"]) {
-      const rows = await ctx.db.query("runs").filter((q) => q.eq(q.field("state"), state)).collect();
+    for (const state of LIVE) {
+      // Indexed: a filtered scan reads every run ever made and would outgrow Convex's per-function read limit.
+      const rows = await ctx.db.query("runs").withIndex("by_state", (q) => q.eq("state", state)).collect();
       for (const r of rows) {
         const runner = await ctx.db.get(r.runnerId);
         const offline = !runner || !runner.online || runner.lastSeen < now - 3 * 60_000;
