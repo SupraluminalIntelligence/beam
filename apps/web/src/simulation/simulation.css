@@ -41,3 +41,4 @@
 .sim-rail p.sim-check-note.warn,.sim-rail p.sim-check-note.unknown{color:var(--warn)}
 .sim-rail p.sim-check-note.fail{color:var(--bad)}
 .sim-value input::placeholder{color:var(--ink-3)}
+.sim-measure.warn>span:last-child{color:var(--warn)}.sim-measure.fail>span:last-child{color:var(--bad)}

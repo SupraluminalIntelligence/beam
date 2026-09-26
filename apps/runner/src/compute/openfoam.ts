@@ -4,11 +4,12 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ChannelCase, SimulationJob, SimulationReport, SimulationFields, WakeFields, OPENFOAM_IMAGE, meshKey, canonicalMeshKey, type ProcessJobSpec } from "@beam/contracts";
+import { ChannelCase, SimulationJob, parallelLayout, SimulationReport, SimulationFields, WakeFields, OPENFOAM_IMAGE, meshKey, canonicalMeshKey, type ProcessJobSpec } from "@beam/contracts";
 import { cylinderFiles, meshPolygons } from "./cylinder.ts";
 import { exportMovingMesh } from "./movingMesh.ts";
 import { planarFiles, planarMesh } from "./planar.ts";
-import { channelPatches, channelResults } from "./channelMetrics.ts";
+import { channelPatches, channelResults, labelList } from "./channelMetrics.ts";
+import { parallelFiles, parallelResults } from "./parallelChannels.ts";
 const exec = promisify(execFile);
 export async function probeOpenFoam(){
   try{await exec("docker",["info","--format","{{.OSType}}"],{timeout:6000});await exec("docker",["image","inspect",OPENFOAM_IMAGE],{timeout:6000,maxBuffer:1024*1024});return{ready:true,message:"OpenFOAM 2512 · local Docker",image:OPENFOAM_IMAGE};}
@@ -57,7 +58,7 @@ export async function runOpenFoam(raw:unknown,name:string){
   const sim=SimulationJob.parse(raw),c=sim.config,dir=process.cwd();
   if(!/^beam-foam-[a-f0-9]{20}$/.test(name))throw new Error("Invalid container handle");
   const ready=await probeOpenFoam();if(!ready.ready)throw new Error(ready.message);
-  for(const [path,text] of Object.entries(c.geometry==="channel"?channelFiles(c):c.geometry==="planar"?planarFiles(c):cylinderFiles(c))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
+  for(const [path,text] of Object.entries(c.geometry==="channel"?channelFiles(c):c.geometry==="planar"?planarFiles(c):c.geometry==="parallel-channels"?parallelFiles(c):cylinderFiles(c))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
   if(c.geometry==="planar"&&sim.stage==="mesh"){const generated=planarMesh(c);await writeFile(join(dir,"mesh-view.json"),JSON.stringify({version:1,polygons:generated.polygons}));for(const [path,text] of Object.entries(generated.files)){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}}
   const meshNames=foamMeshNames;
   if(sim.stage==="solve"){
@@ -66,7 +67,7 @@ export async function runOpenFoam(raw:unknown,name:string){
     await mkdir(join(dir,"constant/polyMesh"),{recursive:true});for(const file of meshNames){if(typeof saved.files[file]!=="string"||saved.files[file].length>20e6)throw new Error("Invalid mesh snapshot");await writeFile(join(dir,"constant/polyMesh",file),saved.files[file]);}
   }
   console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM image ${OPENFOAM_IMAGE}`);
-  const commands=[sim.stage==="mesh"&&c.geometry!=="planar"?"blockMesh > mesh.log 2>&1":"true","checkMesh -allTopology -allGeometry > check.log 2>&1","cat check.log","grep -q 'Mesh OK' check.log",...(sim.stage==="solve"?["echo BEAM_STAGE solving",`${c.geometry==="channel"?"buoyantBoussinesqSimpleFoam":"pimpleFoam"} > solve.log 2>&1`,"cat solve.log","echo BEAM_STAGE exporting","postProcess -func writeCellCentres -latestTime > centres.log 2>&1",...(c.geometry==="planar"&&c.motion?["checkMesh -allTopology -allGeometry -time '0:' > motion-check.log 2>&1"]:[])]:[])];
+  const commands=[sim.stage==="mesh"&&c.geometry!=="planar"?"blockMesh > mesh.log 2>&1":"true","checkMesh -allTopology -allGeometry > check.log 2>&1","cat check.log","grep -q 'Mesh OK' check.log",...(sim.stage==="solve"?["echo BEAM_STAGE solving",`${c.geometry==="channel"?"buoyantBoussinesqSimpleFoam":c.geometry==="parallel-channels"?"buoyantBoussinesqPimpleFoam":"pimpleFoam"} > solve.log 2>&1`,"cat solve.log","echo BEAM_STAGE exporting","postProcess -func writeCellCentres -latestTime > centres.log 2>&1",...(c.geometry==="planar"&&c.motion?["checkMesh -allTopology -allGeometry -time '0:' > motion-check.log 2>&1"]:[])]:[])];
   const script="source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /case; set -e; "+commands.join("; ");
   // No network, credentials or host mounts beyond this job directory. Images are installed explicitly.
   const child=spawn("docker",["run","--rm","--pull=never","--name",name,"--network","none","--cpus","2","--memory","2g","--pids-limit","256","-v",`${dir}:/case`,"-w","/case","--entrypoint","/bin/bash",OPENFOAM_IMAGE,"-lc",script],{stdio:["ignore","pipe","pipe"]});
@@ -83,7 +84,7 @@ export async function exportOpenFoam(raw:unknown,dir:string){
   const sim=SimulationJob.parse(raw),c=sim.config,meshNames=foamMeshNames;
   const check=await readFile(join(dir,"check.log"),"utf8"),cells=Number(check.match(/cells:\s+(\d+)/)?.[1]);
   if(!Number.isInteger(cells)||cells<1||cells>12800)throw new Error("Mesh exceeds cell budget");
-  if(c.geometry!=="planar"&&cells!==(c.geometry==="channel"?c.nx*c.ny:c.version===1?5568:7344))throw new Error("Generated mesh cell count does not match the case");
+  if(c.geometry!=="planar"&&cells!==(c.geometry==="channel"?c.nx*c.ny:c.geometry==="parallel-channels"?parallelLayout(c).cells:c.version===1?5568:7344))throw new Error("Generated mesh cell count does not match the case");
   const solve=sim.stage==="solve"?await readFile(join(dir,"solve.log"),"utf8"):"",residuals=residualHistory(solve,c.geometry!=="channel");
   if(!check.includes("Mesh OK")||/Failed \d+ mesh checks/.test(check))throw new Error("Cannot export a mesh that failed quality checks");
   if(sim.stage==="solve"&&(!/^End\s*$/m.test(solve)||/FOAM FATAL/.test(solve)))throw new Error("Cannot export an incomplete or failed solver log");
@@ -105,6 +106,22 @@ export async function exportOpenFoam(raw:unknown,dir:string){
     const measured=channelResults(c,centres,U,P,T,channelPatches(mesh[0]!,mesh[1]!,await readFile(join(dir,String(time),"phi"),"utf8")),CHANNEL_DEPTH);
     report.massImbalance=measured.massImbalance;report.channel=measured.results;
     await writeFile(join(dir,"fields.json"),JSON.stringify(fields));
+    }else if(c.geometry==="parallel-channels"){
+      const [C,U,P,T]=await Promise.all([field("C",3),field("U",3),field("p_rgh"),field("T")]);
+      const centres=Array.from({length:cells},(_,i)=>[C[3*i]!,C[3*i+1]!,C[3*i+2]!] as [number,number,number]);
+      const fields=SimulationFields.parse({version:1,centres,velocity:centres.map((_,i)=>Math.hypot(U[3*i]!,U[3*i+1]!,U[3*i+2]!)),pressure:P.map(p=>p*c.density),temperature:T});
+      const [boundary,owner,neighbour]=await Promise.all(["boundary","owner","neighbour"].map(n=>readFile(join(dir,"constant/polyMesh",n),"utf8")));
+      const mesh={centres:centres.map(p=>[p[0],p[1]] as [number,number]),owner:labelList(owner!),neighbour:labelList(neighbour!),boundary:boundary!};
+      const history=[];for(const t of times)history.push({time:t,phi:foamValues(await readFile(join(dir,String(t),"phi"),"utf8"),mesh.neighbour.length)});
+      const measured=parallelResults(c,mesh,history,await readFile(join(dir,String(time),"phi"),"utf8"),T);
+      if(Math.abs(time-c.duration)>Math.max(1e-8,c.duration*1e-6))throw new Error("Solver did not reach the requested end time");
+      // Dynamic pressure (p_rgh) between the first and last cell columns, so the hydrostatic part cancels.
+      const total=2*c.manifoldLength+c.channelLength,edge=c.manifoldLength/parallelLayout(c).manifoldCells,mean=(near:(x:number)=>boolean)=>{const idx=centres.flatMap((p,i)=>near(p[0])?[i]:[]);return idx.reduce((s,i)=>s+fields.pressure[i]!,0)/idx.length;};
+      report.pressureDropPa=mean(x=>x<edge)-mean(x=>x>total-edge);report.outletTemperatureK=measured.outletTemperatureK;report.massImbalance=measured.massImbalance;report.parallel=measured.results;
+      report.physicalTime=time;report.iterations=residuals.at(-1)?.iteration??0;report.maxCourant=0;
+      for(const m of solve.matchAll(/Courant Number mean: [\deE+.\-]+ max: ([\deE+.\-]+)/g))report.maxCourant=Math.max(report.maxCourant,Number(m[1]));
+      report.converged=false; // A completed transient is not steady-state convergence.
+      await writeFile(join(dir,"fields.json"),JSON.stringify(fields));
     }else{
       const C=await field("C",3);
       let centres=Array.from({length:cells},(_,i)=>[C[3*i]!,C[3*i+1]!] as [number,number]);

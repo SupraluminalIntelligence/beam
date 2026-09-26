@@ -6,7 +6,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, fluxWallEstimate, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
+import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, defaultParallelChannels, parallelSetupChecks, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, fluxWallEstimate, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
 import { foamValues, residualHistory } from "./openfoam.ts";
 import { LocalExecutor } from "./local.ts";
 
@@ -105,6 +105,42 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM through the
     expect(ch.nusselt.at(-1)![1]/8.235).toBeGreaterThan(1);expect(ch.nusselt.at(-1)![1]/8.235).toBeLessThan(1.05);
     expect(Math.abs(ch.maxWallTemperatureK!-estimate.wall)/(estimate.wall-config.inletTemperature)).toBeLessThan(.05);
   },240000);
+});
+
+// Masrouri and Yagoobi's two-channel device without EHD: HFE-7100 at 1 cm/s and 20 °C, the lower channel heated at 0.75 W/cm² on both walls, gravity down.
+describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM parallel channels",()=>{
+  async function solve(config:typeof defaultParallelChannels,caseId:string){
+    const root=await mkdtemp(join(tmpdir(),"beam-foam-parallel-")),executor=new LocalExecutor(root);
+    const spec=(stage:"mesh"|"solve"):ProcessJobSpec=>({version:1,kind:"process",title:caseId,executable:"beam:openfoam",args:[],inputs:stage==="mesh"?[]:[{assetId:"mesh",path:"mesh-input.json"}],outputs:simulationOutputs(stage,config),timeoutSeconds:600,simulation:{image:OPENFOAM_IMAGE,caseId,revision:1,stage,config,...(stage==="solve"?{meshJobId:"mesh"}:{})}});
+    async function finish(id:string){const until=Date.now()+590000;while(Date.now()<until){const s=await executor.inspect({backend:executor.backend,id});if(s.state!=="running"){expect(s.error,s.log).toBe(null);expect(s.state,s.log).toBe("succeeded");return;}await new Promise(r=>setTimeout(r,250));}throw new Error("Integration timed out");}
+    try{
+      await executor.submit("mesh",spec("mesh"),[]);await finish("mesh");
+      const mesh=SimulationReport.parse(JSON.parse(await readFile(join(root,"mesh/work/report.json"),"utf8")));expect(mesh.meshOk).toBe(true);
+      const bytes=await readFile(join(root,"mesh/work/mesh.json"));
+      await executor.submit("solve",spec("solve"),[{path:"mesh-input.json",size:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex"),url:`data:application/json;base64,${bytes.toString("base64")}`}]);await finish("solve");
+      return{report:SimulationReport.parse(JSON.parse(await readFile(join(root,"solve/work/report.json"),"utf8"))),fields:SimulationFields.parse(JSON.parse(await readFile(join(root,"solve/work/fields.json"),"utf8")))};
+    }finally{await executor.cancelSubmission("mesh");await executor.cancelSubmission("solve");await rm(root,{recursive:true,force:true});}
+  }
+  it("splits an unheated, gravity-free flow evenly between identical channels",async()=>{
+    const config={...defaultParallelChannels,channels:[{heatFlux:0},{heatFlux:0}],gravity:"off" as const,cellsAcross:10,cellsAlong:35,duration:2,frames:4};
+    const {report}=await solve(config,"symmetric"),p=report.parallel!;
+    expect(Math.abs(report.massImbalance!)).toBeLessThan(1e-6);expect(Math.abs(p.inflow/(config.velocity*.015)-1)).toBeLessThan(1e-6);
+    expect(Math.abs(p.flows[0]!/p.flows[1]!-1)).toBeLessThan(1e-3);expect(Math.abs((p.flows[0]!+p.flows[1]!)/p.inflow-1)).toBeLessThan(1e-3);
+    expect(p.heatInputW).toBe(0);expect(p.maxHeatedWallTemperatureK).toBe(null);
+  },300000);
+  it("draws more of the flow through the heated lower channel as buoyancy builds, and walls pass the boiling point by 5 s",async()=>{
+    const {report,fields}=await solve(defaultParallelChannels,"masrouri"),p=report.parallel!;
+    expect(report.meshOk).toBe(true);expect(report.cells).toBe(11200);expect(report.physicalTime).toBeCloseTo(5);expect(report.maxCourant!).toBeLessThan(1);
+    expect(Math.abs(report.massImbalance!)).toBeLessThan(1e-6);expect(p.history).toHaveLength(defaultParallelChannels.frames);
+    // Uniform 1 cm/s across the 1.5 cm manifold: 1.5 cm²/s in. The channels carry all of it, and the heated channel's share grows over time.
+    expect(Math.abs(p.inflow/1.5e-4-1)).toBeLessThan(1e-6);expect(Math.abs((p.flows[0]!+p.flows[1]!)/p.inflow-1)).toBeLessThan(.01);
+    const share=(f:number[])=>f[0]!/(f[0]!+f[1]!);expect(share(p.history[0]!.flows)).toBeLessThan(.52);expect(share(p.flows)).toBeGreaterThan(.54);expect(share(p.flows)).toBeLessThan(.62);
+    // 0.75 W/cm² on both walls of a 7 cm channel is 1,050 W per metre of depth; after 5 s most of it is still warming the fluid.
+    expect(p.heatInputW).toBeCloseTo(1050);expect(p.heatCarriedOutW).toBeGreaterThan(0);expect(p.heatCarriedOutW/p.heatInputW).toBeLessThan(.5);
+    expect(p.maxHeatedWallTemperatureK!).toBeGreaterThan(defaultParallelChannels.boilingPoint!);expect(Math.min(...fields.temperature)).toBeGreaterThan(defaultParallelChannels.inletTemperature-.5);
+    expect(p.exitBulkTemperaturesK[0]!).toBeGreaterThan(p.exitBulkTemperaturesK[1]!);
+    expect(parallelSetupChecks(defaultParallelChannels).find(k=>k.id==="single-phase")!.status).toBe("fail");
+  },600000);
 });
 
 it("counts transient steps rather than rounding physical times",()=>{

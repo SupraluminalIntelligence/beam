@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
+import { ParallelChannelsCase, ParallelChannelsResults, parallelSetupChecks } from "./parallelChannels.ts";
+import { channelSetupChecks } from "./channelChecks.ts";
 export * from "./planar.ts";
+export * from "./parallelChannels.ts";
 export * from "./channelChecks.ts";
 export * from "./meshStudy.ts";
 
@@ -35,21 +38,23 @@ export const CylinderCase = z.object({
 }).strict();
 export type CylinderCase = z.infer<typeof CylinderCase>;
 export const defaultCylinder:CylinderCase = {version:2,geometry:"cylinder",diameter:.01,velocity:.1,reynolds:150,density:1000,duration:100};
-export const SimulationCase = z.union([ChannelCase,CylinderCase,PlanarCase]);
+export const SimulationCase = z.union([ChannelCase,CylinderCase,PlanarCase,ParallelChannelsCase]);
 export type SimulationCase = z.infer<typeof SimulationCase>;
+/** Assumption checks for studies that have them: the heated channel and parallel channels. */
+export const studySetupChecks = (c: SimulationCase) => c.geometry === "channel" ? channelSetupChecks(c) : c.geometry === "parallel-channels" ? parallelSetupChecks(c) : null;
 /** Convex transports reorder object keys. Mesh identity must not depend on that order. */
 export function canonicalMeshKey(key:string):string {
  const stable=(v:unknown):unknown=>Array.isArray(v)?v.map(stable):v!==null&&typeof v==="object"?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,value])=>[k,stable(value)])):v;
  return JSON.stringify(stable(JSON.parse(key)));
 }
-export const meshKey = (c: SimulationCase) => canonicalMeshKey(JSON.stringify(c.geometry==="planar"?[c.geometry,c.domain,c.bodies,c.meshSize,c.boundaries.map(b=>[b.name,b.type==="symmetry"?"symmetry":b.type==="wall"?"wall":"patch"]),...(c.refinements?.length?["refined-planar-1",c.refinements]:[]),...(c.motion?["pitch-mesh-1",c.motion]:[])]:c.geometry==="channel"?[c.geometry,c.length,c.height,c.nx,c.ny]:[c.geometry,c.diameter,c.version===1?"wake-grid-1":"wake-grid-2"]));
+export const meshKey = (c: SimulationCase) => canonicalMeshKey(JSON.stringify(c.geometry==="planar"?[c.geometry,c.domain,c.bodies,c.meshSize,c.boundaries.map(b=>[b.name,b.type==="symmetry"?"symmetry":b.type==="wall"?"wall":"patch"]),...(c.refinements?.length?["refined-planar-1",c.refinements]:[]),...(c.motion?["pitch-mesh-1",c.motion]:[])]:c.geometry==="channel"?[c.geometry,c.length,c.height,c.nx,c.ny]:c.geometry==="parallel-channels"?[c.geometry,c.channelLength,c.channelHeight,c.wallThickness,c.manifoldLength,c.channels.length,c.cellsAcross,c.cellsAlong]:[c.geometry,c.diameter,c.version===1?"wake-grid-1":"wake-grid-2"]));
 export const SimulationJob = z.object({image:z.literal(OPENFOAM_IMAGE).default(OPENFOAM_IMAGE),caseId:z.string().min(1),revision:z.number().int().positive(),stage:z.enum(["mesh","solve"]),config:SimulationCase,meshJobId:z.string().optional()}).strict();
 export type SimulationJob = z.infer<typeof SimulationJob>;
-export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
+export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel" && config.geometry!=="parallel-channels"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
 /** Heated-channel results a thermal engineer reads: flow-weighted outlet temperature, discrete energy balance, developed f·Re and local Nu(x) on 2H. */
 export const ChannelResults = z.object({bulkOutletTemperatureK:z.number().finite(),maxWallTemperatureK:z.number().finite().optional(),energyImbalance:z.number().finite().nullable(),fRe:z.number().finite().nullable(),nusselt:z.array(z.tuple([z.number().finite(),z.number().finite()])).max(160)});
 export type ChannelResults = z.infer<typeof ChannelResults>;
-export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional(),channel:ChannelResults.optional()});
+export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional(),channel:ChannelResults.optional(),parallel:ParallelChannelsResults.optional()});
 export type SimulationReport = z.infer<typeof SimulationReport>;
 export const SimulationFields = z.object({version:z.literal(1),centres:z.array(z.tuple([z.number().finite(),z.number().finite(),z.number().finite()])).max(12800),velocity:z.array(z.number().finite()).max(12800),pressure:z.array(z.number().finite()).max(12800),temperature:z.array(z.number().finite()).max(12800)}).superRefine((f,ctx)=>{if(!f.centres.length||[f.velocity,f.pressure,f.temperature].some(a=>a.length!==f.centres.length))ctx.addIssue({code:"custom",message:"Field and cell counts differ"});});
 export type SimulationFields = z.infer<typeof SimulationFields>;

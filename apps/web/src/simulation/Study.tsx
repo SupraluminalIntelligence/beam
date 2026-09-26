@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { jobFinished, SimulationCase, channelSetupChecks } from "@beam/contracts";
+import { jobFinished, SimulationCase, studySetupChecks } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui, useUi } from "../lib/ui";
@@ -15,11 +15,11 @@ export function StudyCard({id,chatId}:{id:Id<"simulationCases">;chatId:Id<"chats
  const latest=study.jobs[0],result=study.jobs.find(j=>j.simulation?.stage==="solve"&&j.state==="succeeded"),active=latest&&!jobFinished(latest.state);
  const previous=!!result&&result.simulation?.revision!==study.revision;
  const status=active?`${latest.simulation?.stage==="mesh"?"Mesh":"Run"} · ${latest.state.replaceAll("-"," ")}`:latest?.state==="failed"?"Run needs attention":latest?.state==="cancelled"?"Cancelled":result?previous?"Setup changed · previous results available":"Results ready":latest?.state==="succeeded"?"Mesh checked · ready to run":"Setup ready · nothing computed";
- const c=SimulationCase.parse(study.config),description=c.geometry==="planar"?`${c.region.name} · ${c.bodies.length} bodies · ${c.boundaries.length} boundaries`:c.geometry==="cylinder"?`Cylinder wake · ⌀ ${c.diameter*1000} mm · ${c.velocity} m/s`:`Heated channel · ${c.length*1000} × ${c.height*1000} mm · ${c.velocity} m/s`;
+ const c=SimulationCase.parse(study.config),description=c.geometry==="planar"?`${c.region.name} · ${c.bodies.length} bodies · ${c.boundaries.length} boundaries`:c.geometry==="cylinder"?`Cylinder wake · ⌀ ${c.diameter*1000} mm · ${c.velocity} m/s`:c.geometry==="parallel-channels"?`${c.channels.length} parallel channels · ${c.channelLength*1000} × ${c.channelHeight*1000} mm · ${c.velocity} m/s`:`Heated channel · ${c.length*1000} × ${c.height*1000} mm · ${c.velocity} m/s`;
  async function open(results=false){setBusy(true);try{await select({chatId,caseId:id});ui.openSimulation(chatId,id,results?"results":active?(latest!.simulation?.stage==="mesh"?"mesh":"runs"):"setup",results?result?._id:active?latest!._id:undefined);}catch(e){toast((e as Error).message);}finally{setBusy(false);}}
  return <section className="study-card" aria-label={`Simulation study: ${study.name}`}>
   <div className="study-card-heading"><span className={`job-dot ${latest?.state??"queued"}`}/><b>{study.name}</b><small>Study · r{study.revision}</small></div>
-  <p>{description}</p><div className="study-card-state" role="status">{status}</div>{c.geometry==="channel"&&flagged(channelSetupChecks(c)).map(k=><div key={k.id} className={`study-card-check ${k.status}`}>{k.status==="fail"?"✕":"!"} {k.label} {k.status==="fail"?"doesn't hold":"to review"} · {k.value}</div>)}
+  <p>{description}</p><div className="study-card-state" role="status">{status}</div>{flagged(studySetupChecks(c)??[]).map(k=><div key={k.id} className={`study-card-check ${k.status}`}>{k.status==="fail"?"✕":"!"} {k.label} {k.status==="fail"?"doesn't hold":"to review"} · {k.value}</div>)}
   <div className="study-card-actions"><button disabled={busy} onClick={()=>void open()}>Open study ↗</button>{result&&<button disabled={busy} onClick={()=>void open(true)}>{previous?`View r${result.simulation?.revision} results`:"View results"} ↗</button>}{latest&&<button onClick={()=>ui.openSurface(chatId,`job:${latest._id}`)}>{latest.state==="awaiting-approval"?"Review job":"Job details"}</button>}</div>
  </section>;
 }
