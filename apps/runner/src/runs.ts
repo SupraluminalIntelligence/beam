@@ -1,7 +1,7 @@
 import type { ConvexClient } from "convex/browser";
-import type { Agent, RepoLanding, RunEvent } from "@beam/contracts";
+import { repoName, type Agent, type RepoLanding, type RunEvent } from "@beam/contracts";
 import { adapters, type BeamTool, type Session } from "@beam/harness";
-import { compareUrl, defaultBranch, draftPullRequest, ensureMirror, ensureRepoWorktree, landRepo, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
+import { compareUrl, defaultBranch, draftPullRequest, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -87,8 +87,12 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     slots.set(repo, slot);
     return slot;
   };
-  try { for (const repo of chat.repos) await mount(repo); }
-  catch (e) { return land(client, token, runId, "failed", [], `could not prepare a worktree: ${(e as Error).message}`, null); }
+  // A repo that won't mount is skipped, not fatal: one bad name must not lock the thread for every later run.
+  const unmounted: { repo: string; error: string }[] = [];
+  for (const repo of chat.repos) {
+    try { await mount(repo); }
+    catch (e) { unmounted.push({ repo, error: (e as Error).message }); }
+  }
   try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); }
   catch (error) {
     // Another runner process with this machine's token (the desktop app's and a standalone one) may have won the claim,
@@ -96,6 +100,10 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     const now = await client.query(api.runs.control, { token, runId }).catch(() => null);
     if (now && now.state !== "queued") { log(runId, `not hosting: ${(error as Error).message}`); return; }
     return land(client, token, runId, "failed", [], (error as Error).message, null);
+  }
+  if (unmounted.length) {
+    for (const u of unmounted) log(runId, `skipped ${u.repo}: ${u.error}`);
+    await client.mutation(api.runs.appendEvents, { token, runId, events: unmounted.map((u) => ({ type: "error", runId, message: `could not open ${u.repo}: ${u.error}`, fatal: false, at: Date.now() })) }).catch(() => {});
   }
 
   const files = fileAccess(client, token, runId, dir);
@@ -115,9 +123,26 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
       run: async () => { const r = await client.query(api.runs.workspaceRepos, { token, runId }); return `Workspace repos: ${r.repos.join(", ") || "none"}. Mounted in this thread: ${[...slots.values()].map((s) => `${s.repo} → ./${s.dir.slice(dir.length + 1)} (branch ${s.branch})`).join(", ") || "none"}.`; },
     },
     {
-      name: "attach_repo", description: "Attach a GitHub repo (owner/name) to this thread. It is cloned into a folder in your working directory right away, on a branch for this thread, and you can start working in it immediately.",
-      schema: { repo: z.string().describe("owner/name, e.g. acme/platform") },
-      run: async (args) => { const r = await client.mutation(api.runs.attachRepo, { token, runId, repo: String(args["repo"]) }); const s = await mount(r.repo); return `Attached ${r.repo}. It is at ./${s.dir.slice(dir.length + 1)} on branch ${s.branch}.`; },
+      name: "attach_repo", description: "Attach a GitHub repo to this thread. It is cloned into a folder in your working directory right away, on a branch for this thread, and you can start working in it immediately. Pass owner/name, or the path of a local checkout on this machine (e.g. ~/Developer/beam) and Beam attaches the GitHub repo it tracks.",
+      schema: { repo: z.string().describe("owner/name (e.g. acme/platform) or a local checkout path") },
+      run: async (args) => {
+        const raw = String(args["repo"]);
+        const onDisk = /^[~/.]/.test(raw.trim()) ? await githubRepoAt(raw) : null;
+        let repo = onDisk ?? repoName(raw);
+        if (!repo) throw new Error(`"${raw}" is not owner/name, or a local checkout with a GitHub origin`);
+        // Clone first and record second, so a wrong name fails here and never sticks to the thread.
+        let s: RepoSlot;
+        try { s = await mount(repo); }
+        catch (e) {
+          // "Developer/beam" reads as owner/name but is often a folder under ~: try it as a local checkout.
+          const fromDisk = onDisk ? null : await githubRepoAt(raw);
+          if (!fromDisk || fromDisk === repo) throw e;
+          repo = fromDisk;
+          s = await mount(repo);
+        }
+        await client.mutation(api.runs.attachRepo, { token, runId, repo }).catch((e) => { slots.delete(repo); throw e; });
+        return `Attached ${repo}. It is at ./${s.dir.slice(dir.length + 1)} on branch ${s.branch}.`;
+      },
     },
     {
       name: "adopt_pr", description: "Bring an existing pull request into this thread: its branch is checked out in a folder in your working directory so you can review it or continue it. Use this when asked to review or pick up a PR.",
@@ -167,7 +192,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
       const current = resolveExecution(agent, [], { ownerLogin: d.run.execution.accountOwner, harnesses: [status] });
       if (current.accountEmail !== d.run.execution.accountEmail || current.accountPlan !== d.run.execution.accountPlan || status.accountIdentity !== d.run.execution.accountIdentity) throw new Error("The connected account changed after dispatch. Send a new request to use the current connection.");
     }
-    session = await adapter.start({ ...(profile ? { profile } : {}), runId, agent: agentView, cwd: dir, resumeCursor, systemContext: renderContext(resumeCursor?d:{...d,transcript:d.recentTranscript??d.transcript}, dir, slots), fallbackSystemContext:renderContext({...d,transcript:d.recentTranscript??d.transcript},dir,slots), tools });
+    session = await adapter.start({ ...(profile ? { profile } : {}), runId, agent: agentView, cwd: dir, resumeCursor, systemContext: renderContext(resumeCursor?d:{...d,transcript:d.recentTranscript??d.transcript}, dir, slots, unmounted), fallbackSystemContext:renderContext({...d,transcript:d.recentTranscript??d.transcript},dir,slots,unmounted), tools });
   } catch (e) {
     return land(client, token, runId, "failed", [], `${agent.harness} failed to start: ${(e as Error).message}`, null);
   }
@@ -366,7 +391,7 @@ async function land(client: ConvexClient, token: string, runId: Id<"runs">, stat
 }
 
 /** The thread so far, rendered for the harness: who is here, where the repos are, and what has been said. */
-function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>): string {
+function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>, unmounted: { repo: string; error: string }[]): string {
   const who = (author: string) => {
     if (!author.startsWith("agent:")) return `@${author}`;
     const a = d.agents.find((x) => `agent:${x.id}` === author);
@@ -378,6 +403,11 @@ function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>): st
     `You are @${d.agent.handle}, a coding agent in a Beam thread called "${d.chat.title}" with a team of people.`,
     `Your working directory is the thread's directory. Each repo the thread works in is a folder inside it, on a branch for this thread:`,
     ...(mounted.length ? mounted : ["- (no repos yet: use attach_repo when the work has a home, or adopt_pr to pick up an existing PR)"]),
+    ...(unmounted.length ? [
+      `These repos are on the thread but could not be opened this run, so they are not in your directory:`,
+      ...unmounted.map((u) => `- ${u.repo}: ${u.error}`),
+      `Tell the team. If the name is wrong, find the right one and attach_repo it; a person can remove the bad one from the thread's repo menu.`,
+    ] : []),
     `Work inside those folders. Do not switch branches or push: Beam commits and pushes each folder that changed when the run ends, and opens or updates a PR per repo.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -32,11 +32,26 @@ async function prepareMirror(repo: string): Promise<string> {
   const path = mirrorPath(repo);
   if (!(await exists(path))) {
     await mkdir(join(beamHome(), "repos"), { recursive: true });
-    await git(["clone", "--bare", remoteUrl(repo), path]);
+    await git(["clone", "--bare", remoteUrl(repo), path]).catch((e: Error) => {
+      if (/repository not found|not found$/im.test(e.message)) throw new Error(`${repo} is not on GitHub, or this machine's git credentials can't read it`);
+      throw e;
+    });
     await git(["config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], path);
   }
   await git(["fetch", "--prune", "origin"], path);
   return path;
+}
+
+/**
+ * The GitHub owner/name behind a local checkout, from its origin remote. People name repos by where they live on
+ * disk ("Developer/beam", "~/code/api"); relative paths are read from the home directory. Null when it is not one.
+ */
+export async function githubRepoAt(path: string): Promise<string | null> {
+  const p = path.trim().replace(/^~(?=\/|$)/, homedir());
+  const dir = isAbsolute(p) ? p : join(homedir(), p);
+  const url = await git(["remote", "get-url", "origin"], dir).catch(() => "");
+  const m = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url);
+  return m ? m[1]! : null;
 }
 
 /** The remote's default branch, read from the mirror's HEAD. */
