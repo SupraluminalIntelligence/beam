@@ -134,6 +134,15 @@ it("keeps mentions in the inbox when desktop alerts are disabled or chat is mute
   tables.users![0].notificationPreferences.mention = false;
   expect(await call(reserve, ctx, { id: tables.notifications![0]._id, token: "disabled" })).toBe(false);
 });
+it("holds alerts that arrived before a pause ends, on every device", async () => {
+  const { ctx, tables } = fixture();
+  await notifyRun(ctx, runId, "completed", "ended"); const row = tables.notifications![0], id = row._id;
+  tables.users![0].notificationPreferences = { enabled: true, completed: true, pausedUntil: row._creationTime + 60_000 };
+  expect(await call(reserve, ctx, { id, token: "paused" })).toBe(false);
+  expect(await call(claim, ctx, { id })).toBe(false);
+  tables.users![0].notificationPreferences.pausedUntil = row._creationTime - 1;
+  expect(await call(reserve, ctx, { id, token: "resumed" })).toBe(true);
+});
 it("leases once, releases failed delivery, rejects stale tokens and acknowledges successful delivery", async () => {
   vi.useFakeTimers(); const { ctx, tables } = fixture();
   await notifyRun(ctx, runId, "completed", "ended"); const row = tables.notifications![0], id = row._id;

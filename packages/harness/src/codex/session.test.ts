@@ -53,6 +53,14 @@ describe("Codex app-server adapter", () => {
     expect(session.resumeCursor()).toMatchObject({ threadId: "thread", toolsHash:expect.any(String) });
   });
 
+  it("reports plan limits the app server streams mid-run", async () => {
+    const { rpc, events, tick } = await setup();
+    rpc.emit("account/rateLimits/updated", { rateLimits: { limitId: "codex", primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 1_900_000_000 } } });
+    rpc.emit("account/rateLimits/updated", { rateLimits: { limitId: "spark", primary: { usedPercent: 99 } } });
+    await tick();
+    expect(events.filter((e) => e.type === "usage.updated")).toEqual([{ type: "usage.updated", runId: "run", windows: [{ id: "primary", kind: "session", label: "5-hour session", usedPercent: 42, resetsAt: 1_900_000_000_000 }] }]);
+  });
+
   it("resumes a persisted thread with current settings without replaying history", async () => {
     const { rpc, events } = await setup({ resumeCursor: { threadId: "thread" } });
     expect(rpc.request).toHaveBeenCalledWith("thread/resume", expect.objectContaining({ threadId: "thread", developerInstructions: "The shared chat" }));

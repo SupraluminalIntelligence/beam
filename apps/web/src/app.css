@@ -124,7 +124,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .menu .mn{font-weight:600}
 .menu button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:8px 12px;text-align:left;color:var(--ink)}
 .menu button:hover{background:var(--surface-2)}
-.menu button:last-child{border-top:1px solid var(--line);color:var(--ink-2)}
+.menu>button.mout{border-top:1px solid var(--line);color:var(--ink-2)}
 .menu[hidden]{display:block;opacity:0;transform:translateY(4px);pointer-events:none}
 
 .ws-row{position:relative;display:flex;align-items:center}
@@ -1046,3 +1046,51 @@ body.resizing .side-grip{pointer-events:auto}
 .composer .ft .agent-options .agent-link{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-2)}
 .composer .ft .agent-options .agent-link:hover{color:var(--ink);text-decoration-color:currentColor}
 .agent-options .agent-meta+.agent-link{margin-top:4px}
+
+/* ---- account menu ---- */
+.acct-menu{max-height:calc(100vh - 80px);overflow-y:auto}
+.acct-menu .mh-who{min-width:0}
+.acct-menu .mh-who .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.acct-menu>button .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.acct-menu>button>span:first-child{white-space:nowrap}
+.acct-menu .k.warn,.acct-menu .k.lvl-warn{color:var(--warn)}
+.acct-menu .k.lvl-bad{color:var(--bad)}
+.acct-menu button.mstatus{justify-content:flex-start;gap:8px;font-size:12px;color:var(--ink-2)}
+.acct-menu .mstatus .sq.ok{background:var(--ok-hue)}
+.acct-menu .mstatus .ml{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-menu .msep{height:1px;background:var(--line);margin:4px 0}
+.acct-menu .mrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;min-width:0}
+.acct-menu .mrow>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pause-ctl{display:inline-flex;align-items:center;gap:6px;flex:none}
+.pause-ctl .hint{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.menu .pause-ctl button.btn{width:auto;padding:3px 8px;font-size:10px}
+.news-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--live)}
+.acct .news-dot{margin-right:2px}
+
+/* ---- settings rail groups ---- */
+.set-nav-news{position:relative;display:block}
+.set-nav-news .news-dot{position:absolute;right:10px;top:50%;margin-top:-3px;pointer-events:none}
+.set-nav-list .set-nav-sec:first-child{padding-top:4px}
+
+/* ---- shortcuts, changelog ---- */
+.row.shortcut{padding-top:5px;padding-bottom:5px}
+.row.shortcut kbd{font-family:var(--font-mono);font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);border-radius:var(--r-1);padding:1px 6px;justify-self:end;white-space:nowrap}
+.release-h{display:flex;align-items:baseline;gap:10px}
+.release-h .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.release ul{margin:2px 0 8px;padding:0 14px 0 32px;font-size:13px;line-height:1.5;color:var(--ink-2)}
+.release li{margin:3px 0}
+
+/* ---- usage & limits ---- */
+.usage-intro{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.usage-intro .btn{flex:none}
+.usage-row{gap:12px}
+.usage-label{width:130px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.usage-bar{--c:var(--ok-hue);position:relative;flex:1;min-width:60px;height:6px;background:var(--surface-3);border-radius:var(--r-1);overflow:hidden}
+.usage-bar i{position:absolute;inset:0 auto 0 0;background:var(--c)}
+.usage-bar.warn{--c:var(--warn)}
+.usage-bar.bad{--c:var(--bad)}
+.usage-pct{width:40px;flex:none;text-align:right;font-family:var(--font-mono);font-size:12px}
+.hrow .usage-reset{width:130px;flex:none;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+@media (max-width:640px){.usage-label{width:90px}.hrow .usage-reset{display:none}}
+.row.shortcut{grid-template-columns:minmax(0,1fr) auto}
+.usage-account .hrow .hint{color:var(--ink-3)}

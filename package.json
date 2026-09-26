@@ -16,7 +16,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test && pnpm test:backend",
-    "test:backend": "vitest run convex/users.test.ts convex/connections.test.ts convex/resources.test.ts convex/notifications.test.ts convex/mentionTargets.test.ts convex/files.test.ts convex/chats.test.ts convex/compute.test.ts convex/context.test.ts convex/studyDispatch.test.ts convex/runContext.test.ts convex/reapStale.test.ts",
+    "test:backend": "vitest run convex/users.test.ts convex/connections.test.ts convex/resources.test.ts convex/notifications.test.ts convex/mentionTargets.test.ts convex/files.test.ts convex/chats.test.ts convex/compute.test.ts convex/context.test.ts convex/studyDispatch.test.ts convex/runContext.test.ts convex/reapStale.test.ts convex/runUsage.test.ts",
     "lint": "pnpm -r lint"
   },
   "devDependencies": {
