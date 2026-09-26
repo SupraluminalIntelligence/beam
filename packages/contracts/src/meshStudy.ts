@@ -1,6 +1,7 @@
 import type { ChannelCase, SimulationReport } from "./simulation.ts";
 
-export type Convergence = "monotonic" | "oscillatory" | "diverging" | "unchanged";
+/** "plateau": the two finer meshes agree but the coarse one differs, so three meshes fix no order or error band. */
+export type Convergence = "monotonic" | "oscillatory" | "diverging" | "unchanged" | "plateau";
 /** One quantity on three meshes, coarse to fine, with its observed order and fine-mesh grid convergence index (relative). */
 export type GridEstimate = { quantity: string; unit: string; values: [number, number, number]; convergence: Convergence; order: number | null; extrapolated: number | null; gci: number | null };
 
@@ -13,7 +14,7 @@ export function gridConvergence(cells: [number, number, number], values: [number
   const r21 = h2 / h1, r32 = h3 / h2, e21 = f2 - f1, e32 = f3 - f2;
   if (!(r21 > 1 && r32 > 1)) throw new Error("Cell counts must increase from coarse to fine");
   const tiny = 1e-12 * Math.max(...values.map(Math.abs), 1e-300);
-  if (Math.abs(e21) <= tiny) return { values, convergence: "unchanged", order: null, extrapolated: f1, gci: f1 === 0 ? null : 0 };
+  if (Math.abs(e21) <= tiny) return Math.abs(e32) <= tiny ? { values, convergence: "unchanged", order: null, extrapolated: f1, gci: f1 === 0 ? null : 0 } : { values, convergence: "plateau", order: null, extrapolated: null, gci: null };
   const s = Math.sign(e32 / e21);
   if (s < 0) return { values, convergence: "oscillatory", order: null, extrapolated: null, gci: null };
   // With φ = φ0 + C·h^p, e32/e21 = R(p) = r21^p (r32^p − 1)/(r21^p − 1), which rises monotonically from ln r32 / ln r21 as p grows from 0.
@@ -21,17 +22,21 @@ export function gridConvergence(cells: [number, number, number], values: [number
   const ratio = e32 / e21, R = (p: number) => r21 ** p * (r32 ** p - 1) / (r21 ** p - 1);
   let lo = 1e-6, hi = 50;
   if (!(ratio > R(lo))) return { values, convergence: "diverging", order: null, extrapolated: null, gci: null };
-  if (ratio >= R(hi)) lo = hi;
-  else while (hi - lo > 1e-12) { const mid = (lo + hi) / 2; if (R(mid) < ratio) lo = mid; else hi = mid; }
+  if (ratio >= R(hi)) return { values, convergence: "plateau", order: null, extrapolated: null, gci: null };
+  while (hi - lo > 1e-12) { const mid = (lo + hi) / 2; if (R(mid) < ratio) lo = mid; else hi = mid; }
   const p = lo;
   const gain = r21 ** p - 1;
   return { values, convergence: "monotonic", order: p, extrapolated: f1 + (f1 - f2) / gain, gci: f1 === 0 ? null : 1.25 * Math.abs((f1 - f2) / f1) / gain };
 }
 
-/** A channel setup with the mesh, iteration limit and stated-only fluid data removed; equal keys mean the same physical problem. */
+/**
+ * A channel setup with the mesh, iteration limit, stated-only fluid data and boundary data the solver ignores removed
+ * (the wall temperature of adiabatic or flux-heated walls, conductivity without a flux); equal keys mean the same physical problem.
+ */
 export function channelPhysicsKey(c: ChannelCase) {
   const { nx: _nx, ny: _ny, iterations: _iterations, beta: _beta, boilingPoint: _boilingPoint, ...physics } = c;
-  return JSON.stringify(Object.keys(physics).sort().map(k => [k, physics[k as keyof typeof physics]]));
+  const inactive = [...(!c.thermal || c.wallHeatFlux !== undefined ? ["wallTemperature"] : []), ...(c.wallHeatFlux === undefined ? ["conductivity"] : [])];
+  return JSON.stringify(Object.keys(physics).filter(k => !inactive.includes(k)).sort().map(k => [k, physics[k as keyof typeof physics]]));
 }
 
 const interpolate = (points: [number, number][], x: number) => {
@@ -72,6 +77,7 @@ export function channelMeshStudy(reports: SimulationReport[]): ChannelMeshStudy 
   // Nu at the coarse mesh's last evaluated column, which lies inside every finer mesh's range.
   const x = Math.min(...channel.map(r => r.nusselt.at(-1)?.[0] ?? -Infinity)), nu = channel.map(r => interpolate(r.nusselt, x));
   if (Number.isFinite(x) && nu.every(v => v != null)) add(`Nu at ${Number((x * 1000).toPrecision(3))} mm`, "", nu);
+  for (const e of estimates.filter(e => e.convergence === "plateau")) notes.push(`For ${e.quantity.replace(", developed", "")}, the two finer meshes agree but the coarse one differs, so three meshes give no order or error band. Add a finer mesh.`);
   if (!estimates.length) return { problem: "None of the study's quantities is defined on all three meshes: the walls add no heat and the flow is not developed." };
   return { cells, ratios, estimates, notes };
 }

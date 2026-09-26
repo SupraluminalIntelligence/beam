@@ -35,14 +35,14 @@ export function useMeshStudy(jobs: JobRow[], jobId: Id<"computeJobs"> | undefine
 
 const label = (e: GridEstimate) => e.quantity.replace("outlet temperature rise", "outlet ΔT").replace(", developed", "");
 const percent = (n: number) => `${Number((n * 100).toPrecision(2))} %`;
-const estimateValue = (e: GridEstimate) => e.convergence === "monotonic" ? `${percent(e.gci!)} · p ${e.order!.toFixed(1)}` : e.convergence === "unchanged" ? "unchanged" : e.convergence === "oscillatory" ? "oscillates" : "diverges";
+const estimateValue = (e: GridEstimate) => e.convergence === "monotonic" ? `${percent(e.gci!)} · p ${e.order!.toFixed(1)}` : e.convergence === "unchanged" ? "unchanged" : e.convergence === "plateau" ? "plateau" : e.convergence === "oscillatory" ? "oscillates" : "diverges";
 
 /** Short verdict for the checks list. */
 export function meshSensitivityValue(state: MeshStudyState | null) {
   if (!state || state.status === "too-few") return state ? `${state.meshes} of 3 meshes` : "not studied";
   if (state.status === "loading") return "loading";
   if (state.status === "problem" || !state.study.estimates.length) return "not estimated";
-  const unresolved = state.study.estimates.filter(e => e.convergence === "oscillatory" || e.convergence === "diverging").length;
+  const unresolved = state.study.estimates.filter(e => e.convergence !== "monotonic" && e.convergence !== "unchanged").length;
   const worst = Math.max(0, ...state.study.estimates.map(e => e.gci ?? 0));
   return unresolved ? `${unresolved} unresolved` : `GCI ≤ ${percent(worst)}`;
 }

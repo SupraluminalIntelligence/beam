@@ -20,7 +20,10 @@ it("recovers the order and extrapolated value of a smooth error, with unequal re
 it("names oscillating, growing and unchanged results instead of inventing an order", () => {
   expect(gridConvergence([800, 1800, 4050], [7.9, 7.7, 7.8]).convergence).toBe("oscillatory");
   expect(gridConvergence([800, 1800, 4050], [7.9, 7.89, 7.7])).toMatchObject({ convergence: "diverging", gci: null });
-  expect(gridConvergence([800, 1800, 4050], [7.9, 7.6, 7.6])).toMatchObject({ convergence: "unchanged", gci: 0, extrapolated: 7.6 });
+  expect(gridConvergence([800, 1800, 4050], [7.6, 7.6, 7.6])).toMatchObject({ convergence: "unchanged", gci: 0, extrapolated: 7.6 });
+  // The finer pair agrees but the coarse mesh does not: no order, and no zero error band.
+  expect(gridConvergence([800, 1800, 4050], [7.9, 7.6, 7.6])).toMatchObject({ convergence: "plateau", order: null, gci: null, extrapolated: null });
+  expect(gridConvergence([800, 1800, 4050], [7.9, 7.6 + 1e-10, 7.6])).toMatchObject({ convergence: "plateau", gci: null });
 });
 
 const channel = { ...defaultChannel, height: .001, velocity: .2, nu: 3.8e-7, pr: 9.8, density: 1510 };
@@ -55,4 +58,13 @@ it("refuses studies that are not one setup on three converged, distinct meshes",
   const flux = (r: SimulationReport): SimulationReport => ({ ...r, config: { ...r.config as typeof channel, wallTemperature: channel.inletTemperature, wallHeatFlux: 5000, conductivity: .069 } });
   const study = channelMeshStudy(ok.map(flux));
   expect("problem" in study ? [] : study.estimates.map(e => e.quantity)).toContain("outlet temperature rise");
+  // The solver ignores a flux case's wall temperature and a fixed-temperature case's conductivity, so they may differ between meshes.
+  const placeholder = (r: SimulationReport, wallTemperature: number): SimulationReport => ({ ...r, config: { ...r.config as typeof channel, wallTemperature } });
+  expect(channelMeshStudy([placeholder(flux(ok[0]!), 300), placeholder(flux(ok[1]!), 350), flux(ok[2]!)])).not.toHaveProperty("problem");
+  expect(channelPhysicsKey({ ...channel, conductivity: .069 })).toBe(channelPhysicsKey(channel));
+  expect(channelPhysicsKey({ ...channel, wallTemperature: 350 })).not.toBe(channelPhysicsKey(channel));
+  expect(channelPhysicsKey({ ...channel, thermal: false, wallTemperature: 350 })).toBe(channelPhysicsKey({ ...channel, thermal: false }));
+  const plateau = channelMeshStudy([report(40, 12, 8.1, 94, 17.5), report(60, 18, 7.9, 95.2, 18), report(90, 27, 7.9, 95.9, 18.2)]);
+  expect("problem" in plateau ? null : plateau.estimates.find(e => e.quantity.startsWith("Nu"))?.convergence).toBe("plateau");
+  expect("problem" in plateau ? [] : plateau.notes).toContain("For Nu at 198 mm, the two finer meshes agree but the coarse one differs, so three meshes give no order or error band. Add a finer mesh.");
 });
