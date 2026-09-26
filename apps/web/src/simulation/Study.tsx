@@ -35,9 +35,9 @@ export function StudyContext({chatId,onDescribe}:{chatId:Id<"chats">;onDescribe:
  useEffect(()=>{if(!open)return;const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))setOpen(false);};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){e.stopPropagation();setOpen(false);}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[open]);
  return <div className="study-context" ref={root}>
   <button className={`tool-chip study-target${active?" on":""}`} aria-expanded={open} title={active?`Working study: ${active.name} r${active.revision}${draft?" · unsaved edits":""}`:"Pick or start a simulation study"} onClick={()=>setOpen(!open)}>
-   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4M7 2v4L3.5 12.5A1 1 0 0 0 4.4 14h7.2a1 1 0 0 0 .9-1.5L9 6V2"/></svg>
+   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4M7 2v4L3.5 12.5A1 1 0 0 0 4.4 14h7.2a1 1 0 0 0 .9-1.5L9 6V2" /></svg>
    {active?<><b>{active.name}</b><span className="k">r{active.revision}{draft?" · unsaved":""}</span></>:"Study"}
-   <svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg>
+   <svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
   </button>
   {open&&<div className="study-picker">
    {active&&<button className="study-open" onClick={()=>{setOpen(false);ui.openSimulation(chatId,active._id,"setup");}}><span>Open {active.name}</span><small>r{active.revision}{draft?` · unsaved edits · the agent sees saved r${active.revision}`:""}</small></button>}<div className="study-picker-scope"><button aria-pressed={scope==="chat"} onClick={()=>setScope("chat")}>This chat</button><button aria-pressed={scope==="workspace"} onClick={()=>setScope("workspace")}>Workspace</button></div>

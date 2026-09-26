@@ -324,7 +324,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .composer textarea{display:block;width:100%;resize:none;border:0;background:transparent;color:var(--ink);font:inherit;padding:12px 0;min-height:44px;max-height:160px;outline:none}
 .composer textarea::placeholder{color:var(--ink-3)}
 .composer .ft{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:8px 0 2px;border-top:0;font-size:11px;color:var(--ink-3);font-family:var(--font-mono);align-items:end}
-.composer-tools{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-height:32px;min-width:0}
+.composer-tools{display:flex;flex-wrap:wrap;align-items:center;gap:2px;min-height:32px;min-width:0;margin-left:-6px}
 .composer-permissions{position:relative;flex:none}
 .permission-trigger{display:flex;align-items:center;gap:6px;white-space:nowrap;border-radius:var(--r-1);padding:4px 6px}
 .permission-trigger:hover,.permission-trigger[aria-expanded=true]{background:var(--surface-2)}
@@ -897,7 +897,7 @@ body.resizing .side-grip{pointer-events:auto}
 .dd button.on,.model-menu button[aria-pressed=true],.permission-options button[aria-pressed=true]{background:var(--ink);color:var(--surface)}
 .model-menu button[aria-pressed=true] *,.permission-options button[aria-pressed=true] *{color:var(--surface)}
 .composer .ft{font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase}
-.composer .ft .permission-trigger{text-transform:none;letter-spacing:0;font-size:11px}
+.composer .ft .composer-tools{font:11px var(--font-mono);text-transform:none;letter-spacing:0}
 .stopbtn{border-radius:var(--r-1);letter-spacing:var(--track-status);text-transform:uppercase;font-size:10px}
 .listen{border-radius:var(--r-1)}
 .upd{border-radius:var(--r-1)}
@@ -1028,10 +1028,10 @@ body.resizing .side-grip{pointer-events:auto}
 .ws-person .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
 
 /* Composer toolbar chips: study, agent. Same weight as the permission trigger. */
-.composer .ft .tool-chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:4px 6px;border-radius:var(--r-1);white-space:nowrap;text-transform:none;letter-spacing:0;font-size:11px}
+.composer .ft .tool-chip{display:inline-flex;align-items:center;gap:6px;height:26px;max-width:100%;min-width:0;padding:0 8px 0 6px;border-radius:var(--r-1);white-space:nowrap;font:inherit;line-height:1}
 .composer .ft .tool-chip:hover,.composer .ft .tool-chip[aria-expanded=true]{background:var(--surface-2)}
-.tool-chip>svg{width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
-.tool-chip>svg.chev{width:10px;height:10px;opacity:.7}
+.tool-chip>svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.tool-chip>svg.chev{width:10px;height:10px;margin-left:-1px;opacity:.7}
 .tool-chip .av{width:14px;height:14px;font-size:8px}
 .composer .ft .tool-chip.warn{color:var(--warn)}
 .composer-agent{position:relative;flex:none;min-width:0}
@@ -1044,3 +1044,4 @@ body.resizing .side-grip{pointer-events:auto}
 .agent-options .connection-resolved,.agent-options .connection-error{display:block;font-size:11px}
 .agent-options .agent-model{display:flex;align-items:center;justify-content:space-between;gap:8px;font:12px var(--font-mono);color:var(--ink)}
 .composer .ft .agent-options button.btn{width:auto;padding:3px 8px;color:var(--ink-2)}
+.composer .ft .agent-options .agent-restart{float:right;margin:0 0 4px 8px}
