@@ -193,6 +193,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <i>{r.split("/")[1]}</i>{stateLabel}</span>;
         })}
         <span className="sp" />
+        <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
         <button className="context-toggle" onClick={()=>ui.openContext(chat._id)} title="Files, links, and sources for this chat">Context</button>
         {threadState === "open"
           ? <button className="donebtn" title="Settle this thread when you are done with it. A new message reopens it." onClick={() => void setState({ chatId: chat._id, state: "settled" }).then(() => toast("Settled · a new message reopens it"))}>settle</button>
@@ -312,7 +313,6 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           <div className="composer-tools">
             <ComposerPermissions agents={permissionAgent ? [permissionAgent] : chatAgents} />
             {composerAgent && !liveRun && (() => { const p = preferences.find((p) => p.harness === composerAgent.harness); return <ComposerAgent chatId={chat._id} agent={composerAgent} model={p?.model ?? composerAgent.model} effort={p?.effort ?? composerAgent.effort} preview={connectionPreview} onOpenDefaults={() => setModal({ kind: "settings", tab: "models" })} />; })()}
-            <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
             {attachments.controls}
             <button onClick={() => { const el = inputRef.current!; const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; setText(v); el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = v.length; updatePop(v, v.length); }); }} className="tool-chip" title="Mention an agent or person"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"/><path d="M10.5 8v1a1.75 1.75 0 0 0 3.5 0V8a6 6 0 1 0-2.4 4.8"/></svg>Mention</button>
 

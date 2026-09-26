@@ -5,8 +5,11 @@
 /* Study lives in the composer toolbar as a chip; its menu floats above like the permissions menu. */
 .study-context{position:relative;flex:none;min-width:0}
 .study-target b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;color:var(--ink-2)}
-.study-picker{position:absolute;bottom:calc(100% + 8px);left:0;width:320px;max-width:calc(100vw - 48px);max-height:50vh;overflow:auto;padding:6px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-2);box-shadow:6px 6px 0 var(--shadow);z-index:12;text-transform:none;letter-spacing:0}
+.study-picker{position:absolute;top:calc(100% + 6px);right:0;width:320px;max-width:calc(100vw - 48px);max-height:50vh;overflow:auto;padding:6px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-2);box-shadow:6px 6px 0 var(--shadow);z-index:12;text-transform:none;letter-spacing:0}
 .study-picker button{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;padding:8px;border-radius:var(--r-1);font:12px var(--font-sans);color:var(--ink)}
 .study-picker button:hover:not(:disabled){background:var(--surface-2)}
 .study-picker .study-open{border-bottom:1px solid var(--line);border-radius:0;margin-bottom:4px}
 .study-picker-scope button{display:inline;width:auto;padding:4px 0;font:11px var(--font-mono);color:var(--ink-3)}
+.study-target{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.study-target .k{color:var(--ink-3);font-size:11px}
+.study-target svg.chev{width:10px;height:10px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;opacity:.7}
