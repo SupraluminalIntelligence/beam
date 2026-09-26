@@ -9,7 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { BrowserHost } from "../browser/BrowserHost";
 import { WorkspacePane } from "./WorkspacePane";
 import { ChatView } from "./ChatView";
-import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal, type SettingsTab } from "./Modals";
+import { InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal, type SettingsTab } from "./Modals";
 import { Sidebar } from "./Sidebar";
 import { People } from "./People";
 import { TabStrip } from "./TabStrip";
@@ -98,8 +98,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
         </div>
       </div>
       <BrowserHost activeChat={activeId} obscured={modal!==null} />
-      <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : undefined} />
-      <AgentSettingsModal open={modal?.kind === "agent"} agentId={modal?.kind === "agent" ? modal.id : null} detail={detail} onClose={() => setModal(null)} />
+      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} />
       <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />
       <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active?._id ?? null} />

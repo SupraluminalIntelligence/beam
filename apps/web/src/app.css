@@ -466,12 +466,27 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .hrow.head{background:var(--surface-2);border-bottom:1px solid var(--line)}
 .hrow .nm{font-weight:500;min-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hrow .sp{flex:1}
-.hrow .st{font-family:var(--font-mono);font-size:11px;padding:1px 6px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
+.hrow .st{--c:var(--ink-3);display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;padding:1px 6px;border:1px solid var(--c);border-radius:var(--r-1);color:var(--c);background:color-mix(in srgb,var(--c) 10%,transparent);white-space:nowrap}
+.hrow .st::before{content:"";width:6px;height:6px;flex:none;background:var(--c)}
 .hrow .k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hrow .st.authenticated{color:var(--ok);border-color:var(--ok)}
-.hrow .st.unauthenticated{color:var(--warn);border-color:var(--warn)}
-.hrow button.k,.hrow button.cmd{color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px;font-size:11px}
-.hrow button.k:hover,.hrow button.cmd:hover{color:var(--ink)}
+.hrow .ver{min-width:64px}
+.hrow .st.authenticated{--c:var(--ok-hue)}
+.hrow .st.unauthenticated{--c:var(--warn)}
+.hrow .st.unknown,.hrow .st.missing{border-style:dashed;background:transparent}
+.hrow .st.missing::before{background:transparent;border:1px solid var(--c);box-sizing:border-box}
+.hrow.head .sq.ok{background:var(--ok-hue)}
+.hrow.head{gap:8px}
+.hrow .hwho{display:flex;flex-direction:column;min-width:0}
+.hrow .hwho .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);padding-left:0}
+.hrow .hseen{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);white-space:nowrap}
+.hrow .hseen.on{color:var(--ok-hue)}
+.hrow button.cmd{display:inline-flex;align-items:center;gap:6px;border-radius:var(--r-1)}
+.hrow button.cmd svg{width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.hrow button.cmd{color:var(--ink-2);border:1px solid var(--line-2);padding:2px 8px;font-size:11px}
+.hrow button.cmd:hover{color:var(--ink)}
+.hrefresh.busy svg{animation:hspin .9s linear infinite}
+@keyframes hspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.hrefresh.busy svg{animation:none}}
 .hnote{padding:6px 14px 10px;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
 
 /* Sidebar trailing icons share a centerline 21px from the right edge.
@@ -913,9 +928,35 @@ body.resizing .side-grip{pointer-events:auto}
 .connection-settings .connection-add input{min-width:100px;width:auto;flex:1}
 .connection-settings .row button{justify-self:start}
 .connection-add select{max-width:150px}
-/* Settings: tabs keep one concern per page; each machine is one card. */
-.settings-modal{width:640px;display:flex;flex-direction:column;min-height:min(460px,calc(100vh - 80px))}
-.settings-modal>.m-f{margin-top:auto;border-top:1px solid var(--line)}
+/* Settings: a nav rail of pages beside one scrolling page; each machine is one card. */
+.settings-modal{width:840px;height:min(600px,calc(100vh - 80px));display:grid;grid-template-columns:200px minmax(0,1fr);overflow:hidden}
+.set-nav{display:flex;flex-direction:column;min-height:0;background:var(--surface-2);border-right:1px solid var(--line);padding:0 8px 8px}
+.set-nav-h{display:flex;align-items:center;justify-content:space-between;height:var(--pane-header-height);flex:none;padding:0 8px;font-weight:600}
+.set-nav-list{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0}
+.set-nav button{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border-radius:var(--r-1);color:var(--ink-2);text-align:left}
+.set-nav button>svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.set-nav button:hover{color:var(--ink);background:var(--surface-3)}
+.set-nav-list button.on{color:var(--ink);background:var(--surface);box-shadow:inset 2px 0 0 var(--ink-2)}
+.set-nav-out{margin-top:auto}
+.set-nav button .av{width:16px;height:16px;font-size:9px}
+.set-nav-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.set-nav-sec{padding:14px 8px 4px;font-size:12px;font-weight:500;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.set-main-h .hint{margin:0 8px 0 auto;font-family:var(--font-mono);font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.set-main-h h2{white-space:nowrap}
+.row.set-note{grid-template-columns:minmax(0,1fr) auto}
+.set-main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.set-main-h{display:flex;align-items:center;justify-content:space-between;height:var(--pane-header-height);flex:none;padding:0 8px 0 14px;border-bottom:1px solid var(--line)}
+.set-main-h h2{margin:0;font-size:15px;font-weight:600}
+.set-body{flex:1;min-height:0;overflow-y:auto}
+.set-main>.m-f{border-top:1px solid var(--line)}
+@media(max-width:640px){
+  .settings-modal{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .set-nav{flex-direction:row;align-items:center;border-right:0;border-bottom:1px solid var(--line);padding:6px}
+  .set-nav-h{display:none}
+  .set-nav-list{flex-direction:row;overflow-x:auto}
+  .set-nav button{width:auto;white-space:nowrap}
+  .set-nav-out{margin:0 0 0 auto}
+}
 .settings-modal .row.check{grid-template-columns:1fr}
 .row.notification-foot{grid-template-columns:minmax(0,1fr) auto}
 .hrow .mname{font:inherit;font-weight:500;color:var(--ink);background:transparent;border:1px solid transparent;padding:1px 4px;margin-left:-5px;min-width:0;max-width:240px;text-overflow:ellipsis}

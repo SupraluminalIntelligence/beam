@@ -1,6 +1,6 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
@@ -24,33 +24,58 @@ type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: st
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 import { HARNESS_INFO } from "../lib/harness-info";
 
-export type SettingsTab = "general" | "machines" | "notifications";
-const SETTINGS_TABS = [["general", "General"], ["machines", "Machines"], ["notifications", "Notifications"]] as const;
+export type SettingsTab = "general" | "machines" | "notifications" | `agent:${string}`;
+const SETTINGS_TABS = [
+  ["general", "General", <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>],
+  ["machines", "Machines", <><rect x="3" y="4" width="18" height="12" rx="1" /><path d="M8 20h8M12 16v4" /></>],
+  ["notifications", "Notifications", <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>],
+] as const;
+const agentLabel = (a: Doc<"agents">) => `${HARNESS_NAME[a.harness] ?? a.harness}${a.handle !== a.harness ? ` @${a.handle}` : ""}`;
 
-export function SettingsModal({ open, onClose, me, pairCode, tab: initialTab = "general" }: { open: boolean; onClose: () => void; me: Me; pairCode?: string | null; tab?: SettingsTab | undefined }) {
+export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general" }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined }) {
   const u = useUi();
   const { signOut } = useAuthActions();
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   useEffect(() => { if (open) setTab(pairCode ? "machines" : initialTab); }, [open, initialTab, pairCode]);
+  const agentId = tab.startsWith("agent:") ? tab.slice(6) : null;
+  const agent = detail.agents.find((a) => a._id === agentId) ?? null;
+  const title = agentId === "new" ? "Add an agent" : agent ? agentLabel(agent) : SETTINGS_TABS.find(([v]) => v === tab)?.[1] ?? "Agent";
+  const sub = agentId === "new" ? "a harness plus its settings" : agent ? `${detail.name} agent · needs ${HARNESS_INFO[agent.harness]!.min} locally` : "";
+  const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
   return (
     <Modal open={open} onClose={onClose} className="settings-modal">
-      <div className="m-h">Settings
-        <span className="tabs2" role="tablist">{SETTINGS_TABS.map(([v, label]) => <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? "on" : ""} onClick={() => setTab(v)}>{label}</button>)}</span>
-        <span className="k hint">⌘,</span>
-      </div>
-      {tab === "general" && <>
-        <UsernameSetting name={me.name} login={me.githubLogin} guest={!!me.isAnonymous} />
-        <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
-        <ResourceSharingPolicy />
-        <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
-      </>}
-      {tab === "machines" && <Machines pairCode={pairCode ?? null} />}
-      {tab === "notifications" && <NotificationSettings />}
-      <div className="m-f"><span>Per-agent settings live on each agent in the sidebar.</span><span><button className="btn ghost" onClick={() => void signOut()}>Log out</button> <button className="btn" onClick={onClose}>Done</button></span></div>
+      <nav className="set-nav">
+        <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
+        <div className="set-nav-list" role="tablist" aria-orientation="vertical">
+          {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
+          <div className="set-nav-sec" title={detail.name}>Agents · {detail.name}</div>
+          {detail.agents.map((a) => navButton(`agent:${a._id}`, agentLabel(a), <AgentAvatar harness={a.harness} />))}
+          {navButton("agent:new", "Add agent", <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>)}
+        </div>
+        <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
+      </nav>
+      <section className="set-main" role="tabpanel" aria-label={title}>
+        <div className="set-main-h"><h2>{title}</h2>{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
+        {agentId === "new" ? <AddAgent detail={detail} onAdded={(id) => setTab(`agent:${id}`)} />
+          : agent ? <AgentSettings key={agent._id} a={agent} detail={detail} onDone={onClose} onRemoved={() => setTab("general")} onOpenMachines={() => setTab("machines")} />
+          : <>
+            <div className="set-body">
+              {tab === "general" && <>
+                <UsernameSetting name={me.name} login={me.githubLogin} guest={!!me.isAnonymous} />
+                <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
+                <ResourceSharingPolicy />
+                <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
+              </>}
+              {tab === "machines" && <Machines pairCode={pairCode ?? null} />}
+              {tab === "notifications" && <NotificationSettings />}
+              {agentId && <div className="empty" style={{ padding: "16px 14px" }}>That agent is no longer in this workspace.</div>}
+            </div>
+            <div className="m-f"><span /><button className="btn" onClick={onClose}>Done</button></div>
+          </>}
+      </section>
     </Modal>
   );
 }
-
 
 function UsernameSetting({ name, login, guest }: { name: string; login: string; guest: boolean }) {
   const save = useMutation(api.users.setUsername);
@@ -71,7 +96,22 @@ function UsernameSetting({ name, login, guest }: { name: string; login: string; 
   </form>;
 }
 
-export function AgentSettingsModal({ open, agentId, detail, onClose }: { open: boolean; agentId: Id<"agents"> | null; detail: Detail; onClose: () => void }) {
+function AddAgent({ detail, onAdded }: { detail: Detail; onAdded: (id: Id<"agents">) => void }) {
+  const add = useMutation(api.workspaces.addAgent);
+  return <>
+    <div className="set-body">
+      <div className="list">
+        {(["claude", "codex", "omp"] as const).map((h) => {
+          const n = detail.agents.filter((x) => x.harness === h).length;
+          return <button key={h} onClick={async () => onAdded(await add({ workspaceId: detail.id, harness: h }))}><AgentAvatar harness={h} /><span className="nm">{HARNESS_NAME[h]}<small>{HARNESS_INFO[h]!.vendor}</small></span><span className="d">{n ? `${n} in workspace` : ""}</span></button>;
+        })}
+      </div>
+    </div>
+    <div className="m-f"><span>Everyone can choose their own model for the same @agent.</span></div>
+  </>;
+}
+
+function AgentSettings({ a, detail, onDone, onRemoved, onOpenMachines }: { a: Doc<"agents">; detail: Detail; onDone: () => void; onRemoved: () => void; onOpenMachines: () => void }) {
   const localRunnerId = useLocalRunner();
   const accountPreferences = useQuery(api.connections.preferences);
   const saveAccount = useMutation(api.connections.setPreference);
@@ -81,32 +121,8 @@ export function AgentSettingsModal({ open, agentId, detail, onClose }: { open: b
   const myRunners = useQuery(api.runners.mine) ?? [];
   const sharedRunners = useQuery(api.runners.online, { workspaceId: detail.id }) ?? [];
   const [runnerChoice, setRunnerChoice] = useState<string | null>(null);
-  const add = useMutation(api.workspaces.addAgent);
   const remove = useMutation(api.workspaces.removeAgent);
-  const isNew = (agentId as unknown as string) === "new";
-  const [cur, setCur] = useState<Id<"agents"> | null>(null);
-  useEffect(() => { if (open && !isNew) setCur(agentId); }, [open, agentId, isNew]);
-  const a = detail.agents.find((x) => x._id === (cur ?? agentId)) ?? null;
   const [draft, setDraft] = useState<Partial<Doc<"agents">>>({});
-
-  useEffect(() => { setDraft({}); setRunnerChoice(null); }, [a?._id, open]);
-  if (!open) return null;
-
-  if (isNew && !cur) {
-    return (
-      <Modal open onClose={onClose}>
-        <div className="m-h">Add an agent<span className="k hint">a harness plus its settings</span></div>
-        <div className="list">
-          {(["claude", "codex", "omp"] as const).map((h) => {
-            const n = detail.agents.filter((x) => x.harness === h).length;
-            return <button key={h} onClick={async () => { const id = await add({ workspaceId: detail.id, harness: h }); setCur(id); }}><AgentAvatar harness={h} /><span className="nm">{HARNESS_NAME[h]}<small>{HARNESS_INFO[h]!.vendor}</small></span><span className="d">{n ? `${n} in workspace` : ""}</span></button>;
-          })}
-        </div>
-        <div className="m-f"><span>Everyone can choose their own model for the same @agent.</span></div>
-      </Modal>
-    );
-  }
-  if (!a) return null;
   const info = HARNESS_INFO[a.harness]!;
   const preference = preferences?.find((p) => p.harness === a.harness);
   const v = { ...a, ...(preference ? { model: preference.model, effort: preference.effort } : {}), ...draft };
@@ -121,29 +137,25 @@ export function AgentSettingsModal({ open, agentId, detail, onClose }: { open: b
   const selectedModel = catalog.find((m) => normalize(m.model) === normalize(v.model) || normalize(m.name) === normalize(v.model));
   const modelOptions = a.harness === "codex" ? catalog : info.models.map((m) => ({ model: m, name: m, efforts: ["low", "medium", "high", "max"] }));
   const efforts = a.harness === "codex" ? [...new Set([...(selectedModel?.efforts ?? []), "max"])] : ["low", "medium", "high", "max"];
-  return (
-    <Modal open onClose={onClose}>
-      <div className="m-h">
-        <span className="tabs2">{detail.agents.map((x) => <button key={x._id} className={x._id === a._id ? "on" : ""} onClick={() => setCur(x._id)}><AgentAvatar harness={x.harness} />{HARNESS_NAME[x.harness]}{x.handle !== x.harness ? ` @${x.handle}` : ""}</button>)}</span>
-        <span className="k hint">workspace agent · needs {info.min} locally</span>
-      </div>
-      <div className="row"><span>Name in chat</span><span className="val">@<input type="text" value={v.handle} onChange={(e) => setDraft({ ...draft, handle: e.target.value.replace(/[^a-z0-9-]/g, "") })} style={{ width: 140, display: "inline-block", marginLeft: 2 }} /></span></div>
-      <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Your defaults · {HARNESS_NAME[a.harness]}</div>
-      <div className="row"><span>Preferred account</span><select aria-label="Connection" value={connection} onChange={e => setRunnerChoice(e.target.value)}><option value="">Each machine’s own default</option>{runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => <option key={`${r.id}:${h.connectionId}`} value={JSON.stringify([r.id, h.connectionId])}>{h.connectionName}{h.email ? ` · ${h.email}` : ""} · {r.name}{r.online ? "" : " · offline"}</option>))}</select></div>
-      <div className="row"><span>Your model</span><select aria-label="Your model" value={selectedModel?.model ?? v.model} onChange={(e) => { const m = modelOptions.find((m) => m.model === e.target.value); setDraft({ ...draft, model: e.target.value, effort: m?.efforts.includes(v.effort) ? v.effort : m?.efforts[0] ?? "high" }); }}>
-        {!modelOptions.some((m) => m.model === v.model || m.model === selectedModel?.model) && <option value={v.model}>{v.model}{a.harness === "codex" ? " · unavailable until refreshed" : ""}</option>}
-        {modelOptions.map((m) => <option key={m.model} value={m.model}>{m.name}</option>)}
-      </select></div>
-      {a.harness === "codex" && !catalog.length && <div className="row"><span className="hint">Refresh the machine in Settings → Machines to load available Codex models.</span></div>}
-      <div className="row"><span>Your reasoning effort</span><select aria-label="Your reasoning effort" value={v.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value })}>{!efforts.includes(v.effort) && <option value={v.effort}>{v.effort} · unavailable</option>}{efforts.map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
-      <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Shared agent settings</div>
-      <div className="row"><span>Permissions</span><Seg value={v.permissionMode} options={[["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const} onChange={(x) => setDraft({ ...draft, permissionMode: x })} /></div>
-      <div className="row"><span>Always allow</span><input type="text" value={v.alwaysAllow.join(", ")} onChange={(e) => setDraft({ ...draft, alwaysAllow: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} /></div>
-      <div className="row"><span>Context on dispatch</span><Seg value={v.contextPolicy} options={[["last-landing", "last landing"], ["since-landing-plus-summary", "since last landing + summary"], ["whole-chat", "whole chat"]] as const} onChange={(x) => setDraft({ ...draft, contextPolicy: x })} /></div>
-      <div className="row"><span>Instructions</span><span className="hint">{info.files} from repo root</span></div>
-      <div className="m-f"><span>Your defaults apply to new runs you request.</span><span><button className="btn ghost" onClick={async () => { if (detail.agents.length <= 1) { toast("Keep at least one agent"); return; } await remove({ agentId: a._id }); onClose(); toast("Agent removed from workspace"); }}>Remove</button> <button className="btn" disabled={!preferences} onClick={async () => { try { await savePreference({ harness: a.harness, model: selectedModel?.model ?? v.model, effort: v.effort, ...(preference?.runnerId ? { runnerId: preference.runnerId, ...(preference.connectionId ? { connectionId: preference.connectionId } : {}) } : {}) }); if (runnerChoice !== null) await saveAccount({ harness: a.harness, ...(selectedChoice ? { runnerId: selectedChoice[0] as Id<"runners">, connectionId: selectedChoice[1] } : {}) }); const patch = { ...(draft.handle !== undefined ? { handle: v.handle || a.handle } : {}), ...(draft.permissionMode !== undefined ? { permissionMode: v.permissionMode } : {}), ...(draft.alwaysAllow !== undefined ? { alwaysAllow: v.alwaysAllow } : {}), ...(draft.contextPolicy !== undefined ? { contextPolicy: v.contextPolicy } : {}) }; if (Object.keys(patch).length) await update({ agentId: a._id, patch }); onClose(); toast("Saved · applies to your next run"); } catch (e) { toast((e as Error).message); } }}>Save</button></span></div>
-    </Modal>
-  );
+  return <>
+    <div className="set-body">
+        <div className="row"><span>Name in chat</span><span className="val">@<input type="text" value={v.handle} onChange={(e) => setDraft({ ...draft, handle: e.target.value.replace(/[^a-z0-9-]/g, "") })} style={{ width: 140, display: "inline-block", marginLeft: 2 }} /></span></div>
+        <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Your defaults · {HARNESS_NAME[a.harness]}</div>
+        <div className="row"><span>Preferred account</span><select aria-label="Connection" value={connection} onChange={e => setRunnerChoice(e.target.value)}><option value="">Each machine’s own default</option>{runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => <option key={`${r.id}:${h.connectionId}`} value={JSON.stringify([r.id, h.connectionId])}>{h.connectionName}{h.email ? ` · ${h.email}` : ""} · {r.name}{r.online ? "" : " · offline"}</option>))}</select></div>
+        <div className="row"><span>Your model</span><select aria-label="Your model" value={selectedModel?.model ?? v.model} onChange={(e) => { const m = modelOptions.find((m) => m.model === e.target.value); setDraft({ ...draft, model: e.target.value, effort: m?.efforts.includes(v.effort) ? v.effort : m?.efforts[0] ?? "high" }); }}>
+          {!modelOptions.some((m) => m.model === v.model || m.model === selectedModel?.model) && <option value={v.model}>{v.model}{a.harness === "codex" ? " · unavailable until refreshed" : ""}</option>}
+          {modelOptions.map((m) => <option key={m.model} value={m.model}>{m.name}</option>)}
+        </select></div>
+        {a.harness === "codex" && !catalog.length && <div className="row set-note"><span className="hint">Codex models load from a machine’s last check.</span><button className="btn ghost" onClick={onOpenMachines}>Open Machines</button></div>}
+        <div className="row"><span>Your reasoning effort</span><select aria-label="Your reasoning effort" value={v.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value })}>{!efforts.includes(v.effort) && <option value={v.effort}>{v.effort} · unavailable</option>}{efforts.map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
+        <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Shared agent settings</div>
+        <div className="row"><span>Permissions</span><Seg value={v.permissionMode} options={[["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const} onChange={(x) => setDraft({ ...draft, permissionMode: x })} /></div>
+        <div className="row"><span>Always allow</span><input type="text" value={v.alwaysAllow.join(", ")} onChange={(e) => setDraft({ ...draft, alwaysAllow: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} /></div>
+        <div className="row"><span>Context on dispatch</span><Seg value={v.contextPolicy} options={[["last-landing", "last landing"], ["since-landing-plus-summary", "since last landing + summary"], ["whole-chat", "whole chat"]] as const} onChange={(x) => setDraft({ ...draft, contextPolicy: x })} /></div>
+        <div className="row"><span>Instructions</span><span className="hint">{info.files} from repo root</span></div>
+    </div>
+    <div className="m-f"><span>Your defaults apply to new runs you request.</span><span><button className="btn ghost" onClick={async () => { if (detail.agents.length <= 1) { toast("Keep at least one agent"); return; } await remove({ agentId: a._id }); onRemoved(); toast("Agent removed from workspace"); }}>Remove</button> <button className="btn" disabled={!preferences} onClick={async () => { try { await savePreference({ harness: a.harness, model: selectedModel?.model ?? v.model, effort: v.effort, ...(preference?.runnerId ? { runnerId: preference.runnerId, ...(preference.connectionId ? { connectionId: preference.connectionId } : {}) } : {}) }); if (runnerChoice !== null) await saveAccount({ harness: a.harness, ...(selectedChoice ? { runnerId: selectedChoice[0] as Id<"runners">, connectionId: selectedChoice[1] } : {}) }); const patch = { ...(draft.handle !== undefined ? { handle: v.handle || a.handle } : {}), ...(draft.permissionMode !== undefined ? { permissionMode: v.permissionMode } : {}), ...(draft.alwaysAllow !== undefined ? { alwaysAllow: v.alwaysAllow } : {}), ...(draft.contextPolicy !== undefined ? { contextPolicy: v.contextPolicy } : {}) }; if (Object.keys(patch).length) await update({ agentId: a._id, patch }); onDone(); toast("Saved · applies to your next run"); } catch (e) { toast((e as Error).message); } }}>Save</button></span></div>
+  </>;
 }
 
 export function InviteModal({ open, onClose, wsId, wsName, chatId }: { open: boolean; onClose: () => void; wsId: Id<"workspaces">; wsName: string; chatId: Id<"chats"> | null }) {
