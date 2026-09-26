@@ -56,6 +56,18 @@ An agent should retain the baseline solve ID, read the saved study, add body ban
 3. **Runs** executes `buoyantBoussinesqSimpleFoam` against that immutable mesh and the saved configuration. Buoyancy is disabled (`g = 0`, `beta = 0`); this is steady laminar forced flow with passive thermal transport. Live logs, cancellation and a completed residual history are available. Initial residual targets are pressure 1e-6 and velocity/temperature 1e-7. Hitting the iteration limit can produce valid output files without meeting convergence; the report distinguishes these states.
 4. **Results** displays exported cell-centred speed, gauge pressure (kinematic pressure multiplied by the specified density), and temperature. The plot provides numeric cell readouts and an explicit scale. Pressure drop and outlet temperature are estimates from the first/last cell columns, not surface integrals or flow-weighted averages. Download `case.tar.gz` to inspect the native case in ParaView via `case.foam`.
 
+### Setup checks
+
+The recipe is steady, laminar, single-phase and constant-property, with gravity off. Setup checks compare a study's inputs with those assumptions before anything runs. They update as you edit Setup, appear on the study card when one needs attention and in the Results CHECKS list, and are returned as `setupChecks` whenever an agent reads, validates or saves a heated-channel study:
+
+- **laminar flow**: Re = U·2H/ν against about 2,000.
+- **gravity off**: Richardson number Ri = gβΔT·2H/U² from the stated thermal expansion coefficient β and the wall-to-inlet difference ΔT. Below 0.1 it holds; 0.1 to 1 needs review; 1 or more fails, because buoyancy is then at least comparable to inertia and the gravity-free result does not represent the real flow in any orientation.
+- **single phase**: the hottest of the wall and inlet temperatures against the stated boiling point (the saturation temperature at the operating pressure). At or above it fails; the solver would still converge, because it has no phase change.
+- **viscosity units**: for liquids (density at least 100 kg/m³ and Pr at least 0.1), ν/Pr above 1e-6 m²/s, several times any common non-metallic liquid's thermal diffusivity, flags a dynamic viscosity in Pa·s entered as kinematic viscosity and suggests ν/ρ.
+- **entry length**: hydrodynamic and thermal entry lengths from Shah & London's parallel-plate correlations, as context for outlet values.
+
+`beta` (1/K) and `boilingPoint` (K) are optional stated data. The solver does not use them, they never change the mesh, and without them the gravity and single-phase checks read "not set". The checks are order-of-magnitude screens of the inputs, not a validation of the computed result.
+
 This first recipe supports a single 2-D fluid region, Reynolds number up to 1500 based on twice channel height, and at most 12,800 cells. It does not yet prepare imported CAD, solve a solid thermal region, model turbulence, or calculate mass/thermal balances. Mesh sensitivity and physical validation are explicitly unassessed. A completed job or residual convergence is not evidence of an engineering-valid result.
 
 ## Cylinder wake · animated

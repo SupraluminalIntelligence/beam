@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
 export * from "./planar.ts";
+export * from "./channelChecks.ts";
 
 export const OPENFOAM_IMAGE = "opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319";
 /** First supported study: a 2-D laminar channel, prescribed wall temperature, no buoyancy. SI units. */
@@ -12,6 +13,8 @@ export const ChannelCase = z.object({
   pr: z.number().min(0.01).max(1000), density: z.number().min(0.1).max(20000),
   inletTemperature: z.number().min(273.15).max(373.15), wallTemperature: z.number().min(273.15).max(373.15),
   thermal: z.boolean(), iterations: z.number().int().min(100).max(3000),
+  // Stated fluid data for setup checks only; the solve keeps gravity off and never boils.
+  beta: z.number().min(0).max(0.02).optional(), boilingPoint: z.number().min(100).max(1000).optional(),
 }).strict().superRefine((c,ctx)=>{
   if(c.length < c.height * 2) ctx.addIssue({code:"custom",message:"Channel length must be at least twice its height"});
   if(c.velocity * 2*c.height / c.nu > 1500) ctx.addIssue({code:"custom",message:"This laminar example supports Reynolds numbers up to 1500 (based on twice the channel height)"});
