@@ -48,3 +48,25 @@ describe("Claude permissions", () => {
     expect(await result).toEqual(expect.objectContaining({ behavior: "deny" }));
   });
 });
+
+describe("Claude probe usage", () => {
+  const probe = (account: Record<string, unknown>, usage: () => Promise<unknown>) => {
+    vi.mocked(query).mockReturnValue({ initializationResult: async () => ({ account }), usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: usage, close: vi.fn() } as unknown as ReturnType<typeof query>);
+    return claudeAdapter.probe();
+  };
+  it("reads plan windows for a subscription", async () => {
+    const s = await probe({ email: "a@b.c", subscriptionType: "max" }, async () => ({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 30, resets_at: null } } }));
+    expect(s.usage?.windows.map((w) => [w.id, w.usedPercent])).toEqual([["five_hour", 30]]);
+  });
+  it("marks API-key and outside-provider sign-ins unsupported without asking", async () => {
+    const usage = vi.fn();
+    expect((await probe({ tokenSource: "apiKey" }, usage)).usage?.unavailable).toBe("unsupported");
+    expect((await probe({ apiProvider: "bedrock" }, usage)).usage?.unavailable).toBe("unsupported");
+    expect(usage).not.toHaveBeenCalled();
+  });
+  it("reports a failed read so the last good numbers stay", async () => {
+    const s = await probe({ email: "a@b.c", subscriptionType: "pro" }, async () => { throw new Error("gone"); });
+    expect(s.auth).toBe("authenticated");
+    expect(s.usage?.unavailable).toBe("failed");
+  });
+});

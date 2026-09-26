@@ -1,6 +1,5 @@
 import beamLogo from "../assets/beam-logo.png";
 import { Notifications } from "./Notifications";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
@@ -14,6 +13,8 @@ import { toast } from "./Toast";
 import { PERMISSION_MODES as MODES, PermissionIcon, permissionLabel } from "./Permissions";
 import { AgentModelSelect } from "./AgentModelSelect";
 import { UpdatePill } from "./Update";
+import { AccountMenu } from "./AccountMenu";
+import { useChangelogUnseen } from "../lib/changelog";
 import { ChatContextMenu, type ChatMenuTarget } from "./ChatContextMenu";
 
 type Detail = NonNullable<ReturnType<typeof useDetailType>>;
@@ -29,9 +30,9 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
   const [chatMenu, setChatMenu] = useState<ChatMenuTarget | null>(null);
   const closeChatMenu = useCallback(() => setChatMenu(null), []);
   const [acct, setAcct] = useState(false);
+  const unseen = useChangelogUnseen();
   const [openSel, setOpenSel] = useState<string | null>(null);
   const updateAgent = useMutation(api.workspaces.updateAgent);
-  const { signOut } = useAuthActions();
   const people = useQuery(api.users.byLogins, { logins: p.detail.members });
   const nameOf = (l: string) => (l === p.me.githubLogin ? p.me.name : people?.[l]?.name ?? l);
   const imageOf = (l: string) => (l === p.me.githubLogin ? p.me.image : people?.[l]?.image ?? null);
@@ -139,15 +140,8 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
         ))}
       </div>
       <div className="sb-foot" onClick={stop}>
-        <div className="menu" hidden={!acct}>
-          <div className="mh"><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><div><div className="mn">{p.me.name}</div><div className="k">{p.me.githubLogin}{p.me.isAnonymous ? " · guest" : ""}</div></div></div>
-          <button onClick={() => { setAcct(false); toast("Usage: wired in M1 from the harness probes"); }}><span>Usage this month</span><span className="k">M1</span></button>
-          <button onClick={() => { setAcct(false); p.setModal({ kind: "settings", tab: "machines" }); }}><span>Machines and accounts</span></button>
-          <button onClick={() => { setAcct(false); p.setModal({ kind: "invite" }); }}><span>Invite a teammate</span></button>
-          <button onClick={() => { setAcct(false); p.setModal({ kind: "settings" }); }}><span>Settings</span><span className="k">⌘,</span></button>
-          <button onClick={() => void signOut()}><span>Log out</span></button>
-        </div>
-        <div className="acct-row"><button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span><span className="k">⚙</span></button><UpdatePill /></div>
+        <AccountMenu me={p.me} open={acct} workspaceName={p.detail.name} onClose={() => setAcct(false)} onSettings={(tab) => p.setModal(tab ? { kind: "settings", tab } : { kind: "settings" })} onInvite={() => p.setModal({ kind: "invite" })} />
+        <div className="acct-row"><button className="acct" onClick={() => setAcct(!acct)} aria-haspopup="menu" aria-expanded={acct}><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><span className="nm">{p.me.name}</span>{unseen && <span className="news-dot" aria-label="What's new" />}<span className="k">⚙</span></button><UpdatePill /></div>
       </div>
       {chatMenu && <ChatContextMenu key={chatMenu.chat._id} target={chatMenu} onClose={closeChatMenu} userId={p.me.id} />}
     </aside>

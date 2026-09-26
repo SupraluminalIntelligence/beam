@@ -16,7 +16,7 @@ export default defineSchema({
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     githubLogin: v.optional(v.string()),
-    notificationPreferences: v.optional(v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean() })),
+    notificationPreferences: v.optional(v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean(), pausedUntil: v.optional(v.number()) })),
     resourceSharing: v.optional(v.union(v.literal("auto"), v.literal("ask"))),
     accountPreferences: v.optional(v.array(v.object({ harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
     chatConnections: v.optional(v.array(v.object({ chatId: v.id("chats"), harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),

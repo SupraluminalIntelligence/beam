@@ -48,7 +48,7 @@ pnpm --filter @beam/mobile exec expo export --platform ios --output-dir /tmp/bea
 
 CI runs the same checks. The last one bundles the phone app, which catches imports that typecheck but cannot run on a phone, such as `node:` modules in `packages/contracts` or `packages/reducer`.
 
-Describe the behavior that changes, how you verified it, and any limitations. Include screenshots for UI changes. Keep PRs focused and preserve unrelated work. Provider-backed, Docker, and platform-specific integration checks are opt-in; report which ones you actually ran.
+Add a line under Unreleased in `CHANGELOG.md` for any change people will notice; the app shows it under Settings › What's new. Describe the behavior that changes, how you verified it, and any limitations. Include screenshots for UI changes. Keep PRs focused and preserve unrelated work. Provider-backed, Docker, and platform-specific integration checks are opt-in; report which ones you actually ran.
 
 Read `AGENTS.md` and the architecture notes in `README.md`. UI changes should use `apps/web/src/tokens.css` and the existing component styles. Provider credentials remain in local CLI profiles; frontend code must not import Electron or Node APIs.
 

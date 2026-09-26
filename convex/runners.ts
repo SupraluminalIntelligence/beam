@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { me, requireChat, requireMember } from "./lib";
 import { sha256 } from "./runnerAuth";
+import { mergeProbedUsage } from "../packages/contracts/src/usage";
 
 const foamCapability = v.object({ ready: v.boolean(), message: v.string(), image: v.string() });
 
@@ -20,7 +21,7 @@ export const hello = mutation({
   handler: async (ctx, a) => {
     const t = await requireRunner(ctx, a.token);
     const existing = await ctx.db.query("runners").withIndex("by_token", (q) => q.eq("tokenId", t._id)).first();
-    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: a.harnesses, launchedByApp: a.launchedByApp, computeBackend: a.computeBackend, openfoam: a.openfoam };
+    const fields = { ownerLogin: t.githubLogin, name: a.name, hostname: a.hostname, platform: a.platform, online: true, lastSeen: Date.now(), harnesses: mergeProbedUsage(existing?.harnesses, a.harnesses), launchedByApp: a.launchedByApp, computeBackend: a.computeBackend, openfoam: a.openfoam };
     if (existing) { await ctx.db.patch(existing._id, fields); return existing._id; }
     const { computeBackend, openfoam, ...required } = fields;
     return ctx.db.insert("runners", { tokenId: t._id, probeRequestedAt: 0, ...required, ...(computeBackend ? { computeBackend } : {}), ...(openfoam ? { openfoam } : {}) });
@@ -33,7 +34,7 @@ export const heartbeat = mutation({
     const t = await requireRunner(ctx, token);
     const r = await ctx.db.get(runnerId);
     if (!r || r.tokenId !== t._id) throw new Error("not your runner");
-    await ctx.db.patch(runnerId, { online: true, lastSeen: Date.now(), ...(harnesses === undefined ? {} : { harnesses }), ...(openfoam === undefined ? {} : { openfoam }) });
+    await ctx.db.patch(runnerId, { online: true, lastSeen: Date.now(), ...(harnesses === undefined ? {} : { harnesses: mergeProbedUsage(r.harnesses, harnesses) }), ...(openfoam === undefined ? {} : { openfoam }) });
   },
 });
 
