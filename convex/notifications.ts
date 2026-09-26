@@ -4,6 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { mentionTargets } from "./mentionTargets";
 import { me, requireChat } from "./lib";
+import { schedulePush } from "./push";
 
 export const defaults = { enabled: true, completed: true, failed: true, input: true, mention: true, sound: true };
 const preferenceShape = v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean(), pausedUntil: v.optional(v.number()) });
@@ -47,9 +48,10 @@ export async function notifyRun(ctx: MutationCtx, runId: Id<"runs">, kind: "comp
     if (!prefs.enabled || !prefs[kind]) continue;
     const key = `${runId}:${eventKey}`;
     if (await ctx.db.query("notifications").withIndex("by_key", (q) => q.eq("recipient", recipient).eq("key", key)).first()) continue;
-    await ctx.db.insert("notifications", { recipient, key, chatId: chat._id, workspaceId: chat.workspaceId, runId, kind,
+    const id = await ctx.db.insert("notifications", { recipient, key, chatId: chat._id, workspaceId: chat.workspaceId, runId, kind,
       title: `${label} ${kind === "completed" ? "finished" : kind === "failed" ? "couldn’t finish" : "needs your input"}`,
       body: chat.title.slice(0, 140), readAt: null, deliveredAt: null });
+    await schedulePush(ctx, id);
   }
 }
 export async function resolveInputNotifications(ctx: MutationCtx, runId: Id<"runs">, requestId?: string) {
@@ -121,7 +123,8 @@ export async function notifyMentions(ctx: MutationCtx, messageId: Id<"messages">
     if (recipient === message.author) continue;
     const key = `${messageId}:mention`;
     if (await ctx.db.query("notifications").withIndex("by_key", q => q.eq("recipient", recipient).eq("key", key)).first()) continue;
-    await ctx.db.insert("notifications", { recipient, key, chatId: chat._id, workspaceId: chat.workspaceId, messageId, kind: "mention", title: `${sender} mentioned you`.slice(0, 200), body: `${chat.title}: ${message.text}`.slice(0, 500), readAt: null, deliveredAt: null });
+    const id = await ctx.db.insert("notifications", { recipient, key, chatId: chat._id, workspaceId: chat.workspaceId, messageId, kind: "mention", title: `${sender} mentioned you`.slice(0, 200), body: `${chat.title}: ${message.text}`.slice(0, 500), readAt: null, deliveredAt: null });
+    await schedulePush(ctx, id);
   }
 }
 

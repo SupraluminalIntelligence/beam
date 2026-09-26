@@ -43,7 +43,10 @@ Run `pnpm convex` separately when you want backend changes watched and deployed 
 pnpm typecheck
 pnpm test
 pnpm --filter @beam/web build
+pnpm --filter @beam/mobile exec expo export --platform ios --output-dir /tmp/beam-mobile
 ```
+
+CI runs the same checks. The last one bundles the phone app, which catches imports that typecheck but cannot run on a phone, such as `node:` modules in `packages/contracts` or `packages/reducer`.
 
 Add a line under Unreleased in `CHANGELOG.md` for any change people will notice; the app shows it under Settings › What's new. Describe the behavior that changes, how you verified it, and any limitations. Include screenshots for UI changes. Keep PRs focused and preserve unrelated work. Provider-backed, Docker, and platform-specific integration checks are opt-in; report which ones you actually ran.
 

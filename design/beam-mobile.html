@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beam on a phone</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Tokens: copied from apps/web/src/tokens.css so the phone sits on the same plate as the desktop. */
+:root{
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-display:"Space Grotesk","IBM Plex Sans",sans-serif;
+  --track-label:.22em; --track-status:.18em;
+  --r-1:2px; --r-2:4px; --r-3:6px;
+  --bg:#EFEFEB; --surface:#FBFBF9; --surface-2:#F3F3F0; --surface-3:#E6E6E1;
+  --ink:#141414; --ink-2:#3B3B39; --ink-3:#696965; --line:#DEDEDA; --line-2:#C4C4BE;
+  --shadow:#D9D9D3;
+  --live:#1976A3; --warn:#8F6200; --bad:#B03A30; --ok:var(--ink-2);
+  --add:#3F7A2E; --del:#B03A30; --addbg:#E9F1E4; --delbg:#F6E6E3;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#08090B; --surface:#0B0C0E; --surface-2:#111317; --surface-3:#1B1E24;
+    --ink:#E9EBEF; --ink-2:#B4B8BF; --ink-3:#858A93; --line:#24272D; --line-2:#3A3E46;
+    --shadow:#000000;
+    --live:#55B6E0; --warn:#E8B23E; --bad:#D9695F;
+    --add:#7FB069; --del:#D9695F; --addbg:#152015; --delbg:#2A1614;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#08090B; --surface:#0B0C0E; --surface-2:#111317; --surface-3:#1B1E24;
+  --ink:#E9EBEF; --ink-2:#B4B8BF; --ink-3:#858A93; --line:#24272D; --line-2:#3A3E46;
+  --shadow:#000000;
+  --live:#55B6E0; --warn:#E8B23E; --bad:#D9695F;
+  --add:#7FB069; --del:#D9695F; --addbg:#152015; --delbg:#2A1614;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible{outline:2px solid var(--live);outline-offset:-2px}
+a{color:var(--ink);text-decoration-color:var(--line-2);text-underline-offset:3px}
+h1,h2,h3{margin:0;font-family:var(--font-display);font-weight:700;letter-spacing:-.01em;line-height:1.1}
+h1{font-size:clamp(40px,7vw,72px);letter-spacing:-.03em}
+h2{font-size:26px}
+h3{font-size:15px;font-family:var(--font-mono);font-weight:500;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+p{margin:0}
+code{font-family:var(--font-mono);font-size:.9em;background:var(--surface-2);padding:.05em .35em}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.col{max-width:64ch}
+section.doc{padding:52px 0;border-top:1px solid var(--line)}
+section.doc .head{display:grid;gap:10px;margin-bottom:26px}
+.lede{font-size:18px;color:var(--ink-2);max-width:60ch}
+.prose{display:grid;gap:14px}
+.prose ul{margin:0;padding-left:20px;display:grid;gap:6px}
+strong{font-weight:600}
+.hero{padding:64px 0 36px}
+.hero .hero-top{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+.hero .tag{font-family:var(--font-display);font-size:clamp(20px,2.6vw,28px);font-weight:500;color:var(--ink-2);margin-top:8px}
+.hero .meta{display:grid;gap:3px;font-family:var(--font-mono);font-size:12px;color:var(--ink-3);text-align:right}
+.pitch{margin-top:30px;max-width:64ch;font-size:18px;display:grid;gap:12px}
+.pitch em{font-style:italic;color:var(--ink-2)}
+
+/* the four verbs */
+.loop{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);background:var(--surface)}
+.loop>div{padding:18px 20px;border-right:1px solid var(--line);display:grid;gap:6px;align-content:start}
+.loop>div:last-child{border-right:0}
+.loop .k{font-family:var(--font-display);font-size:20px;font-weight:700}
+.loop .who{font-family:var(--font-mono);font-size:11px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+.loop p{font-size:14px;color:var(--ink-2)}
+@media(max-width:820px){.loop{grid-template-columns:1fr 1fr}.loop>div:nth-child(2){border-right:0}.loop>div:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+
+/* mapping table */
+.map{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);font-size:14px}
+.map th,.map td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.map th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);background:var(--surface-2);font-weight:500}
+.map td:first-child{font-weight:500;white-space:nowrap}
+.map td .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.map tr.off td{color:var(--ink-3)}
+
+/* decisions */
+.qa{display:grid;gap:0;border:1px solid var(--line);background:var(--surface)}
+.qa>div{display:grid;grid-template-columns:260px 1fr;gap:20px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.qa>div:last-child{border-bottom:0}
+.qa .q{font-weight:600}
+.qa .a{color:var(--ink-2)}
+.qa .a b{color:var(--ink);font-weight:600}
+@media(max-width:700px){.qa>div{grid-template-columns:1fr;gap:6px}}
+
+/* toolbar over the frames */
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 16px;flex-wrap:wrap}
+.toolbar .note{font-size:14px;color:var(--ink-2)}
+.toolbar .btns{display:flex;gap:8px}
+.btn{font-family:var(--font-mono);font-size:12px;letter-spacing:.04em;border:1px solid var(--ink);padding:7px 12px;color:var(--ink);background:var(--surface)}
+.btn:hover{background:var(--ink);color:var(--surface)}
+
+/* phone frames */
+.frames{display:flex;gap:26px;overflow-x:auto;padding:6px 28px 26px;scroll-snap-type:x proximity;width:100vw;margin-left:calc(50% - 50vw)}
+.frame{flex:none;scroll-snap-align:start;display:grid;gap:12px}
+.frame .cap{display:grid;gap:2px;padding-left:2px}
+.frame .cap b{font-family:var(--font-mono);font-size:11px;letter-spacing:var(--track-label);text-transform:uppercase;font-weight:500}
+.frame .cap span{font-size:13px;color:var(--ink-2);max-width:300px}
+.frame .shell{width:312px;height:675px;position:relative}
+.phone{width:390px;height:844px;transform:scale(.8);transform-origin:top left;position:absolute;left:0;top:0;background:var(--surface);border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--shadow);overflow:hidden;display:flex;flex-direction:column;font-size:15px;line-height:1.4}
+.status{height:54px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 8px;font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--ink)}
+.status .sig{display:inline-flex;gap:3px;align-items:flex-end;height:11px}.status .sig i{display:block;width:3px;background:var(--ink)}.status .sig i:nth-child(1){height:4px}.status .sig i:nth-child(2){height:6px}.status .sig i:nth-child(3){height:8px}.status .sig i:nth-child(4){height:11px}
+.status .bat{display:inline-block;width:22px;height:11px;border:1.5px solid var(--ink);position:relative;margin-left:8px;vertical-align:middle}.status .bat::after{content:"";position:absolute;inset:2px;right:5px;background:var(--ink)}
+.screen{flex:1;min-height:0;display:flex;flex-direction:column}
+.home-bar{height:34px;flex:none;display:grid;place-items:center}.home-bar i{display:block;width:134px;height:5px;background:var(--ink);opacity:.9}
+
+/* shared atoms, same names as app.css where possible */
+.sq{width:8px;height:8px;background:var(--line-2);flex:none;display:inline-block}
+.sq.work{background:var(--live);animation:pulse 1.6s infinite}.sq.ok{background:var(--ok)}.sq.idle{background:var(--line-2)}.sq.warn{background:var(--warn)}.sq.bad{background:var(--bad)}.sq.run{background:var(--live)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.av{width:22px;height:22px;display:inline-grid;place-items:center;font-size:10px;font-weight:600;color:var(--surface);background:var(--ink);flex:none;font-family:var(--font-mono);border-radius:var(--r-1)}
+.av.n{background:var(--ink-2)}
+.av.ag{border-radius:0;background:var(--ink);font-size:12px}
+.av.xs{width:16px;height:16px;font-size:6.5px;letter-spacing:-.02em}
+.av.lg{width:40px;height:40px;font-size:15px}
+.pres{display:flex}.pres .av{margin-left:-5px;box-shadow:0 0 0 2px var(--surface)}.pres .av:first-child{margin-left:0}
+.k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.chip{font-family:var(--font-mono);font-size:11px;padding:2px 7px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line-2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.chip .sq{width:6px;height:6px}
+.sec{font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);padding:18px 20px 6px;display:flex;justify-content:space-between;align-items:center}
+.sec button{color:var(--ink-2);font-size:16px;line-height:1;padding:0 2px}
+
+/* top bar */
+.top{height:52px;flex:none;display:flex;align-items:center;gap:6px;padding:0 12px 0 20px;border-bottom:1px solid var(--line)}
+.top .brand{font-family:var(--font-display);font-weight:700;letter-spacing:.08em;font-size:15px;text-transform:uppercase;flex:1;display:flex;align-items:center;gap:8px}
+.top .brand i{display:block;width:12px;height:12px;background:var(--ink)}
+.top .ttl{flex:1;min-width:0;font-family:var(--font-mono);font-size:13px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .ttl.plain{text-transform:none;letter-spacing:0;font-family:var(--font-sans);font-size:16px}
+.icon{width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-2);position:relative;flex:none}
+.icon svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.icon .dot{position:absolute;right:9px;top:8px;width:7px;height:7px;background:var(--warn);box-shadow:0 0 0 2px var(--surface)}
+.back{width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;margin-left:-14px;color:var(--ink)}
+.back svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* scroll area + tab bar */
+.scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.tabbar{flex:none;height:60px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--surface-2)}
+.tabbar button{display:grid;place-items:center;gap:3px;font-family:var(--font-mono);font-size:10px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);position:relative}
+.tabbar button.on{color:var(--ink)}
+.tabbar button.on::before{content:"";position:absolute;top:-1px;left:0;right:0;height:2px;background:var(--ink)}
+.tabbar svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tabbar .dot{position:absolute;right:calc(50% - 16px);top:9px;width:6px;height:6px;background:var(--warn)}
+
+/* chats list */
+.ws-head{display:flex;align-items:center;gap:10px;padding:12px 20px 8px;position:sticky;top:0;background:var(--surface);z-index:2;border-bottom:1px solid var(--line)}
+.ws-head .nm{font-weight:600;font-size:15px;flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.ws-head .nm .k{font-weight:400}
+.ws-head .machines{display:flex;gap:4px;align-items:center}
+.row{display:flex;align-items:center;gap:12px;padding:0 20px;min-height:52px;width:100%;text-align:left;color:var(--ink);border-bottom:1px solid var(--line)}
+.row:active{background:var(--surface-2)}
+.row .body{flex:1;min-width:0;display:grid;gap:2px}
+.row .t{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.row .t.untitled{font-style:italic;color:var(--ink-3);font-weight:400}
+.row .t .lk{color:var(--ink-3);display:inline-flex}.row .t .lk svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8}
+.row .s{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s .live{color:var(--live)}.row .s .warn{color:var(--warn)}
+.row .right{flex:none;display:grid;justify-items:end;gap:4px}
+.row .tm{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.row.fold{min-height:40px;color:var(--ink-3);font-family:var(--font-mono);font-size:12px;padding-left:40px;border-bottom:0}
+.row.pin .sq{visibility:hidden}
+
+/* chat */
+.chat-sub{display:flex;gap:6px;align-items:center;padding:8px 20px;border-bottom:1px solid var(--line);overflow-x:auto;flex:none;scrollbar-width:none}
+.chat-sub::-webkit-scrollbar{display:none}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:14px 16px 8px;display:grid;gap:14px;align-content:start;overscroll-behavior:contain}
+.daysep{display:flex;align-items:center;gap:12px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-status);text-transform:uppercase;color:var(--ink-3)}
+.daysep::before,.daysep::after{content:"";flex:1;height:1px;background:var(--line)}
+.msg{display:grid;grid-template-columns:28px 1fr;gap:10px}
+.msg .av{width:26px;height:26px;font-size:11px}
+.msg .hd{display:flex;gap:8px;align-items:baseline}
+.msg .nm{font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.04em;font-size:11px;font-weight:600}
+.msg .tm{font-size:11px;color:var(--ink-3);font-family:var(--font-mono)}
+.msg .tx{color:var(--ink);white-space:pre-wrap;font-size:15px;line-height:1.45;margin-top:2px}
+.mention{font-weight:600;padding:0 3px;background:var(--surface-3)}
+.reacts{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.rc{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line-2);padding:2px 8px;font-size:13px;background:var(--surface);color:var(--ink-2);font-family:var(--font-mono);min-height:28px}
+.rc.mine{border-color:var(--ink);color:var(--ink)}
+.act{border:1px solid var(--line);margin-top:8px;font-family:var(--font-mono);font-size:12px;background:var(--surface)}
+.act .ah{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface-2);color:var(--ink-2);width:100%;text-align:left;min-height:44px}
+.act .ah .tog{color:var(--ink-3);width:10px;display:inline-flex;align-items:center}
+.act .ah .ttl{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .ah .st{margin-left:auto;display:flex;gap:6px;align-items:center;color:var(--ink-2);font-size:11px;flex:none}
+.act .ah .st i{width:7px;height:7px;background:var(--live);display:inline-block}
+.act .ah .st.work i{animation:pulse 1.6s infinite}.act .ah .st.done i{background:var(--ok)}
+.steps{border-top:1px solid var(--line);display:grid}
+.act.closed .steps{display:none}
+.step{display:grid;grid-template-columns:16px 40px 1fr auto;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);color:var(--ink-2);align-items:center;min-height:40px}
+.step:last-child{border-bottom:0}
+.step .kind{color:var(--ink-3)}
+.step .what{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.step .r{color:var(--ink-3);font-size:11px}.step .r.live{color:var(--live)}
+.ask{border:1px solid var(--warn);margin-top:8px;background:var(--surface)}
+.ask.done{border-color:var(--line)}
+.askp{display:grid;gap:6px;padding:12px 14px}
+.askp .k{color:var(--warn);letter-spacing:var(--track-status);text-transform:uppercase;font-size:10.5px}
+.ask.done .askp .k{color:var(--ink-3)}
+.askp pre{margin:0;font-family:var(--font-mono);font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+.perm{display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--line)}
+.perm button{font-family:var(--font-mono);font-size:13px;min-height:48px;color:var(--ink);border-right:1px solid var(--line)}
+.perm button:last-child{border-right:0}
+.perm button:active{background:var(--surface-2)}
+.perm button.deny{color:var(--bad)}
+.ask .did{padding:10px 14px;border-top:1px solid var(--line);font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
+.rstat{display:flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:12px;color:var(--ink-2);margin-top:8px}
+.rstat i{width:7px;height:7px;background:var(--live);animation:pulse 1.6s infinite}
+.card{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;border:1px solid var(--line);padding:12px 14px;margin-top:8px;background:var(--surface);text-align:left;width:100%}
+.card .ai{width:28px;height:28px;display:grid;place-items:center;border:1px solid var(--line);color:var(--ink);font-size:14px;font-family:var(--font-mono)}
+.card .ttl{font-weight:600;font-size:14px;font-family:var(--font-mono)}
+.card .mt{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap;margin-top:3px}
+.card .mt .add{color:var(--add)}.card .mt .del{color:var(--del)}.card .mt .hint{color:var(--ink)}
+.typing{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--ink-3);padding:4px 20px;flex:none;font-family:var(--font-mono)}
+.composer{margin:8px 12px 10px;border:1px solid var(--line-2);border-radius:var(--r-3);padding:10px 12px 8px;background:var(--surface);flex:none;display:grid;gap:8px}
+.composer .ta{min-height:24px;color:var(--ink-3);font-size:15px;padding:2px 0}
+.composer .ta b{color:var(--ink);font-weight:500}
+.composer .ft{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.composer .ft .sp{flex:1}
+.composer .stop{border:1px solid var(--line-2);padding:6px 10px;color:var(--ink-2);min-height:32px}
+.composer .send{display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--ink);background:var(--ink);color:var(--surface);border-radius:var(--r-1)}
+.composer .send:disabled{border-color:var(--line-2);background:transparent;color:var(--ink-3)}
+.composer .send svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.mentions{margin:0 12px;border:1px solid var(--line-2);background:var(--surface);box-shadow:6px 6px 0 var(--shadow);flex:none}
+.mentions .ph{font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3);padding:8px 12px 4px}
+.mentions .po{display:flex;gap:10px;align-items:center;padding:9px 12px;font-size:14px;width:100%;text-align:left;min-height:44px}
+.mentions .po .d{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.mentions .po.sel{background:var(--surface-2)}
+
+/* sheet */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;z-index:10}
+.sheet{width:100%;background:var(--surface);border-top:1px solid var(--line-2);padding:0 0 28px;display:grid}
+.sheet .grab{width:36px;height:4px;background:var(--line-2);margin:10px auto 4px}
+.sheet .sh{padding:10px 20px 4px;font-weight:600;font-size:16px}
+.sheet .sp{padding:0 20px 12px;font-size:13px;color:var(--ink-2)}
+.sheet .opt{display:flex;align-items:center;gap:12px;padding:0 20px;min-height:56px;width:100%;text-align:left;border-top:1px solid var(--line);color:var(--ink)}
+.sheet .opt .body{flex:1;min-width:0;display:grid;gap:2px}
+.sheet .opt .t{font-weight:500}
+.sheet .opt .s{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+.sheet .opt .chk{font-family:var(--font-mono);color:var(--ink);width:14px;text-align:center}
+.sheet .opt.dim{color:var(--ink-3)}
+.sheet .cancel{margin:12px 20px 0;border:1px solid var(--line-2);min-height:48px;font-family:var(--font-mono);font-size:13px;color:var(--ink-2)}
+
+/* inbox */
+.nrow{cursor:pointer;display:grid;grid-template-columns:16px 1fr auto;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);width:100%;text-align:left;color:var(--ink);align-items:start}
+.nrow .sq{margin-top:6px}
+.nrow b{font-weight:600;display:block}
+.nrow span{display:block;color:var(--ink-2);font-size:14px;margin-top:2px}
+.nrow small{display:block;font-family:var(--font-mono);font-size:11px;color:var(--ink-3);margin-top:4px}
+.nrow .tm{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);padding-top:3px}
+.nrow.read b{font-weight:500;color:var(--ink-2)}
+.nrow .go{display:inline-flex;gap:6px;margin-top:8px}
+.nrow .go button{font-family:var(--font-mono);font-size:12px;border:1px solid var(--line-2);padding:6px 12px;min-height:36px;color:var(--ink)}
+.nrow .go button.deny{color:var(--bad)}
+
+/* you / machines */
+.me{display:flex;gap:14px;align-items:center;padding:20px 20px 10px}
+.me .nm{font-weight:600;font-size:18px}
+.mrow{display:grid;grid-template-columns:16px 1fr auto;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);align-items:start}
+.mrow .sq{margin-top:6px}
+.mrow b{font-weight:600;display:block;font-family:var(--font-mono);font-size:13px}
+.mrow small{display:block;font-family:var(--font-mono);font-size:11px;color:var(--ink-3);margin-top:3px}
+.mrow .h{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.mrow .st{font-family:var(--font-mono);font-size:11px;color:var(--ink-2);padding-top:3px;white-space:nowrap}
+.mrow .st.off{color:var(--ink-3)}
+.pref{display:flex;align-items:center;justify-content:space-between;padding:0 20px;min-height:48px;border-bottom:1px solid var(--line);font-size:15px}
+.switch{width:40px;height:22px;border:1px solid var(--ink);position:relative;flex:none}
+.switch::after{content:"";position:absolute;top:3px;right:3px;width:14px;height:14px;background:var(--ink)}
+.switch.off{border-color:var(--line-2)}.switch.off::after{left:3px;right:auto;background:var(--line-2)}
+.row.plain{min-height:48px;color:var(--ink-2)}
+
+/* sign in */
+.signin{flex:1;display:grid;align-content:center;gap:28px;padding:0 32px}
+.signin .brand{display:grid;gap:8px}
+.signin .brand i{display:block;width:26px;height:26px;background:var(--ink);margin-bottom:8px}
+.signin h1{font-size:44px;letter-spacing:-.02em}
+.signin .tagline{font-family:var(--font-display);font-size:19px;color:var(--ink-2);font-weight:500}
+.signin .gh{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;background:var(--ink);color:var(--surface);font-weight:500;font-size:16px;border-radius:var(--r-1)}
+.signin .gh svg{width:20px;height:20px;fill:currentColor}
+.signin .note{font-size:13px;color:var(--ink-3);line-height:1.5}
+.signin .note b{color:var(--ink-2);font-weight:500}
+
+/* empty run state */
+.empty{color:var(--ink-3);font-size:14px;padding:24px 20px;display:grid;gap:6px}
+.empty b{color:var(--ink-2);font-weight:500}
+</style>
+</head>
+<body>
+
+<header class="hero"><div class="wrap">
+  <div class="hero-top">
+    <div>
+      <div class="eyebrow">Supraluminal Intelligence · design note</div>
+      <h1>Beam on a phone</h1>
+      <div class="tag">A window and a remote. Never a workstation.</div>
+    </div>
+    <div class="meta"><span>25 Sep 2026</span><span>companion to beam-design.html</span><span>interactive frames below</span></div>
+  </div>
+  <div class="pitch">
+    <p>The phone can never run a harness. It can only talk to a runner that is already online somewhere: your laptop on the desk, the Mac mini in the closet, Noah's studio machine. That is the whole product on a phone: <em>read what the team and the agents said, steer a run, answer the agent when it stops to ask, and start the next one.</em> Everything else stays on the desk.</p>
+    <p>Because every Beam client talks to Convex, none of this needs a tunnel, a relay, or a pairing code. A phone is a document writer like any other. What it needs is a layout that fits in one hand and a notification that lands.</p>
+  </div>
+</div></header>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Four verbs</h3><h2>What the phone is for</h2></div>
+  <div class="loop">
+    <div><div class="who">on the train</div><div class="k">Read</div><p>The chats, grouped by workspace, with who is in them right now and which runs are live. Open one and see the record: people, agents, steps, what landed.</p></div>
+    <div><div class="who">the reason for push</div><div class="k">Answer</div><p>An agent stops and asks. Allow, always, deny, or type the answer. First answer in the chat wins, from anyone, on any device.</p></div>
+    <div><div class="who">the record continues</div><div class="k">Steer</div><p>Say something mid-run. It queues as a turn and the agent reads it when this one ends. React to a teammate. Stop a run that went sideways.</p></div>
+    <div><div class="who">closet mini opens the pr</div><div class="k">Dispatch</div><p>Mention an agent. Pick a machine if more than one of yours is online. The run ends with a push whether or not the phone is still awake.</p></div>
+  </div>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="toolbar">
+    <div><h3>Prototype</h3><div class="note" style="margin-top:6px">Six frames, each its own live instance. Tap around inside them. The chat frame has a run in flight: approve the command and watch it land.</div></div>
+    <div class="btns"><button class="btn" id="theme">Dark / light</button><button class="btn" id="reset">Reset frames</button></div>
+  </div>
+</div>
+<div class="frames" id="frames"></div>
+</section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Structure</h3><h2>One list, then push</h2><p class="lede">The desktop sidebar is the phone's home screen. Everything else is a push away and a swipe back.</p></div>
+  <div class="prose col">
+    <p><strong>Home is the chat list, grouped by workspace.</strong> The desktop sidebar already shows every workspace folded open with its chats under it. The phone keeps that exactly, one column, with a sticky workspace header that carries what the desktop titlebar carries: the name, the repo count, the people focused somewhere in it, and a status square per online machine. Pinned chats float above the first workspace. Settled chats fold under a count, as they do on the desk.</p>
+    <p><strong>A chat row says what matters when you are away.</strong> Status square, title, then one mono line: which agent is live and for how long, or who is waiting for an answer, or the last person to speak. Presence avatars on the right are the same rule as the desktop: which chat each person has focused right now, one chat per person. No tabs on the phone; the navigation stack is the tab strip.</p>
+    <p><strong>Three tabs, no more.</strong> Chats, Inbox, You. Inbox is the notification list that lives behind the bell on the desktop. You holds the account footer menu: machines, connected harnesses, notification preferences, log out. Agents' model, effort and permission mode are not a tab; they live in the composer where the choice is made, and in workspace settings.</p>
+    <p><strong>The chat screen is the desktop thread, narrowed.</strong> The header is the mono uppercase title with a back arrow; under it a scrolling strip of chips for the repo and branch, the machine the run is on, and the people here. Messages, activity folds, approval cards and landing cards keep their desktop shapes and their rules: activity is open while it runs and folded once done, steps are one clipped line each, colour only ever means live, needs a person, failed, or a diff.</p>
+    <p><strong>Touch changes three things.</strong> Approval buttons become full-width 48pt cells with no keyboard hints. Reactions come from a long press, not a hover bar. The composer sits above the keyboard, and the mention popover rises from it instead of floating.</p>
+  </div>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Mapping</h3><h2>Desktop to phone</h2></div>
+  <table class="map">
+    <thead><tr><th>Desktop</th><th>Phone</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>Sidebar: workspaces, chats, pinned, settled</td><td>Home list, grouped by workspace</td><td>Same order, same folds. Long press a chat for rename, pin, mute, settle.</td></tr>
+      <tr><td>Titlebar: workspace name, repos, people</td><td>Sticky workspace header</td><td>Adds a status square per online machine, since a phone must know a runner exists.</td></tr>
+      <tr><td>Tab strip</td><td>Navigation stack</td><td>Back is the tab you had open. Recents are the chat list.</td></tr>
+      <tr><td>Bell + inbox popover</td><td>Inbox tab</td><td>Approval rows carry allow and deny inline, so the common case is one tap from the lock screen.</td></tr>
+      <tr><td>Account footer menu</td><td>You tab</td><td>Machines get a full section: online, launched by app or standalone, harnesses signed in.</td></tr>
+      <tr><td>Sidebar agents: model, effort, mode</td><td>Composer chip, workspace settings</td><td>Change them where you dispatch. No agent tab.</td></tr>
+      <tr><td>Composer</td><td>Composer above keyboard</td><td>Mention popover rises from it. Stop replaces send while a run is live.</td></tr>
+      <tr><td>Approval card, ⌘⏎ ⌘⇧⏎ ⌘⌫</td><td>Three 48pt cells</td><td>No kbd hints. Deny in the failure colour.</td></tr>
+      <tr><td>Reactions hover bar</td><td>Long press</td><td>Existing reactions stay tappable as chips.</td></tr>
+      <tr><td>Landing card</td><td>Same card</td><td>Tap opens the PR in the system browser.</td></tr>
+      <tr><td>Runner picker when several are online</td><td>Bottom sheet</td><td>Shows your machines first, then teammates' machines that allow shared runs.</td></tr>
+      <tr><td>Notifications via Electron</td><td>Push</td><td>Web Push for the PWA, APNs for Expo. Same inbox rows, same reserve and finish tokens.</td></tr>
+      <tr class="off"><td>Tools pane: browser preview</td><td>Not on the phone</td><td>Needs the machine. URLs in messages open externally.</td></tr>
+      <tr class="off"><td>Tools pane: CAD, simulation setup</td><td>Not on the phone</td><td>Study and job cards in the chat still show state and results.</td></tr>
+      <tr class="off"><td>Compute job submission, folder sharing, harness sign-in</td><td>Not on the phone</td><td>All three touch the filesystem or a CLI. The phone can approve a job someone else submitted.</td></tr>
+      <tr class="off"><td>Sidebar resize, tools pane resize</td><td>None</td><td>One column.</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Notifications</h3><h2>The reason the phone exists</h2></div>
+  <div class="prose col">
+    <p>On the desk you notice a run finishing because the tab changes. Away from the desk, the only way Beam reaches you is a notification, so the inbox is a first-class tab and the push has to land. Four kinds, unchanged from the desktop preferences: an agent needs input, work completed, work failed or stopped, someone mentioned you.</p>
+    <p><strong>Input requests are the ones that matter.</strong> A push that says "Claude is waiting for approval" with the command in the body, and allow and deny as notification actions where the platform allows it. Tapping the body deep-links to the card in the chat, not to the top of the chat. The inbox row keeps the same two buttons so a missed banner is still one tap.</p>
+    <p><strong>Delivery reuses what exists.</strong> The inbox rows already carry a delivery token and the reserve and finish mutations that stop two devices from ringing for one event. The phone joins that protocol as another device: reserve, show, finish. Web Push on iOS works only for a home-screen PWA and needs a service worker plus a Convex action that posts to the push endpoint. APNs through Expo is the reliable path and the main argument for a native build.</p>
+  </div>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Machines</h3><h2>The phone needs a runner to exist</h2></div>
+  <div class="prose col">
+    <p>On the desktop a runner is implicit: the app launched it. On the phone there is no local runner, so the machine becomes visible. The workspace header shows a square per online machine you can use. The chat strip names the machine a run is on. Dispatch with more than one of your machines online asks which, in a sheet, and remembers the answer per chat, matching the pinned runner the desktop already stores.</p>
+    <p>The You tab lists every machine that has a token from you: online or last seen, launched by the app or running standalone, and which harnesses are installed and signed in. When nothing of yours is online, the composer says so in the warning colour and the message still posts. Agents speak only when spoken to, and a mention with no machine is a mention waiting for one.</p>
+    <p>The always-on runner from milestone M5 is the other half of this. A phone is only useful if a machine is awake somewhere, and today the runner dies with the app. The launchd wrapper is small and it is the difference between a demo and a habit.</p>
+  </div>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Decisions</h3><h2>Things to settle before building</h2></div>
+  <div class="qa">
+    <div><div class="q">Home: grouped list or a workspace switcher?</div><div class="a"><b>Grouped list, drawn here.</b> It is the sidebar, so the model is one model. A switcher hides the other workspaces' live runs, which is what you want to glance at. Revisit if someone has more than four workspaces.</div></div>
+    <div><div class="q">Tab bar or none?</div><div class="a"><b>Three tabs.</b> Inbox needs a badge that is visible from any screen. A bell in the header would do it, but the You tab is the only sane home for machines, and two tabs look like a mistake.</div></div>
+    <div><div class="q">Where do agent settings live?</div><div class="a"><b>In the composer chip.</b> Tap the agent chip to change model, effort and mode for the next run. The sidebar rows on the desktop exist because there is room; the phone does not have it, and the settings only matter at dispatch.</div></div>
+    <div><div class="q">Reactions</div><div class="a"><b>Long press, six emoji, same as the desktop bar.</b> Existing reaction chips stay tappable. No swipe gestures on messages; swipe is back.</div></div>
+    <div><div class="q">Read-only tool cards</div><div class="a"><b>Keep them.</b> Study cards, job cards and landing cards are already in the chat as cards. They render as they do; the buttons that need the machine are hidden. A job awaiting approval can be approved from the phone because that is a document write.</div></div>
+    <div><div class="q">Sign in</div><div class="a"><b>GitHub only.</b> No guest on the phone; membership follows repo access and a phone is always someone's. The system browser handles the OAuth round trip and returns by deep link.</div></div>
+    <div><div class="q">Tablet</div><div class="a"><b>The desktop layout.</b> An iPad in landscape has room for the sidebar and the chat. The web build already lays out that way, and an Expo build can serve the same two-column shell above a width breakpoint.</div></div>
+    <div><div class="q">PWA first or Expo first?</div><div class="a"><b>PWA first, this layout.</b> Responsive rules over the existing web app, a manifest, and Web Push get every screen above onto a phone in days with no new packages. Expo comes when push reliability or the App Store matters; it reuses contracts and the reducer and rebuilds only the views drawn here.</div></div>
+  </div>
+</div></section>
+
+<section class="doc"><div class="wrap">
+  <div class="head"><h3>Not here</h3><h2>What stays on the desk</h2></div>
+  <div class="prose col">
+    <ul>
+      <li>Browser preview, local server discovery, and the hosted webview.</li>
+      <li>CAD viewer, simulation setup, compute job submission with local inputs.</li>
+      <li>Sharing a folder or a service from a machine, and signing a harness in.</li>
+      <li>Creating a workspace, adding a repo, and inviting. Possible on a phone, not designed for one, and rare enough to stay on the desk for now.</li>
+      <li>Resizable anything, keyboard shortcuts, hover states.</li>
+    </ul>
+  </div>
+</div></section>
+
+<script>
+/* ---------- fixture data ---------- */
+const PEOPLE = { ap: { n: "AP", name: "Apekshik", me: true }, no: { n: "NO", name: "Noah", cls: "n" }, ma: { n: "MA", name: "Maya", cls: "n" } };
+const AGENTS = { claude: { n: "✱", name: "Claude Code", handle: "claude" }, codex: { n: "◯", name: "Codex", handle: "codex" } };
+const MACHINES = [
+  { id: "mbp", name: "apekshik-mbp", owner: "ap", online: true, launched: "launched by Beam", harnesses: ["claude", "codex"], seen: "now" },
+  { id: "mini", name: "closet-mini", owner: "ap", online: true, launched: "standalone · beam-runner", harnesses: ["claude"], seen: "now" },
+  { id: "studio", name: "noah-studio", owner: "no", online: true, launched: "Noah's · shared runs allowed", harnesses: ["claude", "codex"], seen: "now" },
+  { id: "air", name: "apekshik-air", owner: "ap", online: false, launched: "launched by Beam", harnesses: ["codex"], seen: "2d ago" },
+];
+const WORKSPACES = [
+  { id: "beam", name: "Beam", repos: 2, members: ["ap", "no"], machines: ["mbp", "mini", "studio"], chats: [
+    { id: "mobile", title: "Mobile RC design", sub: { live: "claude", t: "waiting for approval", cls: "warn" }, here: ["no"], tm: "now" },
+    { id: "codex", title: "Codex sessions resume", sub: { live: "codex", t: "codex working · 4m 12s", cls: "live" }, here: [], tm: "4m" },
+    { id: "cad", title: "CAD viewer on the plate", sub: { t: "noah: units in their own case" }, here: ["ap"], tm: "1h" },
+    { id: "priv", title: "Runner launchd wrapper", priv: true, sub: { t: "you: draft the plist" }, here: [], tm: "3h" },
+    { id: "untitled", title: "New chat", untitled: true, sub: { t: "no messages yet" }, here: [], tm: "" },
+  ], settled: 6 },
+  { id: "supra", name: "Supraluminal", repos: 1, members: ["ap", "ma"], machines: ["mbp"], chats: [
+    { id: "site", title: "Tracker page: run history", sub: { t: "maya: pushed 3 files" }, here: ["ma"], tm: "20m" },
+    { id: "wgsl", title: "WGSL loader for vgpu", sub: { t: "you: landed" }, here: [], tm: "1d" },
+  ], settled: 2 },
+];
+const INBOX = [
+  { id: 1, kind: "input", title: "Claude is waiting for approval", body: "Mobile RC design · pnpm --filter @beam/web test", tm: "now", unread: true, act: true },
+  { id: 2, kind: "mention", title: "Noah mentioned you", body: "CAD viewer on the plate · “@apekshik should readouts keep unit case?”", tm: "1h", unread: true },
+  { id: 3, kind: "completed", title: "Codex finished", body: "Tracker page: run history · pushed 3 files, opened PR #212", tm: "20m", unread: false },
+  { id: 4, kind: "failed", title: "Run ended", body: "WGSL loader for vgpu · the runner went offline; nothing was pushed", tm: "1d", unread: false },
+];
+
+/* ---------- svg ---------- */
+const I = {
+  search: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>',
+  bell: '<svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  chats: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 14h5l1.5 2h3L15 14h5"/></svg>',
+  you: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>',
+  lock: '<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+  send: '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  gh: '<svg viewBox="0 0 24 24"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.4-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>',
+};
+const av = (id, cls = "") => { const p = PEOPLE[id]; return `<span class="av ${p.cls ?? ""} ${cls}" title="${p.name}">${p.n}</span>`; };
+const agav = (id, cls = "") => `<span class="av ag ${cls}">${AGENTS[id].n}</span>`;
+const pres = (ids, cls = "xs") => ids.length ? `<span class="pres">${ids.map((i) => av(i, cls)).join("")}</span>` : "";
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+/* ---------- one phone ---------- */
+class Phone {
+  constructor(root, init) {
+    this.root = root;
+    this.init = init;
+    this.reset();
+    root.addEventListener("click", (e) => {
+      const el = e.target.closest("[data-act]");
+      if (!el) return;
+      this.act(el.dataset.act, el.dataset);
+    });
+  }
+  reset() {
+    clearInterval(this.timer);
+    this.s = { screen: "home", tab: "chats", chat: null, sheet: null, approved: false, landed: false, elapsed: 72, fold: false, mentions: false, showDone: false, read: new Set(), ...this.init };
+    if (this.s.screen === "chat") this.tick();
+    this.render();
+  }
+  tick() {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      if (this.s.landed) return clearInterval(this.timer);
+      this.s.elapsed += 1;
+      const el = this.root.querySelector("[data-elapsed]");
+      if (el) el.textContent = fmt(this.s.elapsed);
+      const st = this.root.querySelector("[data-steplive]");
+      if (st) st.textContent = fmt(this.s.elapsed - 64);
+    }, 1000);
+  }
+  act(a, d) {
+    const s = this.s;
+    if (a === "tab") { s.tab = d.tab; s.screen = d.tab === "chats" ? "home" : d.tab; s.sheet = null; }
+    if (a === "open") { s.screen = "chat"; s.chat = d.chat; s.sheet = null; s.mentions = false; this.tick(); }
+    if (a === "back") { s.screen = s.tab === "chats" ? "home" : s.tab; s.sheet = null; s.mentions = false; }
+    if (a === "approve") { s.approved = d.decision; setTimeout(() => { s.landed = true; this.render(); }, 2600); }
+    if (a === "fold") s.fold = !s.fold;
+    if (a === "mention") s.mentions = !s.mentions;
+    if (a === "pick") { s.mentions = false; s.sheet = "runner"; }
+    if (a === "runner") { s.sheet = null; s.picked = d.machine; }
+    if (a === "sheet") s.sheet = d.sheet || null;
+    if (a === "done") s.showDone = !s.showDone;
+    if (a === "read") { s.read.add(+d.id); if (d.chat) { s.screen = "chat"; s.chat = d.chat; s.tab = "chats"; this.tick(); } }
+    if (a === "inboxapprove") { s.read.add(+d.id); s.approved = d.decision; setTimeout(() => { s.landed = true; this.render(); }, 2600); }
+    if (a === "signin") { s.screen = "home"; s.tab = "chats"; }
+    this.render();
+  }
+  render() {
+    const s = this.s;
+    const body = s.screen === "signin" ? this.signin() : s.screen === "home" ? this.home() : s.screen === "chat" ? this.chat() : s.screen === "inbox" ? this.inbox() : this.you();
+    const bar = s.screen === "chat" || s.screen === "signin" ? "" : this.tabbar();
+    const sheet = s.sheet === "runner" ? this.runnerSheet() : "";
+    this.root.innerHTML = `<div class="status"><span>9:41</span><span><span class="sig"><i></i><i></i><i></i><i></i></span><span class="bat"></span></span></div><div class="screen">${body}</div>${bar}<div class="home-bar"><i></i></div>${sheet}`;
+    const m = this.root.querySelector(".msgs"); if (m) m.scrollTop = m.scrollHeight;
+  }
+  tabbar() {
+    const s = this.s, unread = INBOX.filter((n) => n.unread && !s.read.has(n.id)).length;
+    return `<nav class="tabbar">
+      <button class="${s.tab === "chats" ? "on" : ""}" data-act="tab" data-tab="chats">${I.chats}Chats</button>
+      <button class="${s.tab === "inbox" ? "on" : ""}" data-act="tab" data-tab="inbox">${I.inbox}Inbox${unread ? '<span class="dot"></span>' : ""}</button>
+      <button class="${s.tab === "you" ? "on" : ""}" data-act="tab" data-tab="you">${I.you}You</button>
+    </nav>`;
+  }
+  signin() {
+    return `<div class="signin">
+      <div class="brand"><i></i><div class="eyebrow">Supraluminal Intelligence</div><h1>Beam</h1><div class="tagline">Argue it out. Then beam it.</div></div>
+      <button class="gh" data-act="signin">${I.gh}Sign in with GitHub</button>
+      <p class="note"><b>Membership follows repo access.</b> Beam lists the repos you can push to and opens PRs with your account. You sign in once, in your browser; the app never sees your GitHub password.</p>
+    </div>`;
+  }
+  home() {
+    const s = this.s;
+    const row = (c, ws) => {
+      const sq = c.sub.live ? (c.sub.cls === "warn" ? "warn" : "work") : "idle";
+      const sub = c.sub.live ? `<span class="${c.sub.cls}">${esc(c.sub.t)}</span>` : esc(c.sub.t);
+      return `<button class="row" data-act="open" data-chat="${c.id}"><span class="sq ${sq}"></span><span class="body"><span class="t${c.untitled ? " untitled" : ""}">${c.priv ? `<span class="lk">${I.lock}</span>` : ""}${esc(c.title)}</span><span class="s">${sub}</span></span><span class="right"><span class="tm">${c.tm}</span>${pres(c.here)}</span></button>`;
+    };
+    const ws = WORKSPACES.map((w) => `
+      <div class="ws-head"><span class="nm">${esc(w.name)}<span class="k">${w.repos} repo${w.repos === 1 ? "" : "s"}</span></span>${pres(w.members.filter((m) => WORKSPACES.some((x) => x.chats.some((c) => c.here.includes(m)))), "xs")}<span class="machines" title="online machines">${w.machines.map((m) => `<span class="sq ${MACHINES.find((x) => x.id === m).online ? "ok" : "idle"}"></span>`).join("")}</span><button class="icon" style="width:32px;height:32px;margin-right:-8px" title="New chat in ${esc(w.name)}">＋</button></div>
+      ${w.chats.map((c) => row(c, w)).join("")}
+      <button class="row fold" data-act="done">${s.showDone ? "▾" : "▸"} ${w.settled} settled</button>
+      ${s.showDone ? `<button class="row" style="color:var(--ink-3)"><span class="sq idle"></span><span class="body"><span class="t" style="font-weight:400">Sidebar spans the window</span><span class="s">settled · pushed</span></span><span class="right"><span class="tm">2d</span></span></button>` : ""}`).join("");
+    return `<div class="top"><span class="brand"><i></i>Beam</span><button class="icon" title="Search chats">${I.search}</button></div>
+      <div class="scroll">
+        <div class="sec">Pinned</div>
+        <button class="row pin" data-act="open" data-chat="mobile"><span class="sq"></span><span class="body"><span class="t">Mobile RC design</span><span class="s"><span class="warn">waiting for approval</span></span></span><span class="right"><span class="tm">now</span>${pres(["no"])}</span></button>
+        ${ws}
+      </div>`;
+  }
+  chat() {
+    const s = this.s;
+    const live = !s.landed;
+    const approvedStep = s.approved ? `<div class="step"><span class="sq ${s.landed ? "ok" : "run"}"></span><span class="kind">run</span><span class="what">pnpm --filter @beam/web test</span><span class="r ${s.landed ? "" : "live"}" ${s.landed ? "" : "data-steplive"}>${s.landed ? "2.4s" : fmt(s.elapsed - 64)}</span></div>` : "";
+    const steps = `
+      <div class="step"><span class="sq ok"></span><span class="kind">read</span><span class="what">apps/web/src/components/RunBlocks.tsx</span><span class="r">0.3s</span></div>
+      <div class="step"><span class="sq ok"></span><span class="kind">find</span><span class="what">kbd in apps/web/src</span><span class="r">0.1s</span></div>
+      <div class="step"><span class="sq ok"></span><span class="kind">edit</span><span class="what">apps/web/src/app.css</span><span class="r">1.2s</span></div>
+      <div class="step"><span class="sq ok"></span><span class="kind">edit</span><span class="what">apps/web/src/components/RunBlocks.tsx</span><span class="r">0.9s</span></div>
+      <div class="step"><span class="sq ok"></span><span class="kind">run</span><span class="what">pnpm --filter @beam/web typecheck</span><span class="r">8.1s</span></div>
+      ${approvedStep}`;
+    const n = s.approved ? 6 : 5;
+    const ask = s.approved
+      ? `<div class="ask done"><div class="askp"><span class="k">approval</span><pre>pnpm --filter @beam/web test</pre></div><div class="did">${s.approved === "deny" ? "denied" : s.approved === "always" ? "allowed, always" : "allowed"} by apekshik · from phone</div></div>`
+      : `<div class="ask"><div class="askp"><span class="k">waiting for approval</span><pre>pnpm --filter @beam/web test</pre></div><div class="perm"><button data-act="approve" data-decision="allow">allow</button><button data-act="approve" data-decision="always">always</button><button class="deny" data-act="approve" data-decision="deny">deny</button></div></div>`;
+    const tail = s.landed
+      ? `<div class="msg"><span class="av ag">✱</span><div><div class="hd"><span class="nm">Claude Code</span><span class="tm">${s.approved === "deny" ? "stopped" : "9:44"}</span></div>${s.approved === "deny" ? `<div class="tx">Stopped before running tests. The CSS and RunBlocks edits are in the worktree; nothing was pushed.</div>` : `<div class="tx">Approval cells are now full-width 48pt buttons under 600px, and the kbd hints render only when a keyboard is present. 12 tests pass.</div>
+        <button class="card"><span class="ai">⎇</span><div><div class="ttl">beam/mobile-approvals</div><div class="mt"><span>beam</span><span>pushed</span><span class="add">+38</span><span class="del">−6</span><span>2 files</span><span class="hint">open PR</span></div></div></button>`}</div></div>`
+      : s.approved ? `<div class="rstat"><i></i>running tests on ${this.machine()}</div>` : "";
+    const composer = s.mentions ? `<div class="mentions"><div class="ph">Mention</div>
+        <button class="po sel" data-act="pick">${agav("claude")}Claude Code<span class="d">gpt-6 astra · high · ask</span></button>
+        <button class="po" data-act="pick">${agav("codex")}Codex<span class="d">o5 · medium · auto</span></button>
+        <button class="po" data-act="mention">${av("no")}Noah</button></div>` : "";
+    return `<div class="top"><button class="back" data-act="back">${I.back}</button><span class="ttl">${this.title()}</span><button class="icon" title="Chat options">⋯</button></div>
+      <div class="chat-sub"><span class="chip">beam · mobile-approvals</span><span class="chip"><span class="sq ${live ? "work" : "ok"}"></span>${this.machine()}</span><span class="chip">${pres(["ap", "no"], "xs")} 2 here</span></div>
+      <div class="msgs">
+        <div class="daysep">today</div>
+        <div class="msg">${av("no")}<div><div class="hd"><span class="nm">Noah</span><span class="tm">9:31</span></div><div class="tx">The approval buttons are tiny on a phone. Can we make them thumbable? 44pt at least, and drop the ⌘ hints.</div><div class="reacts"><span class="rc mine">👍 <span>2</span></span></div></div></div>
+        <div class="msg">${av("ap")}<div><div class="hd"><span class="nm">Apekshik</span><span class="tm">9:33</span></div><div class="tx"><span class="mention">@claude</span> make the approval buttons full-width 48pt cells on narrow viewports and keep the kbd hints desktop-only. Run the web tests when you are done.</div></div></div>
+        <div class="msg"><span class="av ag">✱</span><div><div class="hd"><span class="nm">Claude Code</span><span class="tm">9:33</span></div>
+          <div class="act${s.fold ? " closed" : ""}"><button class="ah" data-act="fold"><span class="tog"><svg viewBox="0 0 10 10" width="10" height="10"><path d="${s.fold ? "M3 1l4 4-4 4" : "M1 3l4 4 4-4"}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></span><span class="ttl">${live ? `Claude Code is working · ${n} steps` : `${n} steps`}</span><span class="st ${live ? "work" : "done"}"><i></i><span ${live ? "data-elapsed" : ""}>${live ? fmt(s.elapsed) : "1m 41s"}</span></span></button><div class="steps">${steps}</div></div>
+          ${ask}${tail}
+        </div></div>
+      </div>
+      ${live && !s.approved ? `<div class="typing">${av("no", "xs")} Noah is typing</div>` : ""}
+      ${composer}
+      <div class="composer"><div class="ta">${s.picked ? `<b>@claude</b> ` : ""}Message · <b>@</b> to mention</div><div class="ft"><button data-act="mention" style="color:var(--ink-2)">@</button><span class="chip">${agav("claude", "xs")} ask</span><span class="sp"></span>${live ? `<button class="stop">Stop</button>` : ""}<button class="send" ${s.picked ? "" : "disabled"}>${I.send}</button></div></div>`;
+  }
+  title() { for (const w of WORKSPACES) { const c = w.chats.find((c) => c.id === this.s.chat); if (c) return esc(c.title); } return "Mobile RC design"; }
+  machine() { return MACHINES.find((m) => m.id === (this.s.picked ?? "mbp")).name; }
+  runnerSheet() {
+    const mine = MACHINES.filter((m) => m.owner === "ap"), theirs = MACHINES.filter((m) => m.owner !== "ap");
+    const opt = (m) => `<button class="opt${m.online ? "" : " dim"}" data-act="runner" data-machine="${m.id}" ${m.online ? "" : "disabled"}><span class="sq ${m.online ? "ok" : "idle"}"></span><span class="body"><span class="t">${m.name}</span><span class="s">${m.online ? m.harnesses.map((h) => AGENTS[h].name).join(" · ") + " signed in" : "last seen " + m.seen}</span></span><span class="chk">${(this.s.picked ?? "mbp") === m.id ? "✓" : ""}</span></button>`;
+    return `<div class="scrim" data-act="sheet"><div class="sheet"><div class="grab"></div><div class="sh">Run Claude Code on</div><div class="sp">Remembered for this chat. The run stays on this machine until it ends with a push.</div>${mine.map(opt).join("")}<div class="sec" style="padding-top:12px">Teammates' machines</div>${theirs.map(opt).join("")}<button class="cancel" data-act="sheet">Cancel</button></div></div>`;
+  }
+  inbox() {
+    const s = this.s;
+    const sq = { input: "warn", completed: "ok", failed: "bad", mention: "idle" };
+    return `<div class="top"><span class="ttl plain">Inbox</span><button class="icon" style="font-family:var(--font-mono);font-size:11px;width:auto;padding:0 8px">mark all read</button></div>
+      <div class="scroll">${INBOX.map((n) => {
+        const read = !n.unread || s.read.has(n.id);
+        const resolved = n.act && s.approved;
+        const act = n.act && !resolved ? `<span class="go"><button data-act="inboxapprove" data-id="${n.id}" data-decision="allow">allow</button><button class="deny" data-act="inboxapprove" data-id="${n.id}" data-decision="deny">deny</button></span>` : "";
+        return `<div class="nrow${read ? " read" : ""}" role="button" tabindex="0" data-act="read" data-id="${n.id}" data-chat="mobile"><span class="sq ${resolved ? "ok" : sq[n.kind]}"></span><span><b>${resolved ? "Claude landed" : esc(n.title)}</b><span>${resolved ? "Mobile RC design · pushed 2 files" : esc(n.body)}</span>${act}</span><span class="tm">${n.tm}</span></div>`;
+      }).join("")}
+      <div class="empty"><b>That is everything from the last week.</b>Mentions stay here. Completed and failed runs from chats you follow, and input requests, notify you here and as a push.</div>
+      </div>`;
+  }
+  you() {
+    return `<div class="top"><span class="ttl plain">You</span></div>
+      <div class="scroll">
+        <div class="me">${av("ap", "lg")}<div><div class="nm">Apekshik</div><div class="k">apekshik · GitHub</div></div></div>
+        <div class="sec">Machines</div>
+        ${MACHINES.filter((m) => m.owner === "ap").map((m) => `<div class="mrow"><span class="sq ${m.online ? "ok" : "idle"}"></span><div><b>${m.name}</b><small>${m.launched}</small><div class="h">${m.harnesses.map((h) => `<span class="chip">${agav(h, "xs")}${AGENTS[h].name} · signed in</span>`).join("")}</div></div><span class="st${m.online ? "" : " off"}">${m.online ? "online" : m.seen}</span></div>`).join("")}
+        <div class="row plain"><span class="body"><span class="t" style="font-weight:400;color:var(--ink-2)">Pair a machine with a code</span></span><span class="k">›</span></div>
+        <div class="sec">Notifications</div>
+        <div class="pref"><span>Push notifications</span><span class="switch"></span></div>
+        <div class="pref"><span>Agent needs input</span><span class="switch"></span></div>
+        <div class="pref"><span>Work completed</span><span class="switch"></span></div>
+        <div class="pref"><span>Work failed or stopped</span><span class="switch"></span></div>
+        <div class="pref"><span>Mentions</span><span class="switch"></span></div>
+        <div class="pref"><span>Sound</span><span class="switch off"></span></div>
+        <div class="sec">Account</div>
+        <div class="row plain"><span class="body"><span class="t" style="font-weight:400;color:var(--ink-2)">Usage this month</span></span><span class="k">›</span></div>
+        <div class="row plain"><span class="body"><span class="t" style="font-weight:400;color:var(--ink-2)">Invite a teammate</span></span><span class="k">›</span></div>
+        <div class="row plain"><span class="body"><span class="t" style="font-weight:400;color:var(--ink-2)">Log out</span></span></div>
+      </div>`;
+  }
+}
+const fmt = (n) => (n < 60 ? `${n}s` : `${Math.floor(n / 60)}m ${String(n % 60).padStart(2, "0")}s`);
+
+/* ---------- mount six frames ---------- */
+const FRAMES = [
+  { cap: ["Sign in", "GitHub only. The OAuth round trip happens in the system browser and returns by deep link."], init: { screen: "signin" } },
+  { cap: ["Chats", "The sidebar as a list. Sticky workspace headers carry people and machines; rows say who is live and who is waiting."], init: { screen: "home" } },
+  { cap: ["Chat, run in flight", "Activity fold, then the approval card. Tap allow: the step runs, the reply lands, the card links the PR."], init: { screen: "chat", chat: "mobile" } },
+  { cap: ["Pick a machine", "Mention an agent with more than one of your machines online and the sheet asks. Remembered per chat."], init: { screen: "chat", chat: "mobile", sheet: "runner" } },
+  { cap: ["Inbox", "Approval rows carry allow and deny inline. Tap a row to land on the message, not the top of the chat."], init: { screen: "inbox", tab: "inbox" } },
+  { cap: ["You and your machines", "Every machine with your token, whether it is online, how it was launched, which harnesses are signed in."], init: { screen: "you", tab: "you" } },
+];
+const host = document.getElementById("frames");
+const phones = FRAMES.map((f) => {
+  const wrap = document.createElement("div"); wrap.className = "frame";
+  wrap.innerHTML = `<div class="cap"><b>${f.cap[0]}</b><span>${f.cap[1]}</span></div><div class="shell"><div class="phone"></div></div>`;
+  host.appendChild(wrap);
+  return new Phone(wrap.querySelector(".phone"), f.init);
+});
+document.getElementById("reset").onclick = () => phones.forEach((p) => p.reset());
+document.getElementById("theme").onclick = () => {
+  const r = document.documentElement, dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = r.dataset.theme || (dark ? "dark" : "light");
+  r.dataset.theme = cur === "dark" ? "light" : "dark";
+};
+</script>
+</body>
+</html>

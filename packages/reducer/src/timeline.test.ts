@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { emptyRun, type ActivityLine, type RunView } from "@beam/reducer";
-import { timeline } from "./timeline";
+import { emptyRun, type ActivityLine, type RunView } from "./index.ts";
+import { timeline } from "./timeline.ts";
 
 const run = { _id: "r", _creationTime: 1, agentId: "a", dispatchMessageId: "dispatch", state: "working", startedAt: 2, endedAt: null, landing: null };
 const message = (id: string, at: number, author: string, kind: string, text = id) => ({ _id: id, _creationTime: at, author, kind, text, runId: "r", turn: 1 });
@@ -33,4 +33,13 @@ it("puts a landing after all work and keeps turns and runs in separate groups", 
   const rows = timeline([], [{ ...run, state: "landed", endedAt: 12, landing: { repos: [{ pushed: true }] } }], { r: v });
   expect(rows.map((r) => r.kind)).toEqual(["activity", "activity", "landing"]);
   expect(rows.filter((r) => r.live)).toHaveLength(0);
+});
+
+it("starts a new header when the same agent begins another run", () => {
+  const second = { ...run, _id: "r2", _creationTime: 20, startedAt: 21, dispatchMessageId: "dispatch2" };
+  const done = { ...run, state: "landed", endedAt: 12 };
+  const reply = (id: string, at: number, runId: string) => ({ ...message(id, at, "agent:a", "report"), runId });
+  const rows = timeline([reply("first", 3, "r"), reply("again", 4, "r"), reply("second", 22, "r2")], [done, second], { r: emptyRun("r"), r2: emptyRun("r2") });
+  const cont = Object.fromEntries(rows.map((r) => [r.key, r.cont]));
+  expect(cont).toMatchObject({ first: false, again: true, second: false, "status:r2": true });
 });

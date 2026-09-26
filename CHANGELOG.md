@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.
 - The account menu shows whether your machine is ready, your tightest usage window, and quick links into Settings.
 - Pause desktop notifications for an hour or until tomorrow. The inbox keeps collecting.
