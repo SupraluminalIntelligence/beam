@@ -4,13 +4,21 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      allow_removals:
+        description: Deploy Convex even if it removes functions the deployment still serves
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; runs on main queue so a deploy
+# is never cut off halfway.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -42,3 +50,50 @@ jobs:
       - run: pnpm test
 
       - run: pnpm --filter @beam/web build
+
+      # tsc accepts code Metro cannot bundle, such as a node: import in a
+      # package the phone shares. Bundle the phone's JavaScript as EAS would.
+      - name: Bundle the phone app
+        working-directory: apps/mobile
+        env:
+          EXPO_NO_TELEMETRY: 1
+        run: pnpm exec expo export --platform ios --output-dir "$RUNNER_TEMP/mobile"
+
+  # Production Convex follows main. Installed phone and desktop builds call it,
+  # so a deploy that would remove a function they may use is refused.
+  deploy-convex:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: convex
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Require a deploy key
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error::Add a production deploy key from the Convex dashboard as the CONVEX_DEPLOY_KEY secret."
+            exit 1
+          fi
+
+      - name: Generate Convex bindings
+        run: pnpm exec convex codegen --system-udfs --typecheck disable
+
+      - name: Refuse to remove deployed functions
+        env:
+          BEAM_ALLOW_CONVEX_REMOVALS: ${{ inputs.allow_removals && '1' || '' }}
+        run: pnpm convex:removals
+
+      - run: pnpm convex:deploy
