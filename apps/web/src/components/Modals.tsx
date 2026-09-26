@@ -17,16 +17,23 @@ import { NotificationSettings } from "./Notifications";
 import { AgentDefaults } from "./AgentDefaults";
 import { WorkspaceSettings } from "./WorkspaceSettings";
 import { ResourceSharingPolicy } from "./SharedResources";
+import { UsagePage } from "./Usage";
+import { markChangelogSeen, releases, useChangelogUnseen } from "../lib/changelog";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 
-export type SettingsTab = "general" | "models" | "machines" | "notifications" | "workspace" | `agent:${string}`;
-const SETTINGS_TABS = [
+export type SettingsTab = "general" | "models" | "machines" | "notifications" | "usage" | "whatsnew" | "workspace" | `agent:${string}`;
+const icon = (d: ReactNode) => <svg viewBox="0 0 24 24" aria-hidden="true">{d}</svg>;
+/** Pages about you: they follow you into every workspace. */
+const YOU_TABS = [
   ["general", "General", <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>],
   ["models", "Models & accounts", <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>],
   ["machines", "Machines", <><rect x="3" y="4" width="18" height="12" rx="1" /><path d="M8 20h8M12 16v4" /></>],
+  ["usage", "Usage & limits", <><path d="M4 20a8 8 0 1 1 16 0" /><path d="m12 20 4-6" /></>],
   ["notifications", "Notifications", <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>],
 ] as const;
+const BEAM_TABS = [["whatsnew", "What's new", <><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.2 2.2M15.5 15.5l2.2 2.2M6.3 17.7l2.2-2.2M15.5 8.5l2.2-2.2" /></>]] as const;
+const SETTINGS_TABS = [...YOU_TABS, ...BEAM_TABS];
 
 export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general", workspaces, onInvite, onAddRepo }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined; workspaces: WorkspaceRow[]; onInvite: (ws: WorkspaceRow) => void; onAddRepo: (ws: WorkspaceRow) => void }) {
   const u = useUi();
@@ -44,18 +51,23 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
   const focusAgent = tab.startsWith("agent:") ? tab.slice(6) : null;
   const page = focusAgent !== null ? "workspace" : tab;
   const title = page === "workspace" ? shownRow.name : SETTINGS_TABS.find(([v]) => v === page)?.[1] ?? "";
-  const sub = page === "workspace" ? "shared with everyone in this workspace" : page === "models" ? "yours, in every workspace" : "";
+  const sub = page === "workspace" ? "shared with everyone in this workspace" : page === "whatsnew" ? "" : "yours, in every workspace";
+  const unseen = useChangelogUnseen();
+  useEffect(() => { if (open && page === "whatsnew") markChangelogSeen(); }, [open, page]);
   const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={page === v} className={page === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
   return (
     <Modal open={open} onClose={onClose} className="settings-modal">
       <nav className="set-nav">
         <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
-          {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
+          <div className="set-nav-sec">You</div>
+          {YOU_TABS.map(([v, label, d]) => navButton(v, label, icon(d)))}
           <button className="set-nav-group" aria-expanded={wsOpen} onClick={() => setWsOpen(!wsOpen)}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg><span className="set-nav-l">Workspaces</span><svg className="set-nav-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg></button>
           {wsOpen && workspaces.map((w) => { const on = page === "workspace" && viewing === w.id; return <button key={w.id} role="tab" aria-selected={on} className={`set-nav-sub${on ? " on" : ""}`} onClick={() => { setViewing(w.id); setTab("workspace"); }}>
             <span className="set-nav-l">{w.name}</span>{w.id === detail.id && <span className="set-nav-dot" title="Open now" aria-label="open now" />}</button>; })}
+          <div className="set-nav-sec">Beam</div>
+          {BEAM_TABS.map(([v, label, d]) => <span key={v} className="set-nav-news">{navButton(v, label, icon(d))}{unseen && page !== v && <span className="news-dot" aria-label="new" />}</span>)}
         </div>
         <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
       </nav>
@@ -70,18 +82,48 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
               {tab === "general" && <>
                 <UsernameSetting name={me.name} login={me.githubLogin} guest={!!me.isAnonymous} />
                 <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
-                <ResourceSharingPolicy />
-                <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
+                <Shortcuts />
               </>}
               {tab === "models" && <AgentDefaults workspaceId={detail.id} onOpenMachines={() => setTab("machines")} />}
-              {tab === "machines" && <Machines pairCode={pairCode ?? null} />}
+              {tab === "machines" && <><Machines pairCode={pairCode ?? null} /><div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Folders you share</div><ResourceSharingPolicy /></>}
+              {tab === "usage" && <UsagePage />}
               {tab === "notifications" && <NotificationSettings />}
+              {tab === "whatsnew" && <WhatsNew />}
             </div>
             <div className="m-f"><span /><button className="btn" onClick={onClose}>Done</button></div>
           </>}
       </section>
     </Modal>
   );
+}
+
+const MOD = bridge()?.platform === "darwin" || /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+const SHORTCUTS: [string, string][] = [
+  ["K", "Jump to a chat"], ["T", "New chat"], ["⇧T", "New private chat"], ["W", "Close the chat tab"], [",", "Settings"],
+  ["↵", "Allow the agent's request"], ["⇧↵", "Always allow it"], ["⌫", "Deny it"],
+];
+
+function Shortcuts() {
+  return <>
+    <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Shortcuts</div>
+    {SHORTCUTS.map(([keys, what]) => <div className="row shortcut" key={keys}><span>{what}</span><kbd>{MOD}{keys}</kbd></div>)}
+    <div className="row shortcut"><span>Send · new line</span><kbd>↵ · ⇧↵</kbd></div>
+    <div className="row shortcut"><span>Mention an agent or person</span><kbd>@</kbd></div>
+  </>;
+}
+
+/** The changelog shipped with this build, and the build's own version on desktop. */
+function WhatsNew() {
+  const [version, setVersion] = useState<string | null>(null);
+  const native = bridge() as (ReturnType<typeof bridge> & { version?: () => Promise<string>; updateCheck?: () => Promise<unknown> }) | undefined;
+  useEffect(() => { void native?.version?.().then(setVersion).catch(() => {}); }, [native]);
+  return <>
+    {native?.version && <div className="row"><span>Version</span><span className="val">Beam {version ?? "…"}{native.updateCheck && <button className="btn ghost" style={{ marginLeft: 10 }} onClick={() => void native.updateCheck!().then(() => toast("Checked for updates")).catch((e) => toast((e as Error).message))}>Check for updates</button>}</span></div>}
+    {releases.map((r) => <section key={r.title} className="release">
+      <div className="sb-sec release-h" style={{ padding: "12px 14px 4px" }}>{r.title === "Unreleased" ? "Latest" : r.title}{r.date && <span className="k">{r.date}</span>}</div>
+      <ul>{r.items.map((item) => <li key={item}>{item}</li>)}</ul>
+    </section>)}
+  </>;
 }
 
 function UsernameSetting({ name, login, guest }: { name: string; login: string; guest: boolean }) {

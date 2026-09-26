@@ -6,9 +6,15 @@ import { mentionTargets } from "./mentionTargets";
 import { me, requireChat } from "./lib";
 
 export const defaults = { enabled: true, completed: true, failed: true, input: true, mention: true, sound: true };
-const preferenceShape = v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean() });
+const preferenceShape = v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean(), pausedUntil: v.optional(v.number()) });
 export const preferences = query({ args: {}, handler: async (ctx) => ({ ...defaults, ...(await me(ctx)).notificationPreferences }) });
 export const setPreferences = mutation({ args: { preferences: preferenceShape }, handler: async (ctx, args) => { const user = await me(ctx); await ctx.db.patch(user._id, { notificationPreferences: args.preferences }); } });
+/** Hold desktop alerts until a time, or resume them with null. The inbox keeps collecting either way. */
+export const pause = mutation({ args: { until: v.union(v.number(), v.null()) }, handler: async (ctx, { until }) => {
+  const user = await me(ctx);
+  const { pausedUntil: _, ...rest } = { ...defaults, ...user.notificationPreferences };
+  await ctx.db.patch(user._id, { notificationPreferences: until && until > Date.now() ? { ...rest, pausedUntil: until } : rest });
+} });
 
 async function subscription(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">, login: string) {
   return (await ctx.db.query("chatFollowers").withIndex("by_chat", q => q.eq("chatId", chatId)).collect()).find(f => f.login === login);
