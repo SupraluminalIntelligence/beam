@@ -12,6 +12,7 @@
     "dev:desktop": "pnpm --filter @beam/desktop dev",
     "convex": "convex dev",
     "convex:deploy": "convex deploy -y",
+    "convex:removals": "node --experimental-strip-types scripts/convex-removals.mjs",
     "probe": "pnpm --filter @beam/runner probe",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",

@@ -66,7 +66,8 @@ automatic tester invitations are disabled by the submission command above.
 The build uses the `preview` EAS environment, the existing Beam backend, remote
 build-number increments, and the `testflight` update channel. The root
 `.easignore` includes the existing `convex/_generated` clients; if missing,
-generate those clients before building. This release does not deploy the backend.
+generate those clients before building. This release does not deploy the backend;
+CI deploys it from `main`.
 
 Publish compatible JavaScript/assets to installed TestFlight builds with:
 
@@ -81,4 +82,4 @@ apply on a subsequent launch, not immediately to an already-open app.
 
 ## Not yet
 
-Push is written but not live. `convex/push.ts` sends each inbox row to registered phones through Expo, and the app registers after sign-in; it needs the backend deployed and a TestFlight build with the notifications entitlement. Careful before any `convex deploy`: as of 26 Sep 2026 production runs about 19 simulation and study functions that are not on `main`, and deploying from a checkout without them removes them.
+Push is written but not live. `convex/push.ts` sends each inbox row to registered phones through Expo, and the app registers after sign-in; it needs the backend deployed and a TestFlight build with the notifications entitlement. Careful before any `convex deploy`: as of 26 Sep 2026 production runs about 19 simulation and study functions that are not on `main`, and deploying from a checkout without them removes them. `pnpm convex:removals` lists them; CI's deploy refuses until they are on `main`.

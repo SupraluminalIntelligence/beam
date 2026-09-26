@@ -30,6 +30,7 @@ For a fresh clone or fork, follow [CONTRIBUTING.md](CONTRIBUTING.md) to configur
 pnpm install
 pnpm convex          # convex dev against the prod deployment (cautious-fish-858), watches convex/
 pnpm convex:deploy   # one-shot push
+pnpm convex:removals # functions a deploy from this checkout would remove from prod
 pnpm dev:web         # UI at http://localhost:5173
 pnpm dev:runner      # runner on this machine
 pnpm dev:desktop     # Electron shell (after dev:web)
@@ -37,6 +38,8 @@ pnpm probe           # what harnesses this machine has and whether they are sign
 ```
 
 Convex project `beam-backend`, one deployment, production, used for dev and deploy alike. `.env.local` carries `CONVEX_DEPLOYMENT` and `VITE_CONVEX_URL`.
+
+CI deploys `convex/` to production after every push to `main` passes its checks, using the `CONVEX_DEPLOY_KEY` secret. Installed phone and desktop builds keep calling functions after `main` stops using them, so the deploy first runs `convex:removals` and refuses if production serves any function this checkout lacks. To remove functions on purpose, run the CI workflow by hand on `main` with "allow removals" checked. Run `pnpm convex:removals` before any manual deploy too; `pnpm convex` pushes your working copy without that check.
 
 ## Principles
 
