@@ -81,4 +81,4 @@ apply on a subsequent launch, not immediately to an already-open app.
 
 ## Not yet
 
-Push notifications, allow and deny inside inbox rows, the machine picker and agent settings. Push needs backend additions. Careful before any `convex deploy`: as of 26 Sep 2026 production runs about 19 simulation and study functions that are not on `main`, and deploying from a checkout without them removes them.
+Push is written but not live. `convex/push.ts` sends each inbox row to registered phones through Expo, and the app registers after sign-in; it needs the backend deployed and a TestFlight build with the notifications entitlement. Careful before any `convex deploy`: as of 26 Sep 2026 production runs about 19 simulation and study functions that are not on `main`, and deploying from a checkout without them removes them.

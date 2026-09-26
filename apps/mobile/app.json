@@ -17,10 +17,8 @@
     "android": {
       "package": "ai.supraluminal.beam.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#141414",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0B0C0E",
+        "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -40,6 +38,12 @@
           "dark": {
             "backgroundColor": "#0B0C0E"
           }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#141414"
         }
       ]
     ],

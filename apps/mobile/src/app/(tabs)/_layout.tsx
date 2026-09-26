@@ -6,6 +6,7 @@ type BottomTabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tab
 import { Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../lib/convex";
+import { usePush } from "../../lib/push";
 import { useTheme } from "../../lib/theme";
 import { Icon, T } from "../../ui";
 
@@ -16,6 +17,7 @@ const TABS = [
 ] as const;
 
 export default function TabsLayout() {
+  usePush();
   return <Tabs screenOptions={{ headerShown: false }} tabBar={(p) => <TabBar {...p} />}>{TABS.map((x) => <Tabs.Screen key={x.name} name={x.name} />)}</Tabs>;
 }
 

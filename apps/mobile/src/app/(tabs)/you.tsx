@@ -5,6 +5,7 @@ import { HARNESS } from "../../lib/agents";
 import { api } from "../../lib/convex";
 import { ago } from "../../lib/format";
 import { useMe } from "../../lib/hooks";
+import { pushToken } from "../../lib/push";
 import { space, useTheme } from "../../lib/theme";
 import { Avatar, Icon, Label, Row, Sq, T, TopBar } from "../../ui";
 import { Screen } from "../../ui/Screen";
@@ -21,6 +22,7 @@ export default function You() {
   const setPrefs = useMutation(api.notifications.setPreferences);
   const workspaces = useQuery(api.workspaces.mine);
   const { signOut } = useAuthActions();
+  const unregister = useMutation(api.push.unregister);
   return (
     <Screen>
       <TopBar big title="You" />
@@ -52,9 +54,9 @@ export default function You() {
             <Switch value={!!prefs[k as keyof typeof prefs]} onValueChange={(v) => void setPrefs({ preferences: { ...prefs, [k]: v } })} trackColor={{ true: t.ink, false: t.line2 }} thumbColor={t.surface} />
           </Row>
         )) : null}
-        <T mono size={11} tone="ink3" style={{ paddingHorizontal: space.padX, paddingTop: 10 }}>Push to this phone arrives in the next build. Until then the inbox holds everything.</T>
+        <T mono size={11} tone="ink3" style={{ paddingHorizontal: space.padX, paddingTop: 10 }}>These apply to your desktop and this phone. Beam skips the chat you are looking at on any device.</T>
         <Label>Account</Label>
-        <Row onPress={() => void signOut()}><Icon name="you" size={18} color={t.bad} /><T tone="bad">Log out</T></Row>
+        <Row onPress={() => { const token = pushToken(); void (token ? unregister({ token }).catch(() => {}) : Promise.resolve()).finally(() => void signOut()); }}><Icon name="you" size={18} color={t.bad} /><T tone="bad">Log out</T></Row>
       </ScrollView>
     </Screen>
   );

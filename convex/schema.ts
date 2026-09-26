@@ -134,4 +134,7 @@ export default defineSchema({
     .index("by_recipient", ["recipient"]).index("by_key", ["recipient", "key"]).index("by_run", ["runId"]),
   presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number() })
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),
+  /** Phones that receive push. An Expo push token per install; a token moves to whoever signs in on that phone last. */
+  pushTokens: defineTable({ login: v.string(), token: v.string(), platform: v.string(), deviceName: v.union(v.string(), v.null()), updatedAt: v.number() })
+    .index("by_login", ["login"]).index("by_token", ["token"]),
 });
