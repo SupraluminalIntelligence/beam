@@ -22,7 +22,7 @@ import { MessageFiles, useAttachments } from "./Files";
 import { ComposerPermissions } from "./Permissions";
 import { timeline } from "../lib/timeline";
 import { useLocalRunner } from "../lib/localRunner";
-import { ConnectionPicker } from "./Connections";
+import { ComposerAgent } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
@@ -283,16 +283,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
 
       <TypingIndicator chatId={chat._id} me={me.githubLogin} nameOf={nameOf} />
       <div className="composer">
-        <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
         {liveRuns.length > 0 && <div className="active-agents" aria-label="Active agents">{liveRuns.map(run => {
           const agent = detail.agents.find(a => a._id === run.agentId);
           const label = `${nameOf(run.dispatchedBy)}’s ${agent ? HARNESS_NAME[agent.harness] : "agent"}`;
           return <div className="active-agent" key={run._id}><span className="sq run" /><span>{label} · {run.execution?.machineName ?? run.runnerName}</span><button className="ctl" aria-pressed={steerRunId === run._id} onClick={() => { setSteerRunId(steerRunId === run._id ? null : run._id); inputRef.current?.focus(); }}>{steerRunId === run._id ? "Cancel reply" : "Reply"}</button>{!run.interruptRequestedAt ? <button className="stopbtn" aria-label={`Stop ${label}`} onClick={() => void stopRun({ runId: run._id }).catch(e => toast(e.message))}>■ Stop</button> : tick - run.interruptRequestedAt > 15_000 ? <button className="stopbtn force" onClick={() => void abandonRun({ runId: run._id })}>Force stop</button> : <span className="hint">Stopping…</span>}</div>;
         })}</div>}
         {attachments.chips}
-        {composerAgent && !liveRun && <ConnectionPicker chatId={chat._id} harness={composerAgent.harness} preview={connectionPreview} />}
-        {liveRun?.execution && <div className="composer-model">{nameOf(liveRun.execution.accountOwner)}’s {liveAgent ? HARNESS_NAME[liveAgent.harness] : "agent"} · {liveRun.execution.connectionName ?? liveRun.execution.accountEmail ?? "Account not reported"} · {liveRun.execution.machineName ?? liveRun.runnerName} · continuing current run</div>}
-        {(() => { const target = liveAgent ?? chatAgents.find((a) => a.handle === firstMention(text, handles)) ?? (chat.private ? pinned : null); if (!target) return null; const p = preferences.find((p) => p.harness === target.harness); return <div className="composer-model">{HARNESS_NAME[target.harness]} · {liveRun?.execution?.modelName ?? liveRun?.execution?.model ?? p?.model ?? target.model} · {liveRun?.execution?.effort ?? p?.effort ?? target.effort}{liveRun ? " · continuing current run" : ""}</div>; })()}
+        {liveRun?.execution && <div className="composer-model">{nameOf(liveRun.execution.accountOwner)}’s {liveAgent ? HARNESS_NAME[liveAgent.harness] : "agent"} · {liveRun.execution.connectionName ?? liveRun.execution.accountEmail ?? "Account not reported"} · {liveRun.execution.machineName ?? liveRun.runnerName}{(liveRun.execution.modelName ?? liveRun.execution.model) ? ` · ${liveRun.execution.modelName ?? liveRun.execution.model}${liveRun.execution.effort ? ` · ${liveRun.execution.effort}` : ""}` : ""} · continuing current run</div>}
         {pop && popItems.length > 0 && (
           <div className="popover">
             {popItems.some((x) => x.kind === "agent") && <div className="ph">Agents</div>}
@@ -314,6 +311,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         <div className="ft">
           <div className="composer-tools">
             <ComposerPermissions agents={permissionAgent ? [permissionAgent] : chatAgents} />
+            {composerAgent && !liveRun && (() => { const p = preferences.find((p) => p.harness === composerAgent.harness); return <ComposerAgent chatId={chat._id} agent={composerAgent} model={p?.model ?? composerAgent.model} effort={p?.effort ?? composerAgent.effort} preview={connectionPreview} onOpenDefaults={() => setModal({ kind: "settings", tab: "models" })} />; })()}
+            <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
             {attachments.controls}
             <button onClick={() => { const el = inputRef.current!; const v = text + (text && !/\s$/.test(text) ? " " : "") + "@"; setText(v); el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = v.length; updatePop(v, v.length); }); }}>@ mention</button>
 

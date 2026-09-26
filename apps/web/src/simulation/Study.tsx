@@ -31,10 +31,16 @@ export function StudyContext({chatId,onDescribe}:{chatId:Id<"chats">;onDescribe:
  const active=context?.studies.find(s=>s._id===context.activeStudyId),previous=useRef<string|null|undefined>(undefined);
  useEffect(()=>{if(!context)return;const id=context.activeStudyId;if(previous.current!==undefined&&id&&id!==previous.current&&ui.get().panels[chatId]?.simulationSelection?.studyId!==id)ui.openSimulation(chatId,id,"setup");previous.current=id;},[context?.activeStudyId]);
  async function pick(id:Id<"simulationCases">|null,owner=chatId,workspaceId?:string){setBusy(true);try{await select({chatId:owner,caseId:id});setOpen(false);if(owner!==chatId&&workspaceId)ui.openChat(workspaceId,owner);if(id)ui.openSimulation(owner,id,"setup");}catch(e){toast((e as Error).message);}finally{setBusy(false);}}
- return <div className="study-context">
-  <div className="study-context-line"><button className="study-target" aria-expanded={open} onClick={()=>setOpen(!open)}>{active?<>Working on: <b>{active.name}</b><span>r{active.revision}</span></>:"＋ Study"}<span>⌄</span></button>{active&&<button aria-label="Open active study" onClick={()=>ui.openSimulation(chatId,active._id,"setup")}>↗</button>}</div>
-  {draft&&<div className="study-draft-note">Unsaved Simulation edits. The agent sees {active?`saved r${active.revision}`:"saved studies only"}.</div>}
-  {open&&<div className="study-picker"><div className="study-picker-scope"><button aria-pressed={scope==="chat"} onClick={()=>setScope("chat")}>This chat</button><button aria-pressed={scope==="workspace"} onClick={()=>setScope("workspace")}>Workspace</button></div>
+ const root=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(!open)return;const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))setOpen(false);};const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){e.stopPropagation();setOpen(false);}};document.addEventListener("pointerdown",outside);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",outside);document.removeEventListener("keydown",key);};},[open]);
+ return <div className="study-context" ref={root}>
+  <button className={`tool-chip study-target${active?" on":""}`} aria-expanded={open} title={active?`Working study: ${active.name} r${active.revision}${draft?" · unsaved edits":""}`:"Pick or start a simulation study"} onClick={()=>setOpen(!open)}>
+   <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4M7 2v4L3.5 12.5A1 1 0 0 0 4.4 14h7.2a1 1 0 0 0 .9-1.5L9 6V2"/></svg>
+   {active?<><b>{active.name}</b><span className="k">r{active.revision}{draft?" · unsaved":""}</span></>:"Study"}
+   <svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"/></svg>
+  </button>
+  {open&&<div className="study-picker">
+   {active&&<button className="study-open" onClick={()=>{setOpen(false);ui.openSimulation(chatId,active._id,"setup");}}><span>Open {active.name}</span><small>r{active.revision}{draft?` · unsaved edits · the agent sees saved r${active.revision}`:""}</small></button>}<div className="study-picker-scope"><button aria-pressed={scope==="chat"} onClick={()=>setScope("chat")}>This chat</button><button aria-pressed={scope==="workspace"} onClick={()=>setScope("workspace")}>Workspace</button></div>
    {scope==="chat"?<>{context?.studies.map(s=><button disabled={busy} key={s._id} onClick={()=>void pick(s._id)}><span>{s.name}</span><small>{s._id===active?._id?"Working study · ":""}r{s.revision}</small></button>)}{!context?.studies.length&&<p>Describe a simulation in chat to create a study.</p>}</>:<>{workspace?.map(s=><button disabled={busy} key={s.id} onClick={()=>void pick(s.id,s.chatId,s.workspaceId)}><span>{s.name}</span><small>{s.chatTitle} · r{s.revision} ↗</small></button>)}<p>Workspace studies open in their original chat, with their conversation and run history.</p></>}
    <button onClick={()=>{setOpen(false);onDescribe();}}>＋ Describe a new study in chat</button>{active&&<button disabled={busy} onClick={()=>void pick(null)}>Clear working study</button>}
   </div>}

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { bridge } from "../bridge";
+import { AgentAvatar } from "./Avatar";
 import { Select } from "./Select";
 import { toast } from "./Toast";
 
@@ -10,20 +11,50 @@ const names: Record<string, string> = { codex: "Codex", claude: "Claude Code", o
 const choiceValue = (runnerId: string, connectionId: string) => JSON.stringify([runnerId, connectionId]);
 function parseChoice(value: string) { const [runnerId, connectionId] = JSON.parse(value) as [Id<"runners">, string]; return { runnerId, connectionId }; }
 
-export function ConnectionPicker({ chatId, harness, preview }: {
-  chatId: Id<"chats">; harness: string;
-  preview: { override?: { runnerId?: Id<"runners">; connectionId?: string } | null; options: { runnerId: Id<"runners">; connectionId: string; name: string; machineName: string; email: string | null; online: boolean }[]; selected: { runnerId: Id<"runners">; connectionId: string; name: string; machineName: string; owner: string; email: string | null; remote: boolean; source: string } | null; error: string | null } | undefined;
+type Preview = { override?: { runnerId?: Id<"runners">; connectionId?: string } | null; options: { runnerId: Id<"runners">; connectionId: string; name: string; machineName: string; email: string | null; online: boolean }[]; selected: { runnerId: Id<"runners">; connectionId: string; name: string; machineName: string; owner: string; email: string | null; remote: boolean; source: string } | null; error: string | null } | undefined;
+
+/**
+ * The composer's agent chip: which model and effort your run will use, and which account this chat runs on.
+ * Quiet by default; it turns amber only when the run could not start as things stand.
+ */
+export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDefaults }: {
+  chatId: Id<"chats">; agent: { harness: string; handle: string }; model: string; effort: string; preview: Preview; onOpenDefaults: () => void;
 }) {
   const save = useMutation(api.connections.setPreference);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    // The account list renders in a portal; picking from it is not a click outside.
+    const outside = (e: PointerEvent) => { const t = e.target as Element; if (!root.current?.contains(t) && !t.closest?.(".bsel-list")) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); trigger.current?.focus(); } };
+    document.addEventListener("pointerdown", outside); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", key); };
+  }, [open]);
+  const harness = agent.harness;
   const selected = preview?.selected;
   const override = preview?.override;
   const value = override?.runnerId ? choiceValue(override.runnerId, override.connectionId ?? "default") : selected?.source === "chat" ? choiceValue(selected.runnerId, selected.connectionId) : "";
-  return <div className="connection-picker">
-    <Select label="Account for this chat" className="bsel-sm" disabled={!preview || busy} value={value} placeholder="Selected connection unavailable" onChange={async v => {
-      setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-    }} options={[{ value: "", label: "Use my default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
-    <span className={preview?.error ? "connection-error" : "connection-resolved"} role="status">{selected ? `${selected.owner}’s ${names[harness] ?? harness} · ${selected.name}${selected.email ? ` (${selected.email})` : ""} · ${selected.machineName}${selected.remote ? " · remote" : " · this machine"}` : preview?.error ?? "Checking account…"}</span>
+  const error = preview?.error ?? null;
+  return <div className="composer-agent" ref={root}>
+    <button ref={trigger} className={`tool-chip${error ? " warn" : ""}`} aria-expanded={open} title={error ?? `${names[harness] ?? harness} · ${model} · ${effort}${selected ? ` · ${selected.name} on ${selected.machineName}` : ""}`} onClick={() => setOpen(!open)}>
+      <AgentAvatar harness={harness} /><span>{model} · {effort}</span>{error && <span>· can’t run</span>}
+      <svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
+    </button>
+    {open && <div className="agent-options" aria-label={`@${agent.handle} in this chat`}>
+      <div className="agent-sec"><h4>Account for this chat</h4>
+        <Select label="Account for this chat" disabled={!preview || busy} value={value} placeholder="Selected account unavailable" onChange={async v => {
+          setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+        }} options={[{ value: "", label: "Use my default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
+        <span className={error ? "connection-error" : "connection-resolved"} role="status">{selected ? `Runs as ${selected.owner}’s ${selected.name}${selected.email ? ` (${selected.email})` : ""} on ${selected.machineName}${selected.remote ? "" : " · this machine"}` : error ?? "Checking account…"}</span>
+      </div>
+      <div className="agent-sec"><h4>Your model</h4>
+        <div className="agent-model"><span>{names[harness] ?? harness} · {model} · {effort}</span><button className="btn ghost" onClick={() => { setOpen(false); onOpenDefaults(); }}>Change</button></div>
+        <p>Yours in every workspace, set in Models &amp; accounts.</p>
+      </div>
+    </div>}
   </div>;
 }
 
