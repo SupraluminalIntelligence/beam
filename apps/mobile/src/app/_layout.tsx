@@ -8,6 +8,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { convex, tokenStorage } from "../lib/convex";
 import { useTheme } from "../lib/theme";
@@ -23,7 +24,9 @@ export default function Root() {
   return (
     <ConvexAuthProvider client={convex} storage={tokenStorage}>
       <SafeAreaProvider>
-        <Routes />
+        <KeyboardProvider>
+          <Routes />
+        </KeyboardProvider>
       </SafeAreaProvider>
     </ConvexAuthProvider>
   );

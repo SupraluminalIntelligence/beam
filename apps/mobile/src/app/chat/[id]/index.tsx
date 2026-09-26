@@ -1,7 +1,8 @@
 import { useMutation } from "convex/react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useChat } from "../../../chat/model";
 import { Activity, AgentBody, AgentReply, Frame, Landing, PersonBody, PersonMessage, Requests, RunStatus } from "../../../chat/Rows";
@@ -20,6 +21,7 @@ export default function ChatScreen() {
   const chatId = id as Id<"chats">;
   const t = useTheme();
   const c = useChat(chatId);
+  const insets = useSafeAreaInsets();
   const focus = useMutation(api.presence.focus);
   const list = useRef<FlatList>(null);
   const atBottom = useRef(true);
@@ -73,7 +75,8 @@ export default function ChatScreen() {
           </Pressable>
         </>}
       />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Moves with the keyboard frame by frame. The offset cancels the home-indicator gap the composer already leaves. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={-(Math.max(insets.bottom, 8) - 8)}>
         <FlatList
           ref={list}
           data={c.rows}
