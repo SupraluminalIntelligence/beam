@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useChat } from "../../../chat/model";
 import { Activity, AgentBody, AgentReply, Frame, Landing, PersonBody, PersonMessage, Requests, RunStatus } from "../../../chat/Rows";
 import { MessageActions, type Held } from "../../../chat/Actions";
-import { HARNESS } from "../../../lib/agents";
+import { HARNESS, permissionLabel } from "../../../lib/agents";
 import { api, type Id } from "../../../lib/convex";
 import { dayLabel, errorText } from "../../../lib/format";
 import { font, radius, useTheme } from "../../../lib/theme";
@@ -117,7 +117,7 @@ export default function ChatScreen() {
           }}
         />
         {notice ? <View pointerEvents="none" style={{ position: "absolute", alignSelf: "center", bottom: 90, backgroundColor: t.ink, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.control }}><T mono size={12} tone="surface">{notice}</T></View> : null}
-        <Composer inputRef={input} text={draft} setText={setDraft} chatId={chatId} handles={handles} members={(c.detail?.members ?? []).filter((m) => m !== c.login)} agents={c.detail?.agents ?? []} nameOf={c.nameOf} live={c.live?._id ?? null} onSent={() => { atBottom.current = true; }} />
+        <Composer inputRef={input} text={draft} setText={setDraft} chatId={chatId} handles={handles} members={(c.detail?.members ?? []).filter((m) => m !== c.login)} agents={c.detail?.agents ?? []} nameOf={c.nameOf} live={c.live?._id ?? null} liveHarness={c.live ? c.harnessOf(c.live) : null} pinned={c.chat?.private ? c.chat.pinnedAgent : null} onSent={() => { atBottom.current = true; }} />
       </KeyboardAvoidingView>
       <MessageActions held={held} me={c.login} onClose={() => setHeld(null)} onCopied={() => setNotice("Copied")}
         onMention={(h) => insert(`@${h} `)}
@@ -130,8 +130,8 @@ function AgentFrame({ harness, name, at, cont, children }: { harness: string; na
   return <Frame avatar={<AgentMark harness={harness} size={26} />} name={name} at={at} cont={cont}>{children}</Frame>;
 }
 
-type Agent = { _id: string; harness: string; handle: string; model: string; effort: string };
-function Composer({ inputRef, text, setText, chatId, handles, members, agents, nameOf, live, onSent }: { inputRef: React.RefObject<TextInput | null>; text: string; setText: (v: string) => void; chatId: Id<"chats">; handles: Set<string>; members: string[]; agents: Agent[]; nameOf: (l: string) => string; live: Id<"runs"> | null; onSent: () => void }) {
+type Agent = { _id: string; harness: string; handle: string; model: string; effort: string; permissionMode: string };
+function Composer({ inputRef, text, setText, chatId, handles, members, agents, nameOf, live, liveHarness, pinned, onSent }: { inputRef: React.RefObject<TextInput | null>; text: string; setText: (v: string) => void; chatId: Id<"chats">; handles: Set<string>; members: string[]; agents: Agent[]; nameOf: (l: string) => string; live: Id<"runs"> | null; liveHarness: string | null; pinned: string | null; onSent: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const send = useMutation(api.messages.send);
@@ -141,6 +141,13 @@ function Composer({ inputRef, text, setText, chatId, handles, members, agents, n
   // The run whose stop was accepted; the button reads "Stopping" until the runner ends it and `live` moves on.
   const [stopping, setStopping] = useState<Id<"runs"> | null>(null);
   const [stopBusy, setStopBusy] = useState(false);
+  // Which agent a message would go to: the one you mention, else the one already working, else the chat's pinned agent.
+  const mentioned = [...text.matchAll(MENTION)].map((m) => m[2]!.toLowerCase()).map((h) => agents.find((a) => a.handle === h)).find(Boolean) ?? null;
+  const target = mentioned ?? agents.find((a) => a.harness === liveHarness) ?? agents.find((a) => a._id === pinned) ?? agents[0] ?? null;
+  const prefs = useQuery(api.users.preferences);
+  const route = useQuery(api.connections.preview, mentioned && !live ? { chatId, harness: mentioned.harness } : "skip");
+  const pref = target ? prefs?.find((p) => p.harness === target.harness) : undefined;
+  const openAgent = () => { if (target) router.push({ pathname: "/chat/[id]/agent", params: { id: chatId, harness: target.harness } }); };
   const q = text.match(/(?:^|\s)@([a-z0-9-]*)$/i)?.[1]?.toLowerCase();
   const picks = q === undefined ? [] : [
     ...agents.filter((a) => a.handle.startsWith(q) || (HARNESS[a.harness]?.name ?? "").toLowerCase().startsWith(q)).map((a) => ({ v: a.handle, label: HARNESS[a.harness]?.name ?? a.handle, d: `${a.model} · ${a.effort}`, agent: a.harness })),
@@ -177,7 +184,23 @@ function Composer({ inputRef, text, setText, chatId, handles, members, agents, n
         </View>
       ) : null}
       {error ? <T mono size={11} tone="warn" style={{ marginHorizontal: 14, marginBottom: 4 }}>{error}</T> : null}
-      <View style={{ marginHorizontal: 12, borderWidth: 1, borderColor: t.line2, borderRadius: radius.composer, paddingLeft: 12, paddingRight: 8, paddingVertical: 6, backgroundColor: t.surface, flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+      {mentioned && !live && !picks.length && route !== undefined ? (
+        <Pressable onPress={openAgent} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 14, marginBottom: 6 }}>
+          {route.selected ? <>
+            <Sq state="ok" size={7} />
+            <T mono size={11} tone="ink2" lines={1} style={{ flex: 1 }}>{HARNESS[mentioned.harness]?.name} on {route.selected.machineName}{route.selected.name ? ` · ${route.selected.name}` : ""} · {pref?.model ?? mentioned.model} · {pref?.effort ?? mentioned.effort}</T>
+          </> : <>
+            <Sq state="warn" size={7} />
+            <T mono size={11} tone="warn" lines={1} style={{ flex: 1 }}>{route.error ?? "No machine can run this agent right now"}</T>
+          </>}
+          <T mono size={11} tone="ink3">change</T>
+        </Pressable>
+      ) : null}
+      <View style={{ marginHorizontal: 12, borderWidth: 1, borderColor: t.line2, borderRadius: radius.composer, paddingLeft: target ? 6 : 12, paddingRight: 8, paddingVertical: 6, backgroundColor: t.surface, flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+        {target ? <Pressable onPress={openAgent} hitSlop={6} accessibilityLabel={`Your ${HARNESS[target.harness]?.name}: settings for this chat`} style={{ height: 36, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 4 }}>
+          <AgentMark harness={target.harness} size={20} />
+          <T mono size={10.5} tone="ink3">{permissionLabel(target.permissionMode).toLowerCase()}</T>
+        </Pressable> : null}
         <TextInput
           ref={inputRef}
           value={text} onChangeText={setText} multiline placeholder="Message · @ to mention" placeholderTextColor={t.ink3}

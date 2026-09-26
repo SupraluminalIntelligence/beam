@@ -40,13 +40,16 @@ export default function People() {
         const tone = state === "waiting on you" ? "warn" : state === "working" ? "live" : state === "failed" || state === "stopped" ? "bad" : "ink2";
         const ex = a.run.execution;
         return (
-          <Row key={`${a.harness}:${a.owner}`} disabled>
+          <Row key={`${a.harness}:${a.owner}`} disabled={a.owner !== c.login} onPress={() => router.push({ pathname: "/chat/[id]/agent", params: { id: c.chat!._id, harness: a.harness } })}>
             <AgentMark harness={a.harness} size={28} />
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <T weight="medium">{a.name}</T>
               <T mono size={11} tone="ink3" lines={2}>{ex ? `${ex.modelName ?? ex.model} · ${ex.effort} · ` : ""}on {a.run.runnerName}</T>
             </View>
-            <T mono size={11} tone={tone}>{state}</T>
+            <View style={{ alignItems: "flex-end", gap: 4 }}>
+              <T mono size={11} tone={tone}>{state}</T>
+              {a.owner === c.login ? <T mono size={10.5} tone="ink3">settings ›</T> : null}
+            </View>
           </Row>
         );
       }) : <T size={14} tone="ink3" style={{ paddingHorizontal: 20 }}>No agents yet. Mention one in the chat to bring it in.</T>}

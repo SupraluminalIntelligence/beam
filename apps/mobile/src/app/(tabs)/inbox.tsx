@@ -1,8 +1,11 @@
+import type { RunEvent } from "@beam/contracts";
+import { fold } from "@beam/reducer";
 import { useMutation, useQuery } from "convex/react";
+import { Request } from "../../chat/Rows";
 import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { api, type Doc } from "../../lib/convex";
+import { api, type Doc, type Id } from "../../lib/convex";
 import { ago } from "../../lib/format";
 import { space, useTheme } from "../../lib/theme";
 import { Empty, Label, Sq, T, TopBar } from "../../ui";
@@ -29,6 +32,7 @@ export default function Inbox() {
       <View style={{ flex: 1, gap: 3 }}>
         <T weight={n.readAt === null ? "semi" : "medium"} tone={n.readAt === null ? "ink" : "ink2"}>{n.title}</T>
         <T size={14} tone="ink2">{n.body}</T>
+        {n.kind === "input" && n.readAt === null && n.runId ? <InlineRequest chatId={n.chatId} runId={n.runId} requestId={n.key.split(":input:")[1] ?? ""} /> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 8, paddingTop: 2 }}>
         <T mono size={11} tone="ink3">{ago(n._creationTime)}</T>
@@ -53,4 +57,13 @@ export default function Inbox() {
       </ScrollView>
     </Screen>
   );
+}
+
+/** Answer an agent from the inbox: the same card as in the chat, so approvals lock while sending and show why they failed. */
+function InlineRequest({ chatId, runId, requestId }: { chatId: Id<"chats">; runId: Id<"runs">; requestId: string }) {
+  const events = useQuery(api.runs.eventsForChat, { chatId });
+  if (!events || !requestId) return null;
+  const view = fold(runId, (events[runId] ?? []) as RunEvent[]);
+  const r = view.requests.find((x) => x.requestId === requestId);
+  return r ? <Request run={{ _id: runId }} r={r} /> : null;
 }

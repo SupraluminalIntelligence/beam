@@ -141,7 +141,7 @@ export function Requests({ run, view }: { run: Run; view: RunView }) {
 }
 
 /** One request, with its own typed answer so a draft never carries over to the next question. Buttons lock while the answer is on its way and unlock with the reason if it fails. */
-function Request({ run, r }: { run: Run; r: OpenRequest }) {
+export function Request({ run, r }: { run: { _id: Id<"runs"> }; r: OpenRequest }) {
   const t = useTheme();
   const respond = useMutation(api.runs.respond);
   const [answer, setAnswer] = useState("");

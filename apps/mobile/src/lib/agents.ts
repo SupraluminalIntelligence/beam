@@ -27,3 +27,20 @@ export function chatStatus(runs: { state: string; startedAt: number | null; _cre
   if (last && (last.state === "failed" || last.state === "interrupted")) return { state: "failed", agent: last.label, since: null };
   return { state: "none", agent: null, since: null };
 }
+
+/** Same modes and words as apps/web/src/components/Permissions.tsx. Shared per workspace agent, not personal. */
+export const PERMISSION_MODES = [
+  { v: "ask", label: "Supervised", hint: "Ask before risky commands and file changes." },
+  { v: "plan", label: "Plan", hint: "Read-only until the plan is approved." },
+  { v: "auto", label: "Full access", hint: "Allow commands and edits without prompts." },
+] as const;
+export const permissionLabel = (mode: string) => PERMISSION_MODES.find((m) => m.v === mode)?.label ?? (mode === "allowlist" ? "Allow list" : mode);
+
+export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+/** 1–4 bars for an effort within the efforts a model supports. */
+export function effortLevel(effort: string, supported: string[]): number {
+  const i = supported.indexOf(effort);
+  if (i < 0 || supported.length < 2) return 1;
+  return Math.max(1, Math.round(1 + (3 * i) / (supported.length - 1)));
+}
+

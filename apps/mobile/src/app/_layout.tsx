@@ -50,6 +50,7 @@ function Routes() {
           <Stack.Screen name="chat/[id]/index" />
           <Stack.Screen name="chat/[id]/details" />
           <Stack.Screen name="chat/[id]/people" options={sheet} />
+          <Stack.Screen name="chat/[id]/agent" options={{ ...sheet, sheetAllowedDetents: [0.8, 1] }} />
           <Stack.Screen name="workspace/[id]" />
         </Stack.Protected>
       </Stack>
