@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { jobFinished, SimulationCase } from "@beam/contracts";
+import { jobFinished, SimulationCase, channelSetupChecks } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui, useUi } from "../lib/ui";
 import { toast } from "../components/Toast";
+import { flagged } from "./SetupChecks";
 import "./study.css";
 
 export function StudyCard({id,chatId}:{id:Id<"simulationCases">;chatId:Id<"chats">}){
@@ -18,7 +19,7 @@ export function StudyCard({id,chatId}:{id:Id<"simulationCases">;chatId:Id<"chats
  async function open(results=false){setBusy(true);try{await select({chatId,caseId:id});ui.openSimulation(chatId,id,results?"results":active?(latest!.simulation?.stage==="mesh"?"mesh":"runs"):"setup",results?result?._id:active?latest!._id:undefined);}catch(e){toast((e as Error).message);}finally{setBusy(false);}}
  return <section className="study-card" aria-label={`Simulation study: ${study.name}`}>
   <div className="study-card-heading"><span className={`job-dot ${latest?.state??"queued"}`}/><b>{study.name}</b><small>Study · r{study.revision}</small></div>
-  <p>{description}</p><div className="study-card-state" role="status">{status}</div>
+  <p>{description}</p><div className="study-card-state" role="status">{status}</div>{c.geometry==="channel"&&flagged(channelSetupChecks(c)).map(k=><div key={k.id} className={`study-card-check ${k.status}`}>{k.status==="fail"?"✕":"!"} {k.label} {k.status==="fail"?"doesn't hold":"to review"} · {k.value}</div>)}
   <div className="study-card-actions"><button disabled={busy} onClick={()=>void open()}>Open study ↗</button>{result&&<button disabled={busy} onClick={()=>void open(true)}>{previous?`View r${result.simulation?.revision} results`:"View results"} ↗</button>}{latest&&<button onClick={()=>ui.openSurface(chatId,`job:${latest._id}`)}>{latest.state==="awaiting-approval"?"Review job":"Job details"}</button>}</div>
  </section>;
 }

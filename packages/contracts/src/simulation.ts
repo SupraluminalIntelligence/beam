@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
 export * from "./planar.ts";
+export * from "./channelChecks.ts";
+export * from "./meshStudy.ts";
 
 export const OPENFOAM_IMAGE = "opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319";
 /** First supported study: a 2-D laminar channel, prescribed wall temperature, no buoyancy. SI units. */
@@ -12,7 +14,13 @@ export const ChannelCase = z.object({
   pr: z.number().min(0.01).max(1000), density: z.number().min(0.1).max(20000),
   inletTemperature: z.number().min(273.15).max(373.15), wallTemperature: z.number().min(273.15).max(373.15),
   thermal: z.boolean(), iterations: z.number().int().min(100).max(3000),
+  // Stated fluid data for setup checks only; the solve keeps gravity off and never boils.
+  beta: z.number().min(0).max(0.02).optional(), boilingPoint: z.number().min(100).max(1000).optional(),
+  // Uniform heat flux into the fluid through both walls (W/m²), in place of wallTemperature; converting it to a wall gradient needs the conductivity (W/m·K).
+  wallHeatFlux: z.number().positive().max(1e7).optional(), conductivity: z.number().min(0.01).max(500).optional(),
 }).strict().superRefine((c,ctx)=>{
+  if(c.wallHeatFlux!==undefined&&!c.thermal) ctx.addIssue({code:"custom",path:["wallHeatFlux"],message:"A wall heat flux needs heated walls; set thermal to true"});
+  if(c.wallHeatFlux!==undefined&&c.conductivity===undefined) ctx.addIssue({code:"custom",path:["conductivity"],message:"Set the fluid's thermal conductivity to apply a wall heat flux"});
   if(c.length < c.height * 2) ctx.addIssue({code:"custom",message:"Channel length must be at least twice its height"});
   if(c.velocity * 2*c.height / c.nu > 1500) ctx.addIssue({code:"custom",message:"This laminar example supports Reynolds numbers up to 1500 (based on twice the channel height)"});
 });
@@ -38,7 +46,10 @@ export const meshKey = (c: SimulationCase) => canonicalMeshKey(JSON.stringify(c.
 export const SimulationJob = z.object({image:z.literal(OPENFOAM_IMAGE).default(OPENFOAM_IMAGE),caseId:z.string().min(1),revision:z.number().int().positive(),stage:z.enum(["mesh","solve"]),config:SimulationCase,meshJobId:z.string().optional()}).strict();
 export type SimulationJob = z.infer<typeof SimulationJob>;
 export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
-export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional()});
+/** Heated-channel results a thermal engineer reads: flow-weighted outlet temperature, discrete energy balance, developed f·Re and local Nu(x) on 2H. */
+export const ChannelResults = z.object({bulkOutletTemperatureK:z.number().finite(),maxWallTemperatureK:z.number().finite().optional(),energyImbalance:z.number().finite().nullable(),fRe:z.number().finite().nullable(),nusselt:z.array(z.tuple([z.number().finite(),z.number().finite()])).max(160)});
+export type ChannelResults = z.infer<typeof ChannelResults>;
+export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional(),channel:ChannelResults.optional()});
 export type SimulationReport = z.infer<typeof SimulationReport>;
 export const SimulationFields = z.object({version:z.literal(1),centres:z.array(z.tuple([z.number().finite(),z.number().finite(),z.number().finite()])).max(12800),velocity:z.array(z.number().finite()).max(12800),pressure:z.array(z.number().finite()).max(12800),temperature:z.array(z.number().finite()).max(12800)}).superRefine((f,ctx)=>{if(!f.centres.length||[f.velocity,f.pressure,f.temperature].some(a=>a.length!==f.centres.length))ctx.addIssue({code:"custom",message:"Field and cell counts differ"});});
 export type SimulationFields = z.infer<typeof SimulationFields>;
