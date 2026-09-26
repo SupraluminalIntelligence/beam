@@ -7,7 +7,7 @@ import { runnerForToken } from "./runners";
 import { internal } from "./_generated/api";
 
 /** Start a fresh GitHub poll for a change's PR; any older poll for it stops. Test contexts have no scheduler. */
-async function startSync(ctx: MutationCtx, changeId: Id<"changes">, delayMs: number) {
+export async function startSync(ctx: MutationCtx, changeId: Id<"changes">, delayMs: number) {
   const c = await ctx.db.get(changeId);
   if (!c?.prNumber || !("scheduler" in ctx) || !ctx.scheduler) return;
   const gen = (c.syncGen ?? 0) + 1;

@@ -1,4 +1,4 @@
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc } from "../../../../convex/_generated/dataModel";
@@ -31,37 +31,80 @@ export function PrBar({ changes, askHandle, onAsk }: { changes: Change[]; askHan
   return <div className="prbar" aria-label="Open pull requests">{open.map((c) => <PrRow key={c._id} change={c} askHandle={askHandle} onAsk={onAsk} />)}</div>;
 }
 
-function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: string | null; onAsk: (text: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const refresh = useMutation(api.changes.refresh);
+/** Where a change stands on GitHub, for its icon. */
+export type PrState = "branch" | "draft" | "open" | "merged" | "closed";
+export const prState = (c: Pick<Change, "state" | "prNumber" | "draft">): PrState =>
+  c.state === "merged" ? "merged" : c.state === "closed" ? "closed" : !c.prNumber ? "branch" : c.draft ? "draft" : "open";
+const PR_STATE_WORD: Record<PrState, string> = { branch: "Branch pushed, no PR yet", draft: "Draft PR", open: "Open PR", merged: "Merged", closed: "Closed" };
+
+export function PrIcon({ state }: { state: PrState }) {
+  const side = state === "draft" ? <><path d="M12 4.5v.01M12 8v.01" /><circle cx="12" cy="12.5" r="1.75" /></>
+    : state === "closed" ? <><path d="m10.5 3.5 3 3m0-3-3 3M12 9v1.75" /><circle cx="12" cy="12.5" r="1.75" /></>
+    : state === "merged" ? <><path d="M4 5.25c0 3 3.5 3.25 6.25 3.25" /><circle cx="12" cy="8.5" r="1.75" /></>
+    : state === "branch" ? <><path d="M12 6.25c0 3.25-8 2.25-8 4.5" /><circle cx="12" cy="4.5" r="1.75" /></>
+    : <><path d="M12 10.75V6.5a2 2 0 0 0-2-2H7.5" /><path d="M9 3 7.5 4.5 9 6" /><circle cx="12" cy="12.5" r="1.75" /></>;
+  return (
+    <svg className={`pr-icon ${state}`} viewBox="0 0 16 16" role="img" aria-label={PR_STATE_WORD[state]}>
+      <title>{PR_STATE_WORD[state]}</title>
+      <circle cx="4" cy="3.5" r="1.75" /><circle cx="4" cy="12.5" r="1.75" /><path d="M4 5.25v5.5" />{side}
+    </svg>
+  );
+}
+
+/** Closes whichever popover is open on an outside click or Escape. */
+function useDismiss(open: boolean, close: () => void) {
   useEffect(() => {
     if (!open) return;
-    const close = () => setOpen(false);
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     document.addEventListener("click", close); document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", esc); };
   }, [open]);
-  const toggle = () => {
-    if (!open) void refresh({ changeId: c._id }).catch((e) => toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")));
-    setOpen(!open);
+}
+
+const errText = (e: unknown) => String((e as Error).message).replace(/^.*Uncaught Error: /, "");
+
+function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: string | null; onAsk: (text: string) => void }) {
+  const [open, setOpen] = useState<"ci" | "branch" | null>(null);
+  const [creating, setCreating] = useState(false);
+  const refresh = useMutation(api.changes.refresh);
+  const createPr = useAction(api.github.createPr);
+  useDismiss(open !== null, () => setOpen(null));
+  const toggleCi = () => {
+    if (open !== "ci") void refresh({ changeId: c._id }).catch((e) => toast(errText(e)));
+    setOpen(open === "ci" ? null : "ci");
+  };
+  const create = () => {
+    setCreating(true);
+    createPr({ changeId: c._id })
+      .then((r) => { if ("error" in r) toast(r.error); else toast("PR opened"); })
+      .catch((e) => toast(errText(e)))
+      .finally(() => setCreating(false));
   };
   const href = c.prUrl;
+  const branchUrl = `https://github.com/${c.repo}/tree/${c.branch.split("/").map(encodeURIComponent).join("/")}`;
   return (
     <div className="prrow">
-      <span className="prico" aria-hidden="true">⎇</span>
-      {c.prNumber && href ? <button className="prnum" onClick={() => openHref(href)} title={`Open ${c.title} on GitHub`}>#{c.prNumber}</button> : <span className="k">no PR</span>}
+      <PrIcon state={prState(c)} />
+      {c.prNumber && href && <button className="prnum" onClick={() => openHref(href)} title={`Open ${c.title} on GitHub`}>#{c.prNumber}</button>}
       <span className="prrepo">{c.repo.split("/")[1]}</span>
-      <span className="prbranch" title={c.title}>{c.branch}</span>
-      {c.draft && <span className="k">draft</span>}
+      <div className="prbranchwrap" onClick={(e) => e.stopPropagation()}>
+        <button className="prbranch" aria-expanded={open === "branch"} aria-haspopup="menu" onClick={() => setOpen(open === "branch" ? null : "branch")} title={c.branch}>{c.branch}</button>
+        {open === "branch" && (
+          <div className="prmenu" role="menu">
+            <button role="menuitem" onClick={() => { setOpen(null); void navigator.clipboard.writeText(c.branch).then(() => toast("Branch name copied"), () => toast("Couldn't copy the branch name")); }}>Copy branch name</button>
+            <button role="menuitem" onClick={() => { setOpen(null); openHref(branchUrl); }}>Open branch on GitHub</button>
+          </div>
+        )}
+      </div>
       <span className="add">+{c.add}</span><span className="del">−{c.del}</span>
-      {c.prNumber && href && (
+      {c.prNumber && href ? (
         <div className="ci" onClick={(e) => e.stopPropagation()}>
-          <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open} aria-haspopup="dialog" onClick={toggle} title={`CI ${ciWord(c.checks)}`}>
+          <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open === "ci"} aria-haspopup="dialog" onClick={toggleCi} title={`CI ${ciWord(c.checks)}`}>
             <CiDot checks={c.checks} />CI<span className="chev" aria-hidden="true">▾</span>
           </button>
-          {open && <CiPopover change={c} href={href} askHandle={askHandle} onAsk={(t) => { setOpen(false); onAsk(t); }} />}
+          {open === "ci" && <CiPopover change={c} href={href} askHandle={askHandle} onAsk={(t) => { setOpen(null); onAsk(t); }} />}
         </div>
-      )}
+      ) : <button className="cichip create" disabled={creating} onClick={create}>{creating ? "Creating…" : "Create PR"}</button>}
     </div>
   );
 }

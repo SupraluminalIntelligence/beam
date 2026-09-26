@@ -4,6 +4,8 @@ import { action, internalAction, internalMutation, internalQuery } from "./_gene
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { requireChat } from "./lib";
+import { startSync } from "./changes";
 import { POLL_MS, PR_QUERY, keepPolling, prPatch, type ChecksSummary, type GitHubPr } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
@@ -138,5 +140,49 @@ export const syncChange = internalAction({
       checks = pr ? await ctx.runMutation(internal.github.applyPr, { changeId, pr }) : "pending";
     } catch (e) { console.error("syncChange", r.repo, r.prNumber, (e as Error).message); }
     if (checks && keepPolling(checks as ChecksSummary["state"], attempt)) await ctx.scheduler.runAfter(POLL_MS, internal.github.syncChange, { changeId, gen, attempt: attempt + 1 });
+  },
+});
+
+/** The change a person wants a PR for, if they can see its thread and it has none yet. */
+export const changeForPr = internalQuery({
+  args: { changeId: v.id("changes") },
+  handler: async (ctx, { changeId }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c) throw new Error("no such change");
+    await requireChat(ctx, c.chatId);
+    return c.state === "open" && !c.prNumber ? { repo: c.repo, branch: c.branch, base: c.base, title: c.title } : null;
+  },
+});
+
+export const setPr = internalMutation({
+  args: { changeId: v.id("changes"), prUrl: v.string(), prNumber: v.number() },
+  handler: async (ctx, { changeId, prUrl, prNumber }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c || c.prNumber) return;
+    await ctx.db.patch(changeId, { prUrl, prNumber, updatedAt: Date.now() });
+    await startSync(ctx, changeId, 0);
+  },
+});
+
+/** Someone clicked Create PR on a pushed branch. Opened with their own GitHub sign-in, so it is theirs, as if made on GitHub. */
+export const createPr = action({
+  args: { changeId: v.id("changes") },
+  handler: async (ctx, { changeId }): Promise<{ url: string } | { error: string }> => {
+    const c = await ctx.runQuery(internal.github.changeForPr, { changeId });
+    if (!c) return { error: "This branch already has a PR." };
+    const t = await ctx.runQuery(internal.github.myToken, {});
+    if (!t) return { error: "Beam has no GitHub access for you. Sign out and back in to grant it." };
+    const headers = { authorization: `Bearer ${t.token}`, accept: "application/vnd.github+json", "user-agent": "beam", "content-type": "application/json" };
+    const res = await fetch(`https://api.github.com/repos/${c.repo}/pulls`, { method: "POST", headers, body: JSON.stringify({ title: c.title, head: c.branch, base: c.base, body: "Opened from Beam." }) });
+    let pr = res.ok ? (await res.json()) as { html_url: string; number: number } : null;
+    if (!pr && res.status === 422) {
+      // Someone already opened one for this branch: adopt it.
+      const owner = c.repo.split("/")[0];
+      const list = await fetch(`https://api.github.com/repos/${c.repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${c.branch}`)}`, { headers });
+      pr = list.ok ? ((await list.json()) as { html_url: string; number: number }[])[0] ?? null : null;
+    }
+    if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : `GitHub refused the PR (${res.status}).` };
+    await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.html_url, prNumber: pr.number });
+    return { url: pr.html_url };
   },
 });

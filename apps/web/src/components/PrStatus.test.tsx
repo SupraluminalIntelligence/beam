@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-vi.mock("convex/react", () => ({ useMutation: () => async () => {} }));
+vi.mock("convex/react", () => ({ useMutation: () => async () => {}, useAction: () => async () => {} }));
 import type { Doc } from "../../../../convex/_generated/dataModel";
-import { CiPopover, PrBar, fixPrompt } from "./PrStatus";
+import { CiPopover, PrBar, fixPrompt, prState } from "./PrStatus";
+import { LandingCard } from "./RunBlocks";
 
 const change = (over: Record<string, unknown> = {}) => ({
   _id: "c1", _creationTime: 0, chatId: "chat", workspaceId: "ws", repo: "acme/beam", branch: "beam/delete-workspace", base: "main", state: "open",
@@ -28,10 +29,19 @@ describe("PrBar", () => {
     expect(renderToStaticMarkup(<PrBar changes={[change({ state: "closed" })]} askHandle={null} onAsk={() => {}} />)).toBe("");
   });
 
-  it("marks a branch without a PR and offers no CI", () => {
+  it("offers Create PR for a branch without one, instead of CI", () => {
     const html = renderToStaticMarkup(<PrBar changes={[change({ prNumber: null, prUrl: null, checks: undefined })]} askHandle={null} onAsk={() => {}} />);
-    expect(html).toContain("no PR");
-    expect(html).not.toContain("cichip");
+    expect(html).toContain("Create PR");
+    expect(html).toContain('class="pr-icon branch"');
+    expect(html).not.toContain("cichip failing");
+  });
+
+  it("colors the icon by where the PR stands", () => {
+    expect(prState(change())).toBe("open");
+    expect(prState(change({ draft: true }))).toBe("draft");
+    expect(prState(change({ prNumber: null }))).toBe("branch");
+    expect(prState(change({ state: "merged" }))).toBe("merged");
+    expect(prState(change({ state: "closed" }))).toBe("closed");
   });
 });
 
@@ -54,5 +64,27 @@ describe("CiPopover", () => {
 
   it("writes a fix prompt that mentions the agent and names the failing checks", () => {
     expect(fixPrompt("codex", c)).toBe("@codex CI is failing on acme/beam#12 (test). Read the failing checks and push a fix.");
+  });
+});
+
+describe("LandingCard", () => {
+  const landing = (over: Record<string, unknown> = {}) => ({ repo: "acme/beam", branch: "beam/delete-workspace", base: "main", pushed: true, add: 137, del: 11, files: 6, prUrl: "https://github.com/acme/beam/pull/12", compareUrl: null, error: null, ...over });
+  const card = (state: string, repo: Record<string, unknown>, changes: Doc<"changes">[]) =>
+    renderToStaticMarkup(<LandingCard run={{ state, landing: { error: null, repos: [landing(repo)] } } as never} changes={changes} />);
+
+  it("is one line that names the PR, without repeating the branch or CI from the bar", () => {
+    const html = card("landed", {}, [change()]);
+    expect(html).toContain("pushed to beam#12");
+    expect(html).toContain("+137");
+    expect(html).not.toContain("beam/delete-workspace<");
+    expect(html).not.toContain("CI");
+  });
+
+  it("says when the PR has merged, since the bar no longer shows it", () => {
+    expect(card("landed", {}, [change({ state: "merged" })])).toMatch(/pr-icon merged.*>merged</);
+  });
+
+  it("says when a stopped run pushed nothing", () => {
+    expect(card("interrupted", { pushed: false, prUrl: null }, [])).toContain("stopped · nothing pushed to beam");
   });
 });
