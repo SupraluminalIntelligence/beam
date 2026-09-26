@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { HARNESS_INFO } from "../lib/harness-info";
@@ -7,7 +7,7 @@ import { AgentAvatar, PersonAvatar } from "./Avatar";
 import { Seg } from "./Modal";
 import { toast } from "./Toast";
 
-export type WorkspaceDetail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
+export type WorkspaceDetail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[]; canDelete?: boolean };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const PERMISSIONS = [["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const;
 const CONTEXT = [["last-landing", "last landing"], ["since-landing-plus-summary", "since last landing + summary"], ["whole-chat", "whole chat"]] as const;
@@ -17,8 +17,8 @@ const label = <T extends string>(options: readonly (readonly [T, string])[], v: 
  * Everything this workspace shares with its members: its name, repos, people and agents.
  * Personal choices (model, effort, account) live in Models & accounts and follow you across workspaces.
  */
-export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onOpenDefaults }: {
-  detail: WorkspaceDetail; focusAgent: string | null; onInvite: () => void; onAddRepo: () => void; onOpenDefaults: () => void;
+export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onOpenDefaults, onDeleted }: {
+  detail: WorkspaceDetail; focusAgent: string | null; onInvite: () => void; onAddRepo: () => void; onOpenDefaults: () => void; onDeleted: () => void;
 }) {
   const people = useQuery(api.users.byLogins, { logins: detail.members });
   const [open, setOpen] = useState<string | null>(focusAgent);
@@ -40,7 +40,42 @@ export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onO
       </button>
       {open === a._id && <AgentForm key={a._id} a={a} detail={detail} onClose={() => setOpen(null)} onOpenDefaults={onOpenDefaults} />}
     </div>)}
+    {detail.canDelete && <DeleteWorkspace detail={detail} onDeleted={onDeleted} />}
   </div>;
+}
+
+/** Creator only. Chats, shared folders and membership go with it; git branches and PRs stay on GitHub. */
+function DeleteWorkspace({ detail, onDeleted }: { detail: WorkspaceDetail; onDeleted: () => void }) {
+  const remove = useMutation(api.workspaces.remove);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (confirm) dialog.current?.showModal(); else dialog.current?.close(); }, [confirm]);
+  const close = () => { if (busy) return; setConfirm(false); setTyped(""); setError(null); };
+  const run = async () => {
+    if (busy || typed.trim() !== detail.name) return;
+    setBusy(true); setError(null);
+    try { await remove({ workspaceId: detail.id }); toast(`Workspace ${detail.name} deleted`); onDeleted(); }
+    catch (e) { setError((e instanceof Error ? e.message : String(e)).replace(/^.*Uncaught Error: /s, "").split("\n")[0] ?? "Could not delete workspace."); setBusy(false); }
+  };
+  return <>
+    <div className="sb-sec ws-sec">Danger zone</div>
+    <div className="row ws-item"><span className="hint">Delete this workspace for everyone. Its chats and shared folders go with it.</span><button className="btn ghost chat-delete-action" onClick={() => setConfirm(true)}>Delete workspace</button></div>
+    {confirm && <dialog ref={dialog} className="modal chat-delete-dialog" aria-labelledby="ws-delete-title" aria-describedby="ws-delete-description" onCancel={(e) => { e.preventDefault(); close(); }} onKeyDown={(e) => e.stopPropagation()}>
+      <div className="m-h" id="ws-delete-title">Delete workspace?</div>
+      <div className="chat-delete-body">
+        <p id="ws-delete-description">This deletes “{detail.name}” for all {detail.members.length} {detail.members.length === 1 ? "member" : "members"}: every chat, shared folder and invite. Branches and pull requests on GitHub are not touched. This can’t be undone.</p>
+        <p><input type="text" aria-label="Type the workspace name to confirm" placeholder={detail.name} value={typed} autoFocus disabled={busy} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void run(); }} /></p>
+        {error && <p className="chat-delete-error" role="alert">{error}</p>}
+      </div>
+      <div className="m-f">
+        <button className="btn ghost" disabled={busy} onClick={close}>Cancel</button>
+        <button className="btn danger" disabled={busy || typed.trim() !== detail.name} onClick={() => void run()}>{busy ? "Deleting…" : "Delete workspace"}</button>
+      </div>
+    </dialog>}
+  </>;
 }
 
 function WorkspaceName({ detail }: { detail: WorkspaceDetail }) {

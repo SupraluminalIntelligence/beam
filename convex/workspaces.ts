@@ -1,6 +1,8 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { me, requireMember } from "./lib";
+import { isLive } from "./runs";
+import { jobFinished } from "../packages/contracts/src/compute";
 
 const DEFAULT_AGENTS = [
   { harness: "claude", handle: "claude", model: "Fable 5.1", effort: "high" },
@@ -14,19 +16,19 @@ export const mine = query({
     if (!u) return [];
     const rows = await ctx.db.query("members").withIndex("by_login", (q) => q.eq("githubLogin", u.githubLogin!)).collect();
     const ws = await Promise.all(rows.map((r) => ctx.db.get(r.workspaceId)));
-    return ws.filter((w): w is NonNullable<typeof w> => !!w).map((w) => ({ id: w._id, name: w.name, repos: w.repos }));
+    return ws.filter((w): w is NonNullable<typeof w> => !!w && !w.deletedAt).map((w) => ({ id: w._id, name: w.name, repos: w.repos }));
   },
 });
 
 export const detail = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, { workspaceId }) => {
-    await requireMember(ctx, workspaceId);
+    const u = await requireMember(ctx, workspaceId);
     const w = await ctx.db.get(workspaceId);
     if (!w) return null;
     const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
     const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    return { id: w._id, name: w.name, repos: w.repos, members: members.map((m) => m.githubLogin), agents };
+    return { id: w._id, name: w.name, repos: w.repos, members: members.map((m) => m.githubLogin), agents, canDelete: w.createdBy === u._id };
   },
 });
 
@@ -39,6 +41,33 @@ export const rename = mutation({
     if (!n) throw new Error("a workspace needs a name");
     await ctx.db.patch(workspaceId, { name: n });
     return n;
+  },
+});
+
+/**
+ * Only the person who created the workspace can delete it. Like deleting a chat, history and git
+ * references are kept, but every chat is deleted, shared folders are revoked and all members lose access.
+ */
+export const remove = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    const u = await requireMember(ctx, workspaceId);
+    const w = await ctx.db.get(workspaceId);
+    if (!w || w.deletedAt) throw new Error("This workspace has already been deleted.");
+    if (w.createdBy !== u._id) throw new Error("Only the person who created this workspace can delete it.");
+    const chats = (await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).filter((c) => c.state !== "deleted");
+    for (const c of chats) {
+      const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect();
+      if (runs.some((r) => isLive(r.state))) throw new Error(`Stop the running agent in “${c.title}” before deleting this workspace.`);
+      const jobs = await ctx.db.query("computeJobs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect();
+      if (jobs.some((j) => !jobFinished(j.state))) throw new Error(`Stop or cancel the jobs in “${c.title}” before deleting this workspace.`);
+    }
+    for (const c of chats) await ctx.db.patch(c._id, { state: "deleted" });
+    for (const r of await ctx.db.query("workspaceResources").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect())
+      if (!r.revoked) await ctx.db.patch(r._id, { revoked: true });
+    for (const p of await ctx.db.query("presence").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()) await ctx.db.delete(p._id);
+    for (const m of await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()) await ctx.db.delete(m._id);
+    await ctx.db.patch(workspaceId, { deletedAt: Date.now() });
   },
 });
 
