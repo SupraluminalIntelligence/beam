@@ -61,6 +61,9 @@ export function timeline<M extends Message, R extends Run>(messages: readonly M[
   }
   grouped.sort((a, b) => a.at - b.at);
   let previous: string | null = null;
-  for (const row of grouped) { row.cont = row.author === previous; previous = row.author; }
+  for (const row of grouped) {
+    const identity = row.author.startsWith("agent:") ? `${row.author}:${row.kind === "message" ? row.message.runId : row.run._id}` : row.author;
+    row.cont = identity === previous; previous = identity;
+  }
   return grouped;
 }
