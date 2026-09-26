@@ -7,7 +7,7 @@ import type { WorkspaceRow } from "../App";
 import { bridge } from "../bridge";
 import { ui, useUi } from "../lib/ui";
 import { AgentAvatar } from "./Avatar";
-import { ApproveRunner, Harnesses } from "./Harnesses";
+import { Machines } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
 import type { Me } from "./Shell";
 import { toast } from "./Toast";
@@ -18,40 +18,41 @@ import { NotificationSettings } from "./Notifications";
 import { useLocalRunner } from "../lib/localRunner";
 import { connectionStatuses } from "../../../../packages/contracts/src/connections";
 import { ResourceSharingPolicy } from "./SharedResources";
-import { ConnectionSettings } from "./Connections";
 import { HarnessStatus } from "@beam/contracts";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 import { HARNESS_INFO } from "../lib/harness-info";
 
-export function SettingsModal({ open, onClose, me, pairCode }: { open: boolean; onClose: () => void; me: Me; pairCode?: string | null }) {
+export type SettingsTab = "general" | "machines" | "notifications";
+const SETTINGS_TABS = [["general", "General"], ["machines", "Machines"], ["notifications", "Notifications"]] as const;
+
+export function SettingsModal({ open, onClose, me, pairCode, tab: initialTab = "general" }: { open: boolean; onClose: () => void; me: Me; pairCode?: string | null; tab?: SettingsTab | undefined }) {
   const u = useUi();
   const { signOut } = useAuthActions();
-  const runners = useQuery(api.runners.mine) ?? [];
-  const setSharing = useMutation(api.runners.setSharing);
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
+  useEffect(() => { if (open) setTab(pairCode ? "machines" : initialTab); }, [open, initialTab, pairCode]);
   return (
-    <Modal open={open} onClose={onClose}>
-      <div className="m-h">Settings<span className="k hint">⌘,</span></div>
-      <div className="row"><span>Account</span><span className="val">{me.name} <span className="hint">· {me.githubLogin}{me.isAnonymous ? " · guest" : ""}</span></span></div>
-      <UsernameSetting name={me.name} />
-      <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Connected harnesses</div>
-      <ConnectionSettings />
-      <ResourceSharingPolicy />
-      <Harnesses />
-      <ApproveRunner initial={pairCode ?? null} />
-      {runners.map((r) => <div className="row" key={String(r.id)}><span>Share {r.name}</span><label><input type="checkbox" checked={r.allowSharedRuns} onChange={(e) => void setSharing({ runnerId: r.id as Id<"runners">, allow: e.target.checked }).catch((e) => toast(e.message))} /> Allow teammates to choose this machine’s connected accounts</label></div>)}
-      <div className="row"><span>This machine</span><span className="hint">{bridge() ? "runner launched by the app on startup · your own logins, nothing stored" : "browser · a runner needs the desktop app or `beam-runner start` on a machine"}</span></div>
-      <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
-      <NotificationSettings />
-      <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
+    <Modal open={open} onClose={onClose} className="settings-modal">
+      <div className="m-h">Settings
+        <span className="tabs2" role="tablist">{SETTINGS_TABS.map(([v, label]) => <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? "on" : ""} onClick={() => setTab(v)}>{label}</button>)}</span>
+        <span className="k hint">⌘,</span>
+      </div>
+      {tab === "general" && <>
+        <UsernameSetting name={me.name} login={me.githubLogin} guest={!!me.isAnonymous} />
+        <div className="row"><span>Adding people</span><Seg value={u.prefs.addToChat} options={[["auto", "add to the chat right away"], ["ask", "ask me first"]] as const} onChange={(v) => ui.setPref("addToChat", v)} /></div>
+        <ResourceSharingPolicy />
+        <div className="row"><span>Shortcuts</span><span className="hint">⌘T chat · ⌘⇧T private · ⌘W close · ⌘K jump</span></div>
+      </>}
+      {tab === "machines" && <Machines pairCode={pairCode ?? null} />}
+      {tab === "notifications" && <NotificationSettings />}
       <div className="m-f"><span>Per-agent settings live on each agent in the sidebar.</span><span><button className="btn ghost" onClick={() => void signOut()}>Log out</button> <button className="btn" onClick={onClose}>Done</button></span></div>
     </Modal>
   );
 }
 
 
-function UsernameSetting({ name }: { name: string }) {
+function UsernameSetting({ name, login, guest }: { name: string; login: string; guest: boolean }) {
   const save = useMutation(api.users.setUsername);
   const [draft, setDraft] = useState(name);
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,7 @@ function UsernameSetting({ name }: { name: string }) {
   }}>
     <label htmlFor="beam-username">Username</label>
     <div><div className="username-controls"><input id="beam-username" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={33} value={draft} disabled={busy} onChange={e => { setDraft(e.target.value); setError(""); }} aria-describedby="beam-username-help" /><button type="submit" className="btn ghost" disabled={busy || !draft.trim() || draft === name}>{busy ? "Saving…" : "Save"}</button></div>
-      <p id="beam-username-help" className="hint">Shown in chats, @mentions, and your agent names. Your GitHub login stays the same.</p>
+      <p id="beam-username-help" className="hint">Shown in chats, @mentions, and your agent names. Signed in with GitHub as {login}{guest ? " (guest)" : ""}.</p>
       {error && <p className="connection-error" role="alert">{error}</p>}
     </div>
   </form>;
@@ -128,12 +129,12 @@ export function AgentSettingsModal({ open, agentId, detail, onClose }: { open: b
       </div>
       <div className="row"><span>Name in chat</span><span className="val">@<input type="text" value={v.handle} onChange={(e) => setDraft({ ...draft, handle: e.target.value.replace(/[^a-z0-9-]/g, "") })} style={{ width: 140, display: "inline-block", marginLeft: 2 }} /></span></div>
       <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Your defaults · {HARNESS_NAME[a.harness]}</div>
-      <div className="row"><span>Preferred account</span><select aria-label="Connection" value={connection} onChange={e => setRunnerChoice(e.target.value)}><option value="">This machine’s default</option>{runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => <option key={`${r.id}:${h.connectionId}`} value={JSON.stringify([r.id, h.connectionId])}>{h.connectionName}{h.email ? ` · ${h.email}` : ""} · {r.name}{r.online ? "" : " · offline"}</option>))}</select></div>
+      <div className="row"><span>Preferred account</span><select aria-label="Connection" value={connection} onChange={e => setRunnerChoice(e.target.value)}><option value="">Each machine’s own default</option>{runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => <option key={`${r.id}:${h.connectionId}`} value={JSON.stringify([r.id, h.connectionId])}>{h.connectionName}{h.email ? ` · ${h.email}` : ""} · {r.name}{r.online ? "" : " · offline"}</option>))}</select></div>
       <div className="row"><span>Your model</span><select aria-label="Your model" value={selectedModel?.model ?? v.model} onChange={(e) => { const m = modelOptions.find((m) => m.model === e.target.value); setDraft({ ...draft, model: e.target.value, effort: m?.efforts.includes(v.effort) ? v.effort : m?.efforts[0] ?? "high" }); }}>
         {!modelOptions.some((m) => m.model === v.model || m.model === selectedModel?.model) && <option value={v.model}>{v.model}{a.harness === "codex" ? " · unavailable until refreshed" : ""}</option>}
         {modelOptions.map((m) => <option key={m.model} value={m.model}>{m.name}</option>)}
       </select></div>
-      {a.harness === "codex" && !catalog.length && <div className="row"><span className="hint">Refresh Connected harnesses in Settings to load available Codex models.</span></div>}
+      {a.harness === "codex" && !catalog.length && <div className="row"><span className="hint">Refresh the machine in Settings → Machines to load available Codex models.</span></div>}
       <div className="row"><span>Your reasoning effort</span><select aria-label="Your reasoning effort" value={v.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value })}>{!efforts.includes(v.effort) && <option value={v.effort}>{v.effort} · unavailable</option>}{efforts.map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
       <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Shared agent settings</div>
       <div className="row"><span>Permissions</span><Seg value={v.permissionMode} options={[["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const} onChange={(x) => setDraft({ ...draft, permissionMode: x })} /></div>

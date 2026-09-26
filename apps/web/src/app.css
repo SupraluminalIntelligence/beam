@@ -913,6 +913,18 @@ body.resizing .side-grip{pointer-events:auto}
 .connection-settings .connection-add input{min-width:100px;width:auto;flex:1}
 .connection-settings .row button{justify-self:start}
 .connection-add select{max-width:150px}
+/* Settings: tabs keep one concern per page; each machine is one card. */
+.settings-modal{width:640px;display:flex;flex-direction:column;min-height:min(460px,calc(100vh - 80px))}
+.settings-modal>.m-f{margin-top:auto;border-top:1px solid var(--line)}
+.settings-modal .row.check{grid-template-columns:1fr}
+.row.notification-foot{grid-template-columns:minmax(0,1fr) auto}
+.hrow .mname{font:inherit;font-weight:500;color:var(--ink);background:transparent;border:1px solid transparent;padding:1px 4px;margin-left:-5px;min-width:0;max-width:240px;text-overflow:ellipsis}
+.hrow .mname:hover{border-color:var(--line-2)}
+.hrow .mname:focus{border-color:var(--ink-3);background:var(--surface);outline:none}
+.hrow.hopt{border-top:1px solid var(--line);color:var(--ink-2);font-size:12.5px;cursor:pointer}
+.local-accounts{border-top:1px solid var(--line)}
+.local-accounts .row:last-child{border-bottom:0}
+.connection-settings .connection-add select{width:auto;max-width:150px}
 
 .active-agents{display:grid;gap:6px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:8px}
 .active-agent{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font:11px/1.5 var(--font-mono);color:var(--ink-2)}

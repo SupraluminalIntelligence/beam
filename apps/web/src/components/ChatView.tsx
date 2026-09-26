@@ -267,7 +267,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
                 {m.simulationStudyId && <StudyCard id={m.simulationStudyId} chatId={chat._id} />}
                 {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
-                {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings" })}>Settings</button></div>}
+                {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings", tab: "machines" })}>Settings</button></div>}
                 {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}
                 {m.reactions.length > 0 && <div className="reacts">{m.reactions.map((r) => <button key={r.emoji} className={`rc${r.by.includes(me.githubLogin) ? " mine" : ""}`} title={r.by.map(nameOf).join(", ")} onClick={() => void react({ messageId: m._id, emoji: r.emoji })}>{r.emoji} <span>{r.by.length}</span></button>)}</div>}
                 <div className={`rbar${more === m._id ? " open" : ""}`} onClick={(e) => e.stopPropagation()}>

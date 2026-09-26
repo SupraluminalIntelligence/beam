@@ -22,7 +22,7 @@ export function resolveExecution(agent: { harness: string; model: string; effort
   let { model, effort } = preference;
   let modelName = model;
   if (agent.harness === "codex") {
-    if (!status.models?.length) throw new Error("Refresh Connected harnesses to discover this connection's Codex models.");
+    if (!status.models?.length) throw new Error("Refresh the machine in Settings → Machines to discover this connection's Codex models.");
     const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
     const entry = status.models.find((m) => normalize(m.model) === normalize(model) || normalize(m.name) === normalize(model));
     if (!entry) throw new Error(`${model} is unavailable on the selected Codex connection. Choose an available model in agent settings.`);

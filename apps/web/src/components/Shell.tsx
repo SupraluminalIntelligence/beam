@@ -9,7 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { BrowserHost } from "../browser/BrowserHost";
 import { WorkspacePane } from "./WorkspacePane";
 import { ChatView } from "./ChatView";
-import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal } from "./Modals";
+import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal, type SettingsTab } from "./Modals";
 import { Sidebar } from "./Sidebar";
 import { People } from "./People";
 import { TabStrip } from "./TabStrip";
@@ -17,7 +17,7 @@ import { NavigationControls } from "./NavigationControls";
 import { toast } from "./Toast";
 
 export type Me = { id: Id<"users">; name: string; githubLogin: string; image: string | null; isAnonymous: boolean };
-export type ModalKind = null | { kind: "settings" } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite" } | { kind: "newws" } | { kind: "addrepo" } | { kind: "palette" };
+export type ModalKind = null | { kind: "settings"; tab?: SettingsTab } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite" } | { kind: "newws" } | { kind: "addrepo" } | { kind: "palette" };
 
 export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }) {
   const u = useUi();
@@ -40,11 +40,11 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   useEffect(() => {
     // A ?pair= link is a runner on another machine: show the code for a deliberate approval.
     const fromUrl = new URLSearchParams(location.search).get("pair");
-    if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings" }); history.replaceState(null, "", location.pathname); }
+    if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings", tab: "machines" }); history.replaceState(null, "", location.pathname); }
     const b = bridge();
     if (!b) return;
     // The runner this app launched is ours: approve it the moment we are signed in, no code shown.
-    const auto = (code: string) => approveRunner({ userCode: code }).then((r) => toast(r.already ? "Runner connected" : `Runner ${r.name} connected`)).catch(() => { setPairCode(code); setModal({ kind: "settings" }); });
+    const auto = (code: string) => approveRunner({ userCode: code }).then((r) => toast(r.already ? "Runner connected" : `Runner ${r.name} connected`)).catch(() => { setPairCode(code); setModal({ kind: "settings", tab: "machines" }); });
     void b.runnerStatus().then((s) => { if (s.pendingPair) void auto(s.pendingPair); });
     return b.onPairCode((code) => void auto(code));
   }, [approveRunner]);
@@ -98,7 +98,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
         </div>
       </div>
       <BrowserHost activeChat={activeId} obscured={modal!==null} />
-      <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} />
+      <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : undefined} />
       <AgentSettingsModal open={modal?.kind === "agent"} agentId={modal?.kind === "agent" ? modal.id : null} detail={detail} onClose={() => setModal(null)} />
       <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />
