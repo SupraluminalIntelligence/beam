@@ -47,7 +47,7 @@ export const openForRun = query({
 /** Runner side: a run landed work in a repo. Creates the change on first landing, updates it after. */
 export const land = mutation({
   args: {
-    token: v.string(), runId: v.id("runs"), repo: v.string(), branch: v.string(), base: v.string(), title: v.string(),
+    token: v.string(), runId: v.id("runs"), repo: v.string(), branch: v.string(), base: v.string(), title: v.string(), body: v.optional(v.string()),
     add: v.number(), del: v.number(), files: v.number(), prUrl: v.union(v.string(), v.null()), prNumber: v.union(v.number(), v.null()),
   },
   handler: async (ctx, a) => {
@@ -58,14 +58,16 @@ export const land = mutation({
     const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing && existing.branch === a.branch) {
       // A new head: the previous commit's CI no longer describes the branch. The poll below fills it back in.
-      await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now(), checks: undefined, headSha: undefined, syncError: undefined });
+      // A PR not opened yet takes the latest description; an open one keeps whatever it says on GitHub.
+      const describe = !existing.prNumber && !a.prNumber && a.body ? { title: a.title, body: a.body } : {};
+      await ctx.db.patch(existing._id, { ...describe, add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now(), checks: undefined, headSha: undefined, syncError: undefined });
       await startSync(ctx, existing._id, 10_000);
       return existing._id;
     }
     const id = await ctx.db.insert("changes", {
       ...(run.workScope ? { workScope: run.workScope } : {}),
       chatId: chat._id, workspaceId: chat.workspaceId, repo: a.repo, branch: a.branch, base: a.base, state: "open", title: a.title,
-      prUrl: a.prUrl, prNumber: a.prNumber, add: a.add, del: a.del, files: a.files, adopted: false, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
+      ...(a.body ? { body: a.body } : {}), prUrl: a.prUrl, prNumber: a.prNumber, add: a.add, del: a.del, files: a.files, adopted: false, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
     });
     await startSync(ctx, id, 10_000);
     return id;

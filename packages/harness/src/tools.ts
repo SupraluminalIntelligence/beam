@@ -23,6 +23,7 @@ export function describeTool(name: string, input: Record<string, unknown>, cwd: 
     case "AskUserQuestion": return { kind: "ask", summary: "Ask a question" };
     case "mcp__beam__attach_repo": return { kind: "beam", summary: `Attach ${String(i["repo"] ?? "")} to this chat` };
     case "mcp__beam__list_repos": return { kind: "beam", summary: "List the workspace's repos" };
+    case "mcp__beam__describe_change": return { kind: "beam", summary: `Describe the change: ${short(String(i["title"] ?? ""), 70)}` };
     default: return { kind: name.toLowerCase(), summary: `${name} ${short(JSON.stringify(i), 60)}` };
   }
 }

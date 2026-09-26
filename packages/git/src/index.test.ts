@@ -104,6 +104,27 @@ describe("worktree and landing", () => {
     expect(await remoteHead(repo, branch)).toBe(await git(["rev-parse", "HEAD"], wt));
   });
 
+  it("commits as the machine's git identity, and as Beam only when git has none", async () => {
+    await remote(repo);
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), branch, "main");
+    const saved = { global: process.env["GIT_CONFIG_GLOBAL"], system: process.env["GIT_CONFIG_NOSYSTEM"] };
+    process.env["GIT_CONFIG_GLOBAL"] = join(root, "empty-gitconfig");
+    process.env["GIT_CONFIG_NOSYSTEM"] = "1";
+    try {
+      await write(join(root, "empty-gitconfig"), "");
+      await write(join(wt, "a.txt"), "one\n");
+      await landRepo(wt, branch, "main", "Run 1");
+      expect(await git(["log", "-1", "--format=%an <%ae>"], wt)).toBe("Beam <beam@supraluminal.dev>");
+      await write(join(root, "empty-gitconfig"), "[user]\n\tname = Ada\n\temail = ada@example.com\n");
+      await write(join(wt, "b.txt"), "two\n");
+      await landRepo(wt, branch, "main", "Run 2");
+      expect(await git(["log", "-1", "--format=%an <%ae>"], wt)).toBe("Ada <ada@example.com>");
+    } finally {
+      if (saved.global === undefined) delete process.env["GIT_CONFIG_GLOBAL"]; else process.env["GIT_CONFIG_GLOBAL"] = saved.global;
+      if (saved.system === undefined) delete process.env["GIT_CONFIG_NOSYSTEM"]; else process.env["GIT_CONFIG_NOSYSTEM"] = saved.system;
+    }
+  });
+
   it("lands a second run on top of the first in the same worktree", async () => {
     await remote(repo);
     const path = join(root, "machine-a", "t", "app");
