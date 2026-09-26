@@ -6,7 +6,6 @@ import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import type { WorkspaceRow } from "../App";
 import { bridge } from "../bridge";
 import { ui, useUi } from "../lib/ui";
-import { AgentAvatar } from "./Avatar";
 import { Machines } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
 import type { Me } from "./Shell";
@@ -16,47 +15,47 @@ import { hueClass } from "../lib/format";
 import { HOSTED_URL } from "../App";
 import { NotificationSettings } from "./Notifications";
 import { AgentDefaults } from "./AgentDefaults";
+import { WorkspaceSettings } from "./WorkspaceSettings";
 import { ResourceSharingPolicy } from "./SharedResources";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
-const HARNESS_NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
-import { HARNESS_INFO } from "../lib/harness-info";
 
-export type SettingsTab = "general" | "models" | "machines" | "notifications" | `agent:${string}`;
+export type SettingsTab = "general" | "models" | "machines" | "notifications" | "workspace" | `agent:${string}`;
 const SETTINGS_TABS = [
   ["general", "General", <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>],
   ["models", "Models & accounts", <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>],
   ["machines", "Machines", <><rect x="3" y="4" width="18" height="12" rx="1" /><path d="M8 20h8M12 16v4" /></>],
   ["notifications", "Notifications", <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>],
 ] as const;
-const agentLabel = (a: Doc<"agents">) => `${HARNESS_NAME[a.harness] ?? a.harness}${a.handle !== a.harness ? ` @${a.handle}` : ""}`;
 
-export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general" }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined }) {
+export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general", onInvite, onAddRepo }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined; onInvite: () => void; onAddRepo: () => void }) {
   const u = useUi();
   const { signOut } = useAuthActions();
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   useEffect(() => { if (open) setTab(pairCode ? "machines" : initialTab); }, [open, initialTab, pairCode]);
-  const agentId = tab.startsWith("agent:") ? tab.slice(6) : null;
-  const agent = detail.agents.find((a) => a._id === agentId) ?? null;
-  const title = agentId === "new" ? "Add an agent" : agent ? agentLabel(agent) : SETTINGS_TABS.find(([v]) => v === tab)?.[1] ?? "Agent";
-  const sub = agentId === "new" ? `adds it to ${detail.name}` : agent ? `shared with everyone in ${detail.name}` : tab === "models" ? "yours, in every workspace" : "";
-  const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={tab === v} className={tab === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
+  // An agent link (from the sidebar) opens the workspace page with that agent expanded.
+  const focusAgent = tab.startsWith("agent:") ? tab.slice(6) : null;
+  const page = focusAgent !== null ? "workspace" : tab;
+  const title = page === "workspace" ? detail.name : SETTINGS_TABS.find(([v]) => v === page)?.[1] ?? "";
+  const sub = page === "workspace" ? "shared with everyone in this workspace" : page === "models" ? "yours, in every workspace" : "";
+  const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={page === v} className={page === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
   return (
     <Modal open={open} onClose={onClose} className="settings-modal">
       <nav className="set-nav">
         <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
           {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
-          <div className="set-nav-sec" title={`Agents in ${detail.name}, shared with its members`}>{detail.name} agents</div>
-          {detail.agents.map((a) => navButton(`agent:${a._id}`, agentLabel(a), <AgentAvatar harness={a.harness} />))}
-          {navButton("agent:new", "Add agent", <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>)}
+          <div className="set-nav-sec">Workspace</div>
+          {navButton("workspace", detail.name, <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>)}
         </div>
         <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
       </nav>
       <section className="set-main" role="tabpanel" aria-label={title}>
         <div className="set-main-h"><h2>{title}</h2>{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
-        {agentId === "new" ? <AddAgent detail={detail} onAdded={(id) => setTab(`agent:${id}`)} />
-          : agent ? <AgentSettings key={agent._id} a={agent} detail={detail} onDone={onClose} onRemoved={() => setTab("general")} onOpenDefaults={() => setTab("models")} />
+        {page === "workspace" ? <>
+            <div className="set-body"><WorkspaceSettings detail={detail} focusAgent={focusAgent} onInvite={onInvite} onAddRepo={onAddRepo} onOpenDefaults={() => setTab("models")} /></div>
+            <div className="m-f"><span>Model, effort and account are personal: Models &amp; accounts.</span><button className="btn" onClick={onClose}>Done</button></div>
+          </>
           : <>
             <div className="set-body">
               {tab === "general" && <>
@@ -68,7 +67,6 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
               {tab === "models" && <AgentDefaults workspaceId={detail.id} onOpenMachines={() => setTab("machines")} />}
               {tab === "machines" && <Machines pairCode={pairCode ?? null} />}
               {tab === "notifications" && <NotificationSettings />}
-              {agentId && <div className="empty" style={{ padding: "16px 14px" }}>That agent is no longer in this workspace.</div>}
             </div>
             <div className="m-f"><span /><button className="btn" onClick={onClose}>Done</button></div>
           </>}
@@ -94,43 +92,6 @@ function UsernameSetting({ name, login, guest }: { name: string; login: string; 
       {error && <p className="connection-error" role="alert">{error}</p>}
     </div>
   </form>;
-}
-
-function AddAgent({ detail, onAdded }: { detail: Detail; onAdded: (id: Id<"agents">) => void }) {
-  const add = useMutation(api.workspaces.addAgent);
-  return <>
-    <div className="set-body">
-      <div className="list">
-        {(["claude", "codex", "omp"] as const).map((h) => {
-          const n = detail.agents.filter((x) => x.harness === h).length;
-          return <button key={h} onClick={async () => onAdded(await add({ workspaceId: detail.id, harness: h }))}><AgentAvatar harness={h} /><span className="nm">{HARNESS_NAME[h]}<small>{HARNESS_INFO[h]!.vendor}</small></span><span className="d">{n ? `${n} in workspace` : ""}</span></button>;
-        })}
-      </div>
-    </div>
-    <div className="m-f"><span>Everyone picks their own model and account for it in Models &amp; accounts.</span></div>
-  </>;
-}
-
-/** The workspace's copy of an agent: what everyone in the workspace gets when they @ it. Model, effort and account are personal (AgentDefaults). */
-function AgentSettings({ a, detail, onDone, onRemoved, onOpenDefaults }: { a: Doc<"agents">; detail: Detail; onDone: () => void; onRemoved: () => void; onOpenDefaults: () => void }) {
-  const update = useMutation(api.workspaces.updateAgent);
-  const remove = useMutation(api.workspaces.removeAgent);
-  const preferences = useQuery(api.users.preferences);
-  const [draft, setDraft] = useState<Partial<Doc<"agents">>>({});
-  const info = HARNESS_INFO[a.harness]!;
-  const v = { ...a, ...draft };
-  const mine = preferences?.find((p) => p.harness === a.harness);
-  return <>
-    <div className="set-body">
-      <div className="row"><span>Name in chat</span><span className="val">@<input type="text" value={v.handle} onChange={(e) => setDraft({ ...draft, handle: e.target.value.replace(/[^a-z0-9-]/g, "") })} style={{ width: 140, display: "inline-block", marginLeft: 2 }} /></span></div>
-      <div className="row"><span>Permissions</span><Seg value={v.permissionMode} options={[["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const} onChange={(x) => setDraft({ ...draft, permissionMode: x })} /></div>
-      <div className="row"><span>Always allow</span><input type="text" value={v.alwaysAllow.join(", ")} onChange={(e) => setDraft({ ...draft, alwaysAllow: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} /></div>
-      <div className="row"><span>Context on dispatch</span><Seg value={v.contextPolicy} options={[["last-landing", "last landing"], ["since-landing-plus-summary", "since last landing + summary"], ["whole-chat", "whole chat"]] as const} onChange={(x) => setDraft({ ...draft, contextPolicy: x })} /></div>
-      <div className="row"><span>Instructions</span><span className="hint">{info.files} from repo root · needs {info.min} locally</span></div>
-      <div className="row set-note"><span className="hint">Your runs of @{a.handle} use {mine ? `${mine.model} · ${mine.effort}` : "your defaults"}. That choice is yours, not the workspace’s.</span><button className="btn ghost" onClick={onOpenDefaults}>Models &amp; accounts</button></div>
-    </div>
-    <div className="m-f"><span>Changes apply to everyone in {detail.name}.</span><span><button className="btn ghost" onClick={async () => { if (detail.agents.length <= 1) { toast("Keep at least one agent"); return; } await remove({ agentId: a._id }); onRemoved(); toast("Agent removed from workspace"); }}>Remove</button> <button className="btn" disabled={!Object.keys(draft).length} onClick={async () => { try { const patch = { ...(draft.handle !== undefined ? { handle: v.handle || a.handle } : {}), ...(draft.permissionMode !== undefined ? { permissionMode: v.permissionMode } : {}), ...(draft.alwaysAllow !== undefined ? { alwaysAllow: v.alwaysAllow } : {}), ...(draft.contextPolicy !== undefined ? { contextPolicy: v.contextPolicy } : {}) }; await update({ agentId: a._id, patch }); onDone(); toast(`Saved for everyone in ${detail.name}`); } catch (e) { toast((e as Error).message); } }}>Save</button></span></div>
-  </>;
 }
 
 export function InviteModal({ open, onClose, wsId, wsName, chatId }: { open: boolean; onClose: () => void; wsId: Id<"workspaces">; wsName: string; chatId: Id<"chats"> | null }) {

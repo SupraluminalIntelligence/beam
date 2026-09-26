@@ -98,7 +98,7 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
         </div>
       </div>
       <BrowserHost activeChat={activeId} obscured={modal!==null} />
-      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} />
+      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} onInvite={() => setModal({ kind: "invite" })} onAddRepo={() => setModal({ kind: "addrepo" })} />
       <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />
       <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active?._id ?? null} />

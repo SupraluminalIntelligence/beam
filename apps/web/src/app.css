@@ -1004,3 +1004,22 @@ body.resizing .side-grip{pointer-events:auto}
 .bsel-l{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bsel-h{margin-left:auto;padding-left:16px;font-size:10.5px;color:var(--ink-3)}
 .agent-defaults+.agent-defaults .hrow.head{border-top:1px solid var(--line)}
+/* Workspace page: what the workspace shares. Agents open in place. */
+.ws-sec{padding:14px 14px 6px;border-bottom:1px solid var(--line)}
+.ws-sec .btn{width:auto;font-size:10px;line-height:1.4;padding:2px 8px}
+.row.ws-item{grid-template-columns:1fr;padding:7px 14px}
+.ws-person{display:inline-flex;align-items:center;gap:8px;color:var(--ink)}
+.ws-agent{border-bottom:1px solid var(--line)}
+.ws-agent-row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;text-align:left}
+.ws-agent-row:hover{background:var(--surface-2)}
+.ws-agent-row .nm{font-weight:500}
+.ws-agent-row .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ws-agent-row .sp{flex:1}
+.ws-agent-row>svg{width:12px;height:12px;flex:none;fill:none;stroke:var(--ink-3);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .14s ease}
+.ws-agent.open .ws-agent-row{background:var(--surface-2)}
+.ws-agent.open .ws-agent-row>svg{transform:rotate(180deg)}
+.ws-agent-form{border-top:1px solid var(--line);box-shadow:inset 2px 0 0 var(--ink-2)}
+.ws-agent-form .row:last-child{border-bottom:0}
+.row.ws-agent-actions{display:flex;justify-content:flex-end;gap:8px}
+.ws-add{border-bottom:1px solid var(--line)}
+@media (prefers-reduced-motion:reduce){.ws-agent-row>svg{transition:none}}
