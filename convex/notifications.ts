@@ -16,6 +16,9 @@ export const pause = mutation({ args: { until: v.union(v.number(), v.null()) }, 
   await ctx.db.patch(user._id, { notificationPreferences: until && until > Date.now() ? { ...rest, pausedUntil: until } : rest });
 } });
 
+/** A pause holds every alert that arrived before it ends, on every device; the inbox still lists them. */
+const held = (prefs: { pausedUntil?: number }, row: { _creationTime: number }) => row._creationTime < (prefs.pausedUntil ?? 0);
+
 async function subscription(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">, login: string) {
   return (await ctx.db.query("chatFollowers").withIndex("by_chat", q => q.eq("chatId", chatId)).collect()).find(f => f.login === login);
 }
@@ -72,7 +75,7 @@ export const claim = mutation({ args: { id: v.id("notifications") }, handler: as
   if (!row || row.recipient !== user.githubLogin || row.deliveredAt !== null || row.readAt !== null || (row.deliveryExpiresAt ?? 0) > Date.now()) return false;
   await requireChat(ctx, row.chatId);
   const prefs = { ...defaults, ...user.notificationPreferences };
-  if (!prefs.enabled || !prefs[row.kind] || (await subscription(ctx, row.chatId, user.githubLogin!))?.muted) return false;
+  if (!prefs.enabled || !prefs[row.kind] || held(prefs, row) || (await subscription(ctx, row.chatId, user.githubLogin!))?.muted) return false;
   await ctx.db.patch(id, { deliveredAt: Date.now() });
   return true;
 } });
@@ -129,7 +132,7 @@ export const reserve = mutation({ args: { id: v.id("notifications"), token: v.st
   if (!row || row.recipient !== user.githubLogin || row.readAt !== null || row.deliveredAt !== null || (row.deliveryExpiresAt ?? 0) > Date.now() || Date.now() - row._creationTime > 10 * 60_000) return false;
   await requireChat(ctx, row.chatId);
   const prefs = { ...defaults, ...user.notificationPreferences };
-  if (!prefs.enabled || !prefs[row.kind] || (await subscription(ctx, row.chatId, user.githubLogin!))?.muted) return false;
+  if (!prefs.enabled || !prefs[row.kind] || held(prefs, row) || (await subscription(ctx, row.chatId, user.githubLogin!))?.muted) return false;
   await ctx.db.patch(id, { deliveryToken: token, deliveryExpiresAt: Date.now() + 30_000 });
   return true;
 } });

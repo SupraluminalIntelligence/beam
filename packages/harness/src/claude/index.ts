@@ -1,4 +1,4 @@
-import { claudeRateLimitUpdate, claudeUsage, type HarnessStatus, type RunEvent, type UsageLimits } from "@beam/contracts";
+import { claudeRateLimitUpdate, claudeUsage, usageUnavailable, type HarnessStatus, type RunEvent, type UsageLimits } from "@beam/contracts";
 import { createSdkMcpServer, query, tool, type PermissionMode, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { tmpdir } from "node:os";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
@@ -42,10 +42,10 @@ export async function probeClaude(profile?: HarnessProfile, cwd?: string): Promi
     const init = await withTimeout(q.initializationResult(), 25_000, "claude init");
     const acct = init.account ?? {};
     const provider = acct.apiProvider;
-    if (provider && provider !== "firstParty") return { ...base, installed: true, version, auth: "authenticated", plan: provider, message: `Authenticated via ${provider}` };
+    if (provider && provider !== "firstParty") return { ...base, installed: true, version, auth: "authenticated", plan: provider, message: `Authenticated via ${provider}`, usage: usageUnavailable(Date.now(), "unsupported") };
     const src = (acct.tokenSource ?? "").toLowerCase();
     const apiKey = src.includes("apikey") || src.includes("authtoken");
-    if (apiKey) return { ...base, installed: true, version, auth: "authenticated", plan: "API key", email: acct.email ?? null, message: null };
+    if (apiKey) return { ...base, installed: true, version, auth: "authenticated", plan: "API key", email: acct.email ?? null, message: null, usage: usageUnavailable(Date.now(), "unsupported") };
     if (acct.email || acct.subscriptionType) return { ...base, installed: true, version, auth: "authenticated", plan: planLabel(acct.subscriptionType), email: acct.email ?? null, message: null, usage: await readUsage(q) };
     return { ...base, installed: true, version, auth: "unauthenticated", message: "Not signed in. Run `claude auth login`." };
   } catch (e) {
