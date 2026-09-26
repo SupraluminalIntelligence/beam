@@ -38,7 +38,7 @@ export function channelFiles(raw:ChannelCase):Record<string,string>{
     "0/U":field("U","[0 1 -1 0 0 0 0]",`(${c.velocity} 0 0)`,`inlet {type fixedValue; value uniform (${c.velocity} 0 0);} outlet {type zeroGradient;} walls {type noSlip;}`,true),
     "0/p_rgh":field("p_rgh","[0 2 -2 0 0 0 0]","0","inlet {type zeroGradient;} outlet {type fixedValue; value uniform 0;} walls {type zeroGradient;}"),
     "0/p":field("p","[0 2 -2 0 0 0 0]","0","inlet {type calculated; value uniform 0;} outlet {type calculated; value uniform 0;} walls {type calculated; value uniform 0;}"),
-    "0/T":field("T","[0 0 0 1 0 0 0]",String(c.inletTemperature),`inlet {type fixedValue; value uniform ${c.inletTemperature};} outlet {type zeroGradient;} walls {type ${c.thermal?`fixedValue; value uniform ${c.wallTemperature}`:"zeroGradient"};}`),
+    "0/T":field("T","[0 0 0 1 0 0 0]",String(c.inletTemperature),`inlet {type fixedValue; value uniform ${c.inletTemperature};} outlet {type zeroGradient;} walls {type ${!c.thermal?"zeroGradient":c.wallHeatFlux!==undefined?`fixedGradient; gradient uniform ${c.wallHeatFlux/c.conductivity!}`:`fixedValue; value uniform ${c.wallTemperature}`};}`),
     "0/alphat":field("alphat","[0 2 -1 0 0 0 0]","0","inlet {type calculated; value uniform 0;} outlet {type calculated; value uniform 0;} walls {type fixedValue; value uniform 0;}"),
   };
 }

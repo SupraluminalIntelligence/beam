@@ -40,27 +40,30 @@ export function channelPatches(boundary: string, owner: string, phi: string): Ch
 /**
  * Engineering quantities for a converged heated channel, from the solver's own face fluxes and cell values.
  * Balances reproduce the discrete fluxes (upwind outlet temperature, half-cell wall and inlet conduction), so they measure conservation.
- * Local Nusselt numbers use a second-order wall gradient and the flow-weighted bulk temperature of each cell column.
+ * Wall face temperatures are the solver's own: the fixed value, or under a heat flux the cell value plus the imposed gradient times the centre-to-face distance.
+ * Local Nusselt numbers use the wall heat flux (imposed, or a second-order gradient at a fixed temperature) and the flow-weighted bulk temperature of each cell column.
  * U is cell-centred (x, y, z) triples; p is kinematic; depth is the one-cell extrusion in metres.
  */
 export function channelResults(c: ChannelCase, centres: [number, number, number][], U: number[], p: number[], T: number[], patches: ChannelPatches, depth: number) {
-  const dx = c.length / c.nx, dy = c.height / c.ny, dh = 2 * c.height, alpha = c.nu / c.pr, Tw = c.wallTemperature, Tin = c.inletTemperature;
+  const dx = c.length / c.nx, dy = c.height / c.ny, dh = 2 * c.height, alpha = c.nu / c.pr, Tin = c.inletTemperature, imposed = c.wallHeatFlux === undefined ? null : c.wallHeatFlux / c.conductivity!;
+  const toWall = (cell: number) => Math.min(centres[cell]![1], c.height - centres[cell]![1]), wallT = new Map(patches.walls.map(cell => [cell, imposed === null ? c.wallTemperature : T[cell]! + imposed * toWall(cell)]));
   const grid = Array.from({ length: c.nx }, () => new Array<number>(c.ny).fill(-1));
   centres.forEach(([x, y], cell) => { const i = Math.round(x / dx - 0.5), j = Math.round(y / dy - 0.5); if (grid[i]?.[j] !== -1) throw new Error("Channel cells do not form the declared grid"); grid[i]![j] = cell; });
 
   const inflow = -patches.inlet.flux.reduce((s, f) => s + f, 0), outflow = patches.outlet.flux.reduce((s, f) => s + f, 0);
   if (!(inflow > 0) || !(outflow > 0)) throw new Error("Channel inlet or outlet flux has the wrong direction");
   // Heat in from walls and by conduction back through the inlet, per unit depth, in K·m²/s; advected rise measured from the inlet temperature.
-  const walls = c.thermal ? patches.walls.reduce((s, cell) => s + alpha * (Tw - T[cell]!) / Math.min(centres[cell]![1], c.height - centres[cell]![1]) * dx, 0) : 0;
+  const walls = c.thermal ? patches.walls.reduce((s, cell) => s + alpha * (wallT.get(cell)! - T[cell]!) / toWall(cell) * dx, 0) : 0;
   const inletConduction = patches.inlet.cells.reduce((s, cell) => s + alpha * (Tin - T[cell]!) / centres[cell]![0] * dy, 0);
   const advected = patches.outlet.cells.reduce((s, cell, k) => s + patches.outlet.flux[k]! / depth * (T[cell]! - Tin), 0);
-  const heated = c.thermal && Math.abs(Tw - Tin) > 1e-9;
+  const heated = c.thermal && (imposed !== null || Math.abs(c.wallTemperature - Tin) > 1e-9);
 
   const nusselt: [number, number][] = [];
   if (heated && c.ny >= 3) for (let i = 0; i < c.nx; i++) {
     const col = grid[i]!, u = col.map(cell => U[3 * cell]!), bulk = col.reduce((s, cell, j) => s + u[j]! * T[cell]!, 0) / u.reduce((s, v) => s + v, 0);
-    const gradient = (a: number, b: number) => (8 * Tw - 9 * T[col[a]!]! + T[col[b]!]!) / (3 * dy); // into the fluid, from T at 0, dy/2 and 3dy/2
-    const flux = (gradient(0, 1) + gradient(c.ny - 1, c.ny - 2)) / 2;
+    const bottom = wallT.get(col[0]!)!, top = wallT.get(col[c.ny - 1]!)!, Tw = (bottom + top) / 2;
+    const gradient = (w: number, a: number, b: number) => (8 * w - 9 * T[col[a]!]! + T[col[b]!]!) / (3 * dy); // into the fluid, from T at 0, dy/2 and 3dy/2
+    const flux = imposed ?? (gradient(bottom, 0, 1) + gradient(top, c.ny - 1, c.ny - 2)) / 2;
     if (Math.abs(Tw - bulk) > 0.01 * Math.abs(Tw - Tin)) nusselt.push([centres[col[0]!]![0], flux * dh / (Tw - bulk)]);
   }
 
@@ -74,6 +77,7 @@ export function channelResults(c: ChannelCase, centres: [number, number, number]
   }
   const results: ChannelResults = {
     bulkOutletTemperatureK: Tin + advected / (outflow / depth),
+    ...(c.thermal ? { maxWallTemperatureK: Math.max(...wallT.values()) } : {}),
     energyImbalance: heated && Math.abs(walls) > 0 ? (walls + inletConduction - advected) / walls : null,
     fRe, nusselt,
   };

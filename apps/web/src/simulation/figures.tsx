@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PLATES_NU_T, channelEntryLengths, type ChannelCase, type ChannelResults, type SimulationFields, type SimulationReport } from "@beam/contracts";
+import { developedNusselt, channelEntryLengths, type ChannelCase, type ChannelResults, type SimulationFields, type SimulationReport } from "@beam/contracts";
 
 const number=(n:number)=>Number(n.toPrecision(4)).toString();
 export function ChannelDrawing({config:c,mesh,fields,field,select,section}:{config:ChannelCase;mesh:boolean;fields:SimulationFields|null;field:"velocity"|"pressure"|"temperature";select:(s:string)=>void;section:string}){
@@ -12,7 +12,7 @@ export function ChannelDrawing({config:c,mesh,fields,field,select,section}:{conf
     {fields?fields.centres.map((p,i)=><rect key={i} x={x+(p[0]/c.length-.5/c.nx)*w} y={y+(1-p[1]/c.height-.5/c.ny)*h} width={w/c.nx+.2} height={h/c.ny+.2} fill={color(v![i]!)} onPointerEnter={()=>setHover(i)} onPointerLeave={()=>setHover(null)}><title>{number(v![i]!)} {unit} · x {number(p[0]*1000)} mm · y {number(p[1]*1000)} mm</title></rect>):<rect x={x} y={y} width={w} height={h} className="sim-fluid" onClick={()=>select("geometry")}/>}
     {mesh&&!fields&&<g className="sim-grid">{Array.from({length:c.nx-1},(_,i)=><path key={`x${i}`} d={`M${x+(i+1)*w/c.nx} ${y}v${h}`}/>)}{Array.from({length:c.ny-1},(_,i)=><path key={`y${i}`} d={`M${x} ${y+(i+1)*h/c.ny}h${w}`}/>)}</g>}
     <path d={`M${x-30} ${y+h/2}H${x+w+30}`} stroke="var(--ink-3)" strokeDasharray="22 6 3 6" opacity=".5"/>
-    <g className="sim-boundary" data-selected={section==="walls"} onClick={()=>select("walls")}><path d={`M${x} ${y}h${w}M${x} ${y+h}h${w}`}/><text x={x+w/2} y={y-24} textAnchor="middle">WALLS · {c.thermal?`${c.wallTemperature} K fixed`:"adiabatic"} · no slip</text></g>
+    <g className="sim-boundary" data-selected={section==="walls"} onClick={()=>select("walls")}><path d={`M${x} ${y}h${w}M${x} ${y+h}h${w}`}/><text x={x+w/2} y={y-24} textAnchor="middle">WALLS · {!c.thermal?"adiabatic":c.wallHeatFlux!==undefined?`${number(c.wallHeatFlux/1e4)} W/cm² in`:`${c.wallTemperature} K fixed`} · no slip</text></g>
     <g className="sim-boundary" data-selected={section==="inlet"} onClick={()=>select("inlet")}><path d={`M${x} ${y}v${h}M40 ${y+h/2}h70l-8 -5m8 5l-8 5`}/><text x="35" y={y+h/2-22}>INLET</text><text x="35" y={y+h/2+30}>{c.velocity} m/s</text><text x="35" y={y+h/2+48}>{c.inletTemperature} K</text></g>
     <g className="sim-boundary" data-selected={section==="outlet"} onClick={()=>select("outlet")}><path d={`M${x+w} ${y}v${h}M${x+w+30} ${y+h/2}h60l-8 -5m8 5l-8 5`}/><text x={x+w+30} y={y+h/2-22}>OUTLET</text><text x={x+w+30} y={y+h/2+30}>p 0 Pa</text></g>
     <g className="sim-dimensions"><path d={`M${x} ${y+h+20}v40m0 -10h${w}m0 -30v40M${x-15} ${y}h-14m7 0v${h}m-7 0h14`}/><text x={x+w/2} y={y+h+42} textAnchor="middle">{number(c.length*1000)} mm</text><text x={x-18} y={y-12} textAnchor="end">{number(c.height*1000)} mm</text></g>
@@ -31,10 +31,10 @@ export function ResidualPlot({rows,field}:{rows:SimulationReport["residuals"];fi
 }
 /** Local Nusselt number along the channel against the fully developed value; the entrance peak is clipped. */
 export function NusseltPlot({config:c,nusselt}:{config:ChannelCase;nusselt:ChannelResults["nusselt"]}){
-  const top=4*PLATES_NU_T,x=(v:number)=>60+v/c.length*710,y=(v:number)=>250-Math.min(v,top)/top*220,entry=channelEntryLengths(c).heat;
-  return <div className="sim-residuals sim-nusselt"><svg viewBox="0 0 800 290" role="img" aria-label={`Local Nusselt number along the channel; ${number(nusselt.at(-1)![1])} at the last column against ${PLATES_NU_T} fully developed`}>
+  const nu0=developedNusselt(c),top=4*nu0,x=(v:number)=>60+v/c.length*710,y=(v:number)=>250-Math.min(v,top)/top*220,entry=channelEntryLengths(c).heat;
+  return <div className="sim-residuals sim-nusselt"><svg viewBox="0 0 800 290" role="img" aria-label={`Local Nusselt number along the channel; ${number(nusselt.at(-1)![1])} at the last column against ${nu0} fully developed`}>
     {[0,10,20,30].map(n=><g key={n}><path d={`M60 ${y(n)}H770`} stroke="var(--line)"/><text x="8" y={y(n)+4}>{n}</text></g>)}
-    <path d={`M60 ${y(PLATES_NU_T)}H770`} stroke="var(--ink-3)" strokeDasharray="6 5"/><text x="66" y={y(PLATES_NU_T)+18}>{PLATES_NU_T} fully developed</text>
+    <path d={`M60 ${y(nu0)}H770`} stroke="var(--ink-3)" strokeDasharray="6 5"/><text x="66" y={y(nu0)+18}>{nu0} fully developed</text>
     {entry<c.length&&<><path d={`M${x(entry)} 30V250`} stroke="var(--ink-3)" strokeDasharray="2 5"/><text x={x(entry)+(x(entry)>480?-6:6)} y="44" textAnchor={x(entry)>480?"end":"start"}>thermal entry ≈ {number(entry*1000)} mm</text></>}
     <polyline points={nusselt.map(([px,nu])=>`${x(px)},${y(nu)}`).join(" ")} fill="none" stroke="var(--ink)" strokeWidth="1.5"/>
     <text x="60" y="276">0</text><text x="415" y="276" textAnchor="middle">LOCAL Nu · 2H · along x</text><text x="770" y="276" textAnchor="end">{number(c.length*1000)} mm</text>

@@ -37,6 +37,15 @@ it("uses a second-order wall gradient and the flow-weighted bulk temperature for
   // Too close to the wall temperature to divide by: no local Nu.
   expect(grid(c,()=>c.velocity,()=>c.wallTemperature-1e-4,()=>0).results.nusselt).toEqual([]);
 });
+it("uses the imposed flux and the solver's wall face temperatures under a wall heat flux",()=>{
+  // Plug flow with T = T0 + A(y - H/2)²: the wall gradient is A·H, and Nu on 2H is 12 up to the cell-centred mean.
+  const A=5e5,T0=300,k=.07,c:ChannelCase={...defaultChannel,ny:40,wallHeatFlux:k*A*defaultChannel.height,conductivity:k},dy=c.height/c.ny;
+  const r=grid(c,()=>c.velocity,(_,y)=>T0+A*(y-c.height/2)**2,()=>0);
+  expect(r.results.nusselt).toHaveLength(c.nx);
+  for(const [,nu] of r.results.nusselt)expect(nu).toBeCloseTo(12,1);
+  // Face value = first cell + gradient × half a cell, as fixedGradient evaluates it.
+  expect(r.results.maxWallTemperatureK).toBeCloseTo(T0+A*(dy/2-c.height/2)**2+A*c.height*dy/2,9);
+});
 it("assigns patch cells from the owner list",()=>{
   const boundary="3\n(\ninlet\n{\nnFaces 1;\nstartFace 2;\n}\noutlet\n{\nnFaces 1;\nstartFace 3;\n}\nwalls\n{\nnFaces 2;\nstartFace 4;\n}\n)";
   const owner=header+"6\n(\n0\n0\n0\n1\n0\n1\n)\n",phi="boundaryField\n{\ninlet { type calculated; value uniform -1; }\noutlet { type calculated; value uniform 1; }\n}";

@@ -6,7 +6,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
+import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, fluxWallEstimate, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
 import { foamValues, residualHistory } from "./openfoam.ts";
 import { LocalExecutor } from "./local.ts";
 
@@ -95,6 +95,16 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM through the
     expect(Math.abs(fRe.extrapolated!/96-1)).toBeLessThan(.01);expect(nu.extrapolated!/7.54).toBeGreaterThan(1);
     expect(Math.max(...study.estimates.map(e=>e.gci!))).toBeLessThan(.05);
   },360000);
+
+  it("heats both walls with a uniform flux, conserves its energy and approaches Nu = 8.235",async()=>{
+    // 0.5 W/cm² at 10 cm/s: thermal entry ≈ 11.9 cm of 20 cm. The bulk rise is fixed by the energy balance, 2q''L/(ρ·cp·U·H).
+    const config={...hfe,nx:160,ny:20,velocity:.1,wallHeatFlux:5000,conductivity:.069},r=await solveChannel(config,"flux"),ch=r.channel!;
+    const rise=2*config.wallHeatFlux*config.length*config.nu/(config.conductivity*config.pr*config.velocity*config.height),estimate=fluxWallEstimate(config)!;
+    expect(r.converged).toBe(true);expect(Math.abs(ch.energyImbalance!)).toBeLessThan(1e-4);
+    expect(Math.abs((ch.bulkOutletTemperatureK-config.inletTemperature)/rise-1)).toBeLessThan(1e-3);
+    expect(ch.nusselt.at(-1)![1]/8.235).toBeGreaterThan(1);expect(ch.nusselt.at(-1)![1]/8.235).toBeLessThan(1.05);
+    expect(Math.abs(ch.maxWallTemperatureK!-estimate.wall)/(estimate.wall-config.inletTemperature)).toBeLessThan(.05);
+  },240000);
 });
 
 it("counts transient steps rather than rounding physical times",()=>{

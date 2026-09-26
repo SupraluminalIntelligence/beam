@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { ChannelCase, defaultChannel, meshKey } from "./simulation.ts";
-import { channelSetupChecks } from "./channelChecks.ts";
+import { channelSetupChecks, fluxWallEstimate } from "./channelChecks.ts";
 
 // HFE-7100 near 25 °C (3M datasheet values, rounded): 1 cm gap at 1 cm/s, walls 30 K above the inlet.
 const hfe:ChannelCase={...defaultChannel,velocity:.01,nu:3.8e-7,pr:9.8,density:1510,inletTemperature:293.15,wallTemperature:323.15,beta:1.8e-3,boilingPoint:334.15};
@@ -37,4 +37,17 @@ it("reports entry lengths from the parallel-plate correlations",()=>{
   expect(check(hfe,"development").value).toBe("11.6 cm / 82.5 cm");expect(check(hfe,"development").detail).toContain("still developing at the outlet");
   expect(check({...hfe,height:.001,velocity:.2},"development").value).toBe("2.32 cm / 16.5 cm");
   expect(check({...hfe,thermal:false},"development").value).toBe("11.6 cm");
+});
+it("checks a wall heat flux against the hottest wall it predicts",()=>{
+  // 0.5 W/cm² into HFE-7100 in a 1 mm gap at 10 cm/s; k = 0.069 W/m·K.
+  const chip:ChannelCase={...hfe,height:.001,nx:160,velocity:.1,wallHeatFlux:5000,conductivity:.069};
+  expect(ChannelCase.parse(chip)).toEqual(chip);expect(meshKey(chip)).toBe(meshKey({...chip,wallHeatFlux:undefined,conductivity:undefined}));
+  expect(ChannelCase.safeParse({...chip,conductivity:undefined}).success).toBe(false);
+  expect(ChannelCase.safeParse({...chip,thermal:false}).success).toBe(false);
+  const est=fluxWallEstimate(chip)!;expect(est.rise).toBeCloseTo(11.24,2);expect(est.wall).toBeCloseTo(321.99,2);
+  expect(check(chip,"single-phase")).toMatchObject({status:"ok",value:"12.2 K below Tsat"});
+  expect(check(chip,"buoyancy").value).toBe("Ri 0.102");
+  expect(check(chip,"development")).toMatchObject({value:"1.16 cm / 11.9 cm"});expect(check(chip,"development").detail).toContain("8.235");
+  expect(check({...chip,conductivity:undefined},"single-phase")).toMatchObject({status:"unknown",value:"k not set"});
+  const hot=check({...chip,wallHeatFlux:1e4},"single-phase");expect(hot.status).toBe("fail");expect(hot.detail).toContain("estimated outlet wall");
 });
