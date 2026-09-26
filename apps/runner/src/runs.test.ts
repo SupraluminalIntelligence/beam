@@ -138,8 +138,12 @@ async function host(opts: Parameters<typeof fakeClient>[0] = {}) {
   const { watchRuns } = await import("./runs.ts");
   const fake = fakeClient(opts);
   const { active } = watchRuns(fake.client as never, "token");
-  await vi.waitFor(() => expect(active.size).toBe(1));
-  await Promise.all(active.values());
+  // A run that ends within one poll has already left `active`, so keep each run as it starts.
+  const hosted: Promise<void>[] = [];
+  const set = active.set.bind(active);
+  active.set = (id, p) => (hosted.push(p), set(id, p));
+  await vi.waitFor(() => expect(hosted).toHaveLength(1));
+  await Promise.all(hosted);
   return fake;
 }
 
