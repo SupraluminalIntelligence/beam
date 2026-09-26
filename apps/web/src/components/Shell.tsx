@@ -17,7 +17,7 @@ import { NavigationControls } from "./NavigationControls";
 import { toast } from "./Toast";
 
 export type Me = { id: Id<"users">; name: string; githubLogin: string; image: string | null; isAnonymous: boolean };
-export type ModalKind = null | { kind: "settings"; tab?: SettingsTab } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite" } | { kind: "newws" } | { kind: "addrepo" } | { kind: "palette" };
+export type ModalKind = null | { kind: "settings"; tab?: SettingsTab } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite"; ws?: WorkspaceRow } | { kind: "newws" } | { kind: "addrepo"; ws?: WorkspaceRow } | { kind: "palette" };
 
 export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }) {
   const u = useUi();
@@ -29,6 +29,8 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const last = useRef<{ ws: string; detail: NonNullable<typeof liveDetail>; chats: NonNullable<typeof liveChats> } | null>(null);
   if (liveDetail && liveChats) last.current = { ws: wsId, detail: liveDetail, chats: liveChats };
   const detail = liveDetail ?? last.current?.detail;
+  // Settings can invite or connect a repo for any of your workspaces; only the open one has a chat to attach to.
+  const inviteTarget = (ws: WorkspaceRow | undefined, chatId: Id<"chats"> | null) => ws && ws.id !== wsId ? { wsId: ws.id, wsName: ws.name, chatId: null } : { wsId, wsName: detail?.name ?? "", chatId };
   const chats = liveChats ?? (last.current ? [] : undefined);
   const presence = useQuery(api.presence.inWorkspace, { workspaceId: wsId });
   const createChat = useMutation(api.chats.create);
@@ -98,10 +100,10 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
         </div>
       </div>
       <BrowserHost activeChat={activeId} obscured={modal!==null} />
-      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} onInvite={() => setModal({ kind: "invite" })} onAddRepo={() => setModal({ kind: "addrepo" })} />
-      <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
+      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} workspaces={workspaces} onInvite={(ws) => setModal({ kind: "invite", ws })} onAddRepo={(ws) => setModal({ kind: "addrepo", ws })} />
+      <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} {...inviteTarget(modal?.kind === "invite" ? modal.ws : undefined, active && !active.private ? active._id : null)} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />
-      <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active?._id ?? null} />
+      <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} {...inviteTarget(modal?.kind === "addrepo" ? modal.ws : undefined, active?._id ?? null)} />
       <Palette open={modal?.kind === "palette"} onClose={() => setModal(null)} workspaces={workspaces} />
     </div>
   );

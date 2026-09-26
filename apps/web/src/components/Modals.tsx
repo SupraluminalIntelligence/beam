@@ -16,6 +16,7 @@ import { HOSTED_URL } from "../App";
 import { NotificationSettings } from "./Notifications";
 import { AgentDefaults } from "./AgentDefaults";
 import { WorkspaceSettings } from "./WorkspaceSettings";
+import { Select } from "./Select";
 import { ResourceSharingPolicy } from "./SharedResources";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
@@ -28,15 +29,21 @@ const SETTINGS_TABS = [
   ["notifications", "Notifications", <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>],
 ] as const;
 
-export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general", onInvite, onAddRepo }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined; onInvite: () => void; onAddRepo: () => void }) {
+export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initialTab = "general", workspaces, onInvite, onAddRepo }: { open: boolean; onClose: () => void; me: Me; detail: Detail; pairCode?: string | null; tab?: SettingsTab | undefined; workspaces: WorkspaceRow[]; onInvite: (ws: WorkspaceRow) => void; onAddRepo: (ws: WorkspaceRow) => void }) {
   const u = useUi();
   const { signOut } = useAuthActions();
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   useEffect(() => { if (open) setTab(pairCode ? "machines" : initialTab); }, [open, initialTab, pairCode]);
+  // The workspace page can show any of your workspaces; it opens on the one you are in.
+  const [viewing, setViewing] = useState(detail.id);
+  useEffect(() => { if (open) setViewing(detail.id); }, [open, detail.id]);
+  const otherDetail = useQuery(api.workspaces.detail, open && viewing !== detail.id ? { workspaceId: viewing } : "skip");
+  const shown = viewing === detail.id ? detail : otherDetail ?? null;
+  const shownRow = workspaces.find((w) => w.id === viewing) ?? { id: detail.id, name: detail.name, repos: detail.repos };
   // An agent link (from the sidebar) opens the workspace page with that agent expanded.
   const focusAgent = tab.startsWith("agent:") ? tab.slice(6) : null;
   const page = focusAgent !== null ? "workspace" : tab;
-  const title = page === "workspace" ? detail.name : SETTINGS_TABS.find(([v]) => v === page)?.[1] ?? "";
+  const title = page === "workspace" ? shownRow.name : SETTINGS_TABS.find(([v]) => v === page)?.[1] ?? "";
   const sub = page === "workspace" ? "shared with everyone in this workspace" : page === "models" ? "yours, in every workspace" : "";
   const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={page === v} className={page === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
   return (
@@ -46,14 +53,16 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
           {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
           <div className="set-nav-sec">Workspace</div>
-          {navButton("workspace", detail.name, <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>)}
+          {navButton("workspace", workspaces.length > 1 ? "Workspaces" : detail.name, <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>)}
         </div>
         <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
       </nav>
       <section className="set-main" role="tabpanel" aria-label={title}>
-        <div className="set-main-h"><h2>{title}</h2>{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
+        <div className="set-main-h">{page === "workspace" && workspaces.length > 1
+          ? <Select label="Workspace" className="bsel-title" value={viewing} onChange={(id) => { setViewing(id); if (focusAgent) setTab("workspace"); }} options={workspaces.map((w) => ({ value: w.id, label: w.name, ...(w.id === detail.id ? { hint: "open now" } : {}) }))} />
+          : <h2>{title}</h2>}{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
         {page === "workspace" ? <>
-            <div className="set-body"><WorkspaceSettings detail={detail} focusAgent={focusAgent} onInvite={onInvite} onAddRepo={onAddRepo} onOpenDefaults={() => setTab("models")} /></div>
+            <div className="set-body">{shown ? <WorkspaceSettings key={shown.id} detail={shown} focusAgent={viewing === detail.id ? focusAgent : null} onInvite={() => onInvite(shownRow)} onAddRepo={() => onAddRepo(shownRow)} onOpenDefaults={() => setTab("models")} /> : <div className="row"><span className="hint">Loading…</span></div>}</div>
             <div className="m-f"><span>Model, effort and account are personal: Models &amp; accounts.</span><button className="btn" onClick={onClose}>Done</button></div>
           </>
           : <>
