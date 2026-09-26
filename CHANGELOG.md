@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- PRs from Beam look like any other PR: ready for review instead of draft, titled and described by the agent that did the work, and committed under your own git name so GitHub shows your avatar. Commits fall back to Beam only on a machine with no git identity.
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.

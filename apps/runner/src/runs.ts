@@ -1,7 +1,7 @@
 import type { ConvexClient } from "convex/browser";
 import { repoName, type Agent, type RepoLanding, type RunEvent } from "@beam/contracts";
 import { adapters, type BeamTool, type Session } from "@beam/harness";
-import { compareUrl, defaultBranch, draftPullRequest, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
+import { compareUrl, defaultBranch, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, openPullRequest, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -55,8 +55,10 @@ export function watchRuns(client: ConvexClient, token: string) {
   return { active };
 }
 
+/** What the agent says it changed in a repo: the commit message, and the PR's title and description. */
+interface Description { title: string; body: string }
 /** One repo's place in the thread directory. */
-interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null }
+interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null; description?: Description }
 /** What a run has set up so far, so a crash can still land it. */
 interface Progress { title: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null }
 
@@ -156,6 +158,21 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
         slots.delete(repo);
         const s = await mount(repo);
         return `PR #${pr.number} "${pr.title}" is checked out at ./${s.dir.slice(dir.length + 1)} on ${pr.headRefName}. Commits you make there land on that PR.`;
+      },
+    },
+    {
+      name: "describe_change", description: "Describe what you changed in a repo, as you would in a commit and pull request. Beam uses it for the commit message, and for the PR's title and description when it opens one. Call it once per repo you changed, before you stop.",
+      schema: {
+        repo: z.string().describe("owner/name"),
+        title: z.string().min(1).max(120).describe("PR title: a short imperative summary, like a commit subject (e.g. \"Show live status on chat squares\")"),
+        body: z.string().describe("PR description in Markdown, for reviewers: what changed and why, how it was tested, and anything they should check"),
+      },
+      run: async (args) => {
+        const repo = String(args["repo"]);
+        const s = slots.get(repo);
+        if (!s) throw new Error(`${repo} is not mounted in this thread; mounted: ${[...slots.keys()].join(", ") || "none"}`);
+        s.description = { title: String(args["title"]).replace(/\s+/g, " ").trim(), body: String(args["body"]).trim() };
+        return s.change?.prUrl ? `Noted. The commit uses it; the PR (${s.change.prUrl}) keeps its current title and description.` : `Noted. The commit and the PR Beam opens for ${repo} will use it.`;
       },
     },
     {
@@ -370,11 +387,13 @@ async function landSlots(client: ConvexClient, token: string, runId: Id<"runs">,
   const landings: RepoLanding[] = [];
   for (const s of slots.values()) {
     try {
-      const r = await landRepo(s.dir, s.branch, s.base, `${title}\n\nRun in Beam · ${runId}`);
+      // The agent's own description when it gave one; otherwise the change's title, then the thread's.
+      const d = s.description ?? { title: s.change?.title ?? title, body: "" };
+      const r = await landRepo(s.dir, s.branch, s.base, `${d.title}\n\n${d.body ? `${d.body}\n\n` : ""}Beam-Run: ${runId}`);
       if (!r.pushed) continue;
       let pr = s.change?.prUrl ? { url: s.change.prUrl, number: s.change.prNumber } : await prForBranch(s.repo, s.branch).then((p) => (p ? { url: p.url, number: p.number } : null));
-      if (!pr && r.files > 0) { const url = await draftPullRequest(s.dir, s.repo, s.branch, s.base, title, "Opened from Beam."); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
-      await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
+      if (!pr && r.files > 0) { const url = await openPullRequest(s.dir, s.repo, s.branch, s.base, d.title, d.body); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
+      await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title: d.title, ...(d.body ? { body: d.body } : {}), add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
       landings.push({ repo: s.repo, branch: s.branch, base: s.base, pushed: true, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, compareUrl: compareUrl(s.repo, s.base, s.branch), error: null });
       log(runId, `landed ${s.repo} · ${s.branch} · +${r.add} −${r.del} · ${r.files} files${pr ? ` · ${pr.url}` : ""}`);
     } catch (e) {
@@ -409,6 +428,7 @@ function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>, unm
       `Tell the team. If the name is wrong, find the right one and attach_repo it; a person can remove the bad one from the thread's repo menu.`,
     ] : []),
     `Work inside those folders. Do not switch branches or push: Beam commits and pushes each folder that changed when the run ends, and opens or updates a PR per repo.`,
+    `Before you stop, call describe_change for each repo you changed, with a PR title and a description written for reviewers. Beam uses them for the commit and the PR, so they read like any other PR on GitHub.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
     `For the Simulation pane, use list_simulations, validate_simulation, save_simulation and run_simulation. Use geometry=planar to construct new 2-D flow domains: an arbitrary simple polygon outer boundary minus independently placed circles or simple polygons. Define the fluid region, explicit constant density/viscosity, named velocity-inlet/pressure-outlet/wall/symmetry boundaries, initial velocity, mesh size and duration in seconds. The solver is transient incompressible laminar isothermal pimpleFoam. Use geometry and boundary names that reflect the request; do not force a new geometry into a fixed demo. For local mesh refinement keep the background meshSize coarse and add named refinements: body-distance bands around selected bodies and box regions for wakes. Explicitly set target size and transition distance, preflight the cell budget, save a revision, remesh and check quality before rerunning. Preserve the prior successful solve ID and use compare_simulation_runs after completion; describe its common-time domain statistics and do not claim force, shedding-frequency or mesh-convergence diagnostics. Validate the geometry before saving, correct diagnostics, then mesh and inspect checkMesh before solving. If a referenced request or key geometry specification is missing, ask for it; never invent a replacement arrangement and proceed. State physical assumptions and distinguish the material label from explicit properties. Prescribed pitching is available for one planar body via optional motion: kind=pitch, body, pivot in metres, meanAngleDegrees (offset relative to supplied geometry), amplitudeDegrees up to 20 and frequencyHz. Do not double-rotate an already angled geometry. Require at least 16 saved frames per cycle (max100 frames) and a clear full rotation envelope. The body must have its own wall patch. Remesh after motion edits; solve computes moving-wall flow and exports actual moving coordinates for playback. Reduce amplitude or improve the initial mesh if motion quality fails. This does not support translation, continuous rotation, multiple moving bodies, free rigid-body dynamics or structural deformation. Legacy heated-channel and single-cylinder examples remain available. Call the user-facing object a study. Chat and the pane share the saved study; unsaved pane drafts are not inputs. Read list_simulations before each edit. Use the active study for contextual follow-ups; if the target is ambiguous, ask. Use select_simulation when explicitly switching studies. Reuse the id and current revision for parameter changes; create a separate study only when asked for a new study or separate alternative. Never claim a run used later edits. Mesh first, inspect its job, then solve using that mesh job ID. Do not claim support for imported 3-D CAD, turbulence, solid regions or conjugate heat transfer. Solver completion is not engineering validation.`,
