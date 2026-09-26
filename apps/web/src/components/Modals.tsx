@@ -20,7 +20,7 @@ import { ResourceSharingPolicy } from "./SharedResources";
 import { UsagePage } from "./Usage";
 import { markChangelogSeen, releases, useChangelogUnseen } from "../lib/changelog";
 
-type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
+type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[]; canDelete?: boolean };
 
 export type SettingsTab = "general" | "models" | "machines" | "notifications" | "usage" | "whatsnew" | "workspace" | `agent:${string}`;
 const icon = (d: ReactNode) => <svg viewBox="0 0 24 24" aria-hidden="true">{d}</svg>;
@@ -74,7 +74,7 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
       <section className="set-main" role="tabpanel" aria-label={title}>
         <div className="set-main-h"><h2>{title}</h2>{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
         {page === "workspace" ? <>
-            <div className="set-body">{shown ? <WorkspaceSettings key={shown.id} detail={shown} focusAgent={viewing === detail.id ? focusAgent : null} onInvite={() => onInvite(shownRow)} onAddRepo={() => onAddRepo(shownRow)} onOpenDefaults={() => setTab("models")} /> : <div className="row"><span className="hint">Loading…</span></div>}</div>
+            <div className="set-body">{shown ? <WorkspaceSettings key={shown.id} detail={shown} focusAgent={viewing === detail.id ? focusAgent : null} onInvite={() => onInvite(shownRow)} onAddRepo={() => onAddRepo(shownRow)} onOpenDefaults={() => setTab("models")} onDeleted={onClose} /> : <div className="row"><span className="hint">Loading…</span></div>}</div>
             <div className="m-f"><span>Model, effort and account are personal: Models &amp; accounts.</span><button className="btn" onClick={onClose}>Done</button></div>
           </>
           : <>

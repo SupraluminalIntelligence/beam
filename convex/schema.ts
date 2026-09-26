@@ -23,7 +23,7 @@ export default defineSchema({
     agentPreferences: v.optional(v.array(v.object({ harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
   }).index("email", ["email"]).index("by_login", ["githubLogin"]).index("by_username", ["username"]),
 
-  workspaces: defineTable({ name: v.string(), repos: v.array(v.string()), createdBy: v.id("users") }),
+  workspaces: defineTable({ name: v.string(), repos: v.array(v.string()), createdBy: v.id("users"), deletedAt: v.optional(v.number()) }),
   /** Membership is by GitHub login so an invite can precede the person's first sign-in. */
   members: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), invitedBy: v.id("users") })
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),
