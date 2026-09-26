@@ -41,9 +41,15 @@ let quitting = false;
 let pendingPair: string | null = null;
 let localRunnerId: string | null = null;
 const runnerLog: string[] = [];
+// The runner is this Mac's connection to Beam. If it dies on its own, bring it back, backing off while it keeps dying.
+let runnerStopping: ChildProcess | null = null;
+let runnerFailures = 0;
+let runnerRetry: ReturnType<typeof setTimeout> | null = null;
 
 function startRunner() {
+  if (runnerRetry) { clearTimeout(runnerRetry); runnerRetry = null; }
   localRunnerId = null;
+  const startedAt = Date.now();
   // Packaged: the esbuild bundle next to main.cjs, kept outside app.asar so the runtime can read it as a file.
   // Dev: the runner's TypeScript source, run with strip-types.
   const packaged = app.isPackaged;
@@ -53,7 +59,7 @@ function startRunner() {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: packaged ? app.getPath("home") : join(__dirname, "..", "..", ".."),
   });
-  const push = (s: string) => { runnerLog.push(s); if (runnerLog.length > 200) runnerLog.shift(); win?.webContents.send("beam:runnerLog", s); };
+  const push = (s: string) => { runnerLog.push(s); if (runnerLog.length > 200) runnerLog.shift(); win?.webContents.send("beam:runnerLog", s); if (process.env["BEAM_DEV"]) console.log(`[runner] ${s}`); };
   createInterface({ input: runner.stdout! }).on("line", (l) => {
     const identity = l.match(/^BEAM_RUNNER ([a-zA-Z0-9_-]+)$/);
     if (identity) { if (runner === child) localRunnerId = identity[1]!; return; }
@@ -63,7 +69,16 @@ function startRunner() {
     if (/^Signed in as/.test(l)) pendingPair = null;
   });
   createInterface({ input: runner.stderr! }).on("line", (l) => push(`! ${l}`));
-  runner.on("exit", (code) => { push(`runner exited (${code})`); if (runner === child) { runner = null; localRunnerId = null; } });
+  runner.on("exit", (code, signal) => {
+    push(`runner exited (${code ?? signal})`);
+    if (runner !== child) return;
+    runner = null; localRunnerId = null;
+    if (quitting || runnerStopping === child) return;
+    runnerFailures = Date.now() - startedAt > 60_000 ? 1 : runnerFailures + 1;
+    const delay = Math.min(30_000, 1_000 * 2 ** (runnerFailures - 1));
+    push(`restarting runner in ${Math.round(delay / 1000)}s`);
+    runnerRetry = setTimeout(startRunner, delay);
+  });
 }
 
 function createWindow() {
@@ -172,7 +187,7 @@ ipcMain.handle("beam:update:download", () => { if (update.state === "available" 
 ipcMain.handle("beam:update:install", () => { if (update.state === "ready") { try { runner?.kill("SIGTERM"); } catch {} setImmediate(() => autoUpdater.quitAndInstall(false, true)); } });
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
 ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId, running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
-ipcMain.handle("beam:restartRunner", () => { runner?.kill(); setTimeout(startRunner, 500); });
+ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; if (runner) { runnerStopping = runner; runner.kill(); } setTimeout(startRunner, 500); });
 
 app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

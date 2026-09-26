@@ -3,6 +3,7 @@ import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { bridge } from "../bridge";
+import { useLocalRunner } from "../lib/localRunner";
 import { AgentAvatar } from "./Avatar";
 import { Select } from "./Select";
 import { toast } from "./Toast";
@@ -37,7 +38,13 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
   const selected = preview?.selected;
   const override = preview?.override;
   const value = override?.runnerId ? choiceValue(override.runnerId, override.connectionId ?? "default") : selected?.source === "chat" ? choiceValue(selected.runnerId, selected.connectionId) : "";
-  const error = preview?.error ?? null;
+  // In the desktop app the usual cause is this Mac's own runner having stopped; say so and offer the fix.
+  const b = bridge();
+  const localRunner = useLocalRunner();
+  const runnerDown = !!b && !localRunner && !!preview?.error;
+  const error = runnerDown ? "Beam’s runner on this Mac isn’t running, so there is no machine to run on." : preview?.error ?? null;
+  const [restarting, setRestarting] = useState(false);
+  const restart = async () => { setRestarting(true); try { await b!.restartRunner(); toast("Restarting the runner…"); } catch (e) { toast((e as Error).message); } finally { setTimeout(() => setRestarting(false), 4000); } };
   return <div className="composer-agent" ref={root}>
     <button ref={trigger} className={`tool-chip${error ? " warn" : ""}`} aria-expanded={open} title={error ?? `${names[harness] ?? harness} · ${model} · ${effort}${selected ? ` · ${selected.name} on ${selected.machineName}` : ""}`} onClick={() => setOpen(!open)}>
       <AgentAvatar harness={harness} /><span>{model} · {effort}</span>{error && <span>· can’t run</span>}
@@ -48,6 +55,7 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
         <Select label="Account for this chat" disabled={!preview || busy} value={value} placeholder="Selected account unavailable" onChange={async v => {
           setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
         }} options={[{ value: "", label: "Use my default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
+        {runnerDown && <button className="btn ghost agent-restart" disabled={restarting} onClick={() => void restart()}>{restarting ? "Restarting…" : "Restart runner"}</button>}
         <span className={error ? "connection-error" : "connection-resolved"} role="status">{selected ? `Runs as ${selected.owner}’s ${selected.name}${selected.email ? ` (${selected.email})` : ""} on ${selected.machineName}${selected.remote ? "" : " · this machine"}` : error ?? "Checking account…"}</span>
       </div>
       <div className="agent-sec"><h4>Your model</h4>
