@@ -37,6 +37,28 @@ The desktop launches its own runner; do not also launch `dev:runner` with the sa
 
 Run `pnpm convex` separately when you want backend changes watched and deployed to your own development deployment. Review the selected deployment before running any Convex command.
 
+## Several checkouts at once
+
+Beam's dev setup assumes one checkout. When several are running at the same time, for example git worktrees where different people or coding agents test different branches, they collide in four places:
+
+| Shared | Effect | Fix |
+|---|---|---|
+| Web port 5173 | Only one checkout can serve the UI, and every dev desktop window loads whatever is on 5173. | `BEAM_WEB_PORT` sets the dev server's port and the port the dev desktop loads. |
+| Runner profile (`~/.beam`) | Every desktop starts a runner. Two runners with one profile are the same machine to Beam and race to claim each run. | `BEAM_NO_RUNNER=1` starts the window without a runner, and runs go to the runner you already have. For runner changes, give the checkout its own `BEAM_HOME` and pair it once. |
+| Electron profile | Windows share storage. | Automatic: a dev desktop with its own `BEAM_HOME` or port gets its own profile. |
+| Convex deployment | Every checkout uses the backend in `apps/web/.env.local`. Deploying one checkout's `convex/` replaces another's. | Not solved. Test backend changes one at a time on a development deployment. |
+
+`pnpm dev:isolated` does the first three for you:
+
+```sh
+pnpm dev:isolated              # first free port from 5174, desktop window, no runner of its own
+pnpm dev:isolated --runner     # also a runner, under ~/.beam-dev-<folder name> (pair it once)
+pnpm dev:isolated --port 5180  # a fixed port
+pnpm dev:isolated --web-only   # dev server only, for a browser
+```
+
+If the checkout has no `apps/web/.env.local`, the script copies the main worktree's copy. Ctrl-C stops the server and the window. Keep `pnpm dev:web` and `pnpm dev:desktop` on 5173 for the checkout you use day to day.
+
 ## Before opening a pull request
 
 ```sh

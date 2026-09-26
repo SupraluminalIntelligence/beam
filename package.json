@@ -10,6 +10,7 @@
     "dev:web": "pnpm --filter @beam/web dev",
     "dev:runner": "pnpm --filter @beam/runner dev",
     "dev:desktop": "pnpm --filter @beam/desktop dev",
+    "dev:isolated": "node scripts/dev-isolated.mjs",
     "convex": "convex dev",
     "convex:deploy": "convex deploy -y",
     "convex:removals": "node --experimental-strip-types scripts/convex-removals.mjs",

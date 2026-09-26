@@ -34,6 +34,7 @@ pnpm convex:removals # functions a deploy from this checkout would remove from p
 pnpm dev:web         # UI at http://localhost:5173
 pnpm dev:runner      # runner on this machine
 pnpm dev:desktop     # Electron shell (after dev:web)
+pnpm dev:isolated    # this checkout's UI + window on its own port, beside other worktrees
 pnpm probe           # what harnesses this machine has and whether they are signed in
 ```
 
