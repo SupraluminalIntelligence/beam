@@ -74,7 +74,8 @@ export function channelSetupChecks(c: ChannelCase): SetupCheck[] {
   const { flow, heat } = channelEntryLengths(c);
   checks.push({ id: "development", label: "entry length", status: "info", value: c.thermal ? `${metres(flow)} / ${metres(heat)}` : metres(flow),
     detail: `Velocity develops over about ${metres(flow)}` + (c.thermal ? ` and temperature over about ${metres(heat)}, in a ${metres(c.length)} channel. ` + (heat < c.length
-      ? `Both develop before the outlet, where the local Nusselt number should approach ${developedNusselt(c)} for ${c.wallHeatFlux === undefined ? "two walls at fixed temperature" : "a uniform flux on both walls"}.`
+      ? flow < c.length ? `Both develop before the outlet, where the local Nusselt number should approach ${developedNusselt(c)} for ${c.wallHeatFlux === undefined ? "two walls at fixed temperature" : "a uniform flux on both walls"}.`
+        : `Velocity is still developing at the outlet, so local Nusselt numbers need not settle at the fully developed ${developedNusselt(c)}.`
       : `Temperature is still developing at the outlet, so local Nusselt numbers stay above the fully developed ${developedNusselt(c)}.`) : ` in a ${metres(c.length)} channel.`) });
   return checks;
 }

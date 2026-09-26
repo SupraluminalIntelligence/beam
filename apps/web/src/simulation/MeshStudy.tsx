@@ -41,7 +41,7 @@ const estimateValue = (e: GridEstimate) => e.convergence === "monotonic" ? `${pe
 export function meshSensitivityValue(state: MeshStudyState | null) {
   if (!state || state.status === "too-few") return state ? `${state.meshes} of 3 meshes` : "not studied";
   if (state.status === "loading") return "loading";
-  if (state.status === "problem") return "not estimated";
+  if (state.status === "problem" || !state.study.estimates.length) return "not estimated";
   const unresolved = state.study.estimates.filter(e => e.convergence === "oscillatory" || e.convergence === "diverging").length;
   const worst = Math.max(0, ...state.study.estimates.map(e => e.gci ?? 0));
   return unresolved ? `${unresolved} unresolved` : `GCI ≤ ${percent(worst)}`;

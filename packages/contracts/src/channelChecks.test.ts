@@ -37,6 +37,8 @@ it("reports entry lengths from the parallel-plate correlations",()=>{
   expect(check(hfe,"development").value).toBe("11.6 cm / 82.5 cm");expect(check(hfe,"development").detail).toContain("still developing at the outlet");
   expect(check({...hfe,height:.001,velocity:.2},"development").value).toBe("2.32 cm / 16.5 cm");
   expect(check({...hfe,thermal:false},"development").value).toBe("11.6 cm");
+  // Low Pr: heat develops within 5 cm, velocity does not.
+  expect(check({...defaultChannel,length:.05,velocity:.15,nu:1e-6,pr:.1},"development").detail).toContain("Velocity is still developing at the outlet");
 });
 it("checks a wall heat flux against the hottest wall it predicts",()=>{
   // 0.5 W/cm² into HFE-7100 in a 1 mm gap at 10 cm/s; k = 0.069 W/m·K.

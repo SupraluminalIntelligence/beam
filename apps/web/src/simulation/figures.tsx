@@ -32,7 +32,7 @@ export function ResidualPlot({rows,field}:{rows:SimulationReport["residuals"];fi
 /** Local Nusselt number along the channel against the fully developed value; the entrance peak is clipped. */
 export function NusseltPlot({config:c,nusselt}:{config:ChannelCase;nusselt:ChannelResults["nusselt"]}){
   const nu0=developedNusselt(c),top=4*nu0,x=(v:number)=>60+v/c.length*710,y=(v:number)=>250-Math.min(v,top)/top*220,entry=channelEntryLengths(c).heat;
-  return <div className="sim-residuals sim-nusselt"><svg viewBox="0 0 800 290" role="img" aria-label={`Local Nusselt number along the channel; ${number(nusselt.at(-1)![1])} at the last column against ${nu0} fully developed`}>
+  return <div className="sim-residuals sim-nusselt"><svg viewBox="0 0 800 290" role="img" aria-label={`Local Nusselt number along the channel; ${number(nusselt.at(-1)![1])} at ${number(nusselt.at(-1)![0]*1000)} mm against ${nu0} fully developed`}>
     {[0,10,20,30].map(n=><g key={n}><path d={`M60 ${y(n)}H770`} stroke="var(--line)"/><text x="8" y={y(n)+4}>{n}</text></g>)}
     <path d={`M60 ${y(nu0)}H770`} stroke="var(--ink-3)" strokeDasharray="6 5"/><text x="66" y={y(nu0)+18}>{nu0} fully developed</text>
     {entry<c.length&&<><path d={`M${x(entry)} 30V250`} stroke="var(--ink-3)" strokeDasharray="2 5"/><text x={x(entry)+(x(entry)>480?-6:6)} y="44" textAnchor={x(entry)>480?"end":"start"}>thermal entry ≈ {number(entry*1000)} mm</text></>}
