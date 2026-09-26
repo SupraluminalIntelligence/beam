@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { JobPath, ProcessJobSpec, SimulationCase, PlanarCase, WakeFields, decodeWakeFrames, decodeWakeGeometry, SimulationReport, channelSetupChecks } from "@beam/contracts";
+import { JobPath, ProcessJobSpec, SimulationCase, PlanarCase, WakeFields, decodeWakeFrames, decodeWakeGeometry, SimulationReport, channelSetupChecks, channelMeshStudy } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { readJobFile } from "./local.ts";
@@ -41,6 +41,21 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
       if(a.caseId!==b.caseId)throw new Error("Choose runs from the same study");
       const summary=(r:typeof a)=>({jobId:r.jobId,revision:r.revision,backgroundSize:r.config.meshSize,refinements:r.config.refinements??[],mesh:r.mesh});
       return JSON.stringify({baseline:summary(a),candidate:summary(b),comparison:comparePlanarFields(a,b)});
+    }},
+    {name:"mesh_convergence",description:"Estimate discretization error for a heated channel from three succeeded solve jobs of the same study whose setups differ only in nx and ny. Returns, per quantity (outlet temperature rise, developed f·Re, Nu near the outlet), the values coarse to fine, observed order, Richardson-extrapolated value and fine-mesh grid convergence index (GCI, relative, safety factor 1.25; Celik et al. 2008). To run a study, save two more revisions refining both nx and ny by at least 1.3 each time with the cell aspect ratio unchanged, mesh and solve each, then call this. Report oscillatory or diverging quantities as unresolved, not as an error band. Read-only.",schema:{jobIds:z.array(z.string()).length(3)},run:async args=>{
+      const ids=z.array(z.string()).length(3).parse(args["jobIds"]);
+      if(new Set(ids).size<3)throw new Error("Choose three different runs");
+      const runs=await Promise.all(ids.map(async id=>{
+        const job=await client.query(api.compute.forRun,{token,runId,id:id as Id<"computeJobs">});
+        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="channel")throw new Error("Choose succeeded heated-channel solve jobs");
+        const asset=job.outputs.find(o=>o.path==="report.json");if(!asset?.url||asset.size>20*1024*1024)throw new Error("Missing or oversized report.json");
+        const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error("Cannot read report.json");
+        return{jobId:id,caseId:job.spec.simulation.caseId,revision:job.spec.simulation.revision,report:SimulationReport.parse(await response.json())};
+      }));
+      if(new Set(runs.map(r=>r.caseId)).size>1)throw new Error("Choose runs from the same study");
+      const study=channelMeshStudy(runs.map(r=>r.report));
+      if("problem" in study)throw new Error(study.problem);
+      return JSON.stringify({meshes:[...runs].sort((a,b)=>a.report.cells-b.report.cells).map(r=>({jobId:r.jobId,revision:r.revision,nx:r.report.config.geometry==="channel"?r.report.config.nx:null,ny:r.report.config.geometry==="channel"?r.report.config.ny:null,cells:r.report.cells})),...study});
     }},
     { name: "list_jobs", description: "List durable compute jobs in this chat. Jobs continue independently of agent turns; inspect an existing job before submitting another.", schema: {}, run: async () => JSON.stringify(await client.query(api.compute.forRun, { token, runId })) },
     { name: "get_job", description: "Read a compute job's state, bounded log tail, input manifest and published result download URLs. Submission is not completion.", schema: { id: z.string() }, run: async a => JSON.stringify(await client.query(api.compute.forRun, { token, runId, id: String(a["id"]) as Id<"computeJobs"> })) },

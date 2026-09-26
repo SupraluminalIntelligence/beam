@@ -2,6 +2,7 @@ import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
 export * from "./planar.ts";
 export * from "./channelChecks.ts";
+export * from "./meshStudy.ts";
 
 export const OPENFOAM_IMAGE = "opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319";
 /** First supported study: a 2-D laminar channel, prescribed wall temperature, no buoyancy. SI units. */

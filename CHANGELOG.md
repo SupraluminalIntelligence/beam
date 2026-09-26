@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Mesh-independence studies for the heated channel: solve one setup on three meshes and Results shows each quantity's grid convergence index, observed order and extrapolated value (Celik et al. 2008). Agents run the same study with `mesh_convergence`. On real solves f·Re extrapolates to 96.03 against the exact 96.
 - Heated-channel results report what a heat-transfer engineer checks: flow-weighted bulk outlet temperature, mass and thermal balances from the solver's own face fluxes, f·Re against 96, and a local Nusselt number plot against the developed 7.54. Verified on real OpenFOAM solves: balances close to 1e-5 or better, f·Re lands within 1% of 96, and Nu reaches 7.77 at the end of a 1 mm HFE-7100 channel.
 - Heated-channel studies check their own assumptions before anything runs: gravity off (Richardson number), single phase (boiling point), viscosity units and entry lengths. The checks update as you edit Setup, show on the study card and in the Results checks, and agents see them too. Set the fluid's expansion coefficient and boiling point to turn on the first two.
 - PRs from Beam look like any other PR: ready for review instead of draft, titled and described by the agent that did the work, and committed under your own git name so GitHub shows your avatar. Commits fall back to Beam only on a machine with no git identity.

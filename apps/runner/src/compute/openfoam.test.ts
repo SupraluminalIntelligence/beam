@@ -6,7 +6,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, type ProcessJobSpec } from "@beam/contracts";
+import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
 import { foamValues, residualHistory } from "./openfoam.ts";
 import { LocalExecutor } from "./local.ts";
 
@@ -66,21 +66,35 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM through the
     }finally{await executor.cancelSubmission("mesh");await executor.cancelSubmission("solve");await rm(root,{recursive:true,force:true});}
   },120000);
 
-  it("reaches the developed parallel-plate Nusselt number past the thermal entry length",async()=>{
-    // HFE-7100 in a 1 mm gap at 20 cm/s: thermal entry ≈ 16.5 cm of 20 cm, so the last column is within 5% of Nu = 7.54.
-    const config={...defaultChannel,height:.001,nx:160,ny:20,velocity:.2,nu:3.8e-7,pr:9.8,density:1510,inletTemperature:293.15,wallTemperature:323.15};
-    const root=await mkdtemp(join(tmpdir(),"beam-foam-nu-")),executor=new LocalExecutor(root);
-    const spec=(stage:"mesh"|"solve"):ProcessJobSpec=>({version:1,kind:"process",title:"Developed channel",executable:"beam:openfoam",args:[],inputs:stage==="mesh"?[]:[{assetId:"mesh",path:"mesh-input.json"}],outputs:simulationOutputs(stage),timeoutSeconds:120,simulation:{image:OPENFOAM_IMAGE,caseId:"developed",revision:1,stage,config,...(stage==="solve"?{meshJobId:"mesh"}:{})}});
+  // HFE-7100 in a 1 mm gap at 20 cm/s: thermal entry ≈ 16.5 cm of 20 cm.
+  const hfe={...defaultChannel,height:.001,velocity:.2,nu:3.8e-7,pr:9.8,density:1510,inletTemperature:293.15,wallTemperature:323.15};
+  async function solveChannel(config:typeof hfe,caseId:string){
+    const root=await mkdtemp(join(tmpdir(),"beam-foam-channel-")),executor=new LocalExecutor(root);
+    const spec=(stage:"mesh"|"solve"):ProcessJobSpec=>({version:1,kind:"process",title:caseId,executable:"beam:openfoam",args:[],inputs:stage==="mesh"?[]:[{assetId:"mesh",path:"mesh-input.json"}],outputs:simulationOutputs(stage),timeoutSeconds:120,simulation:{image:OPENFOAM_IMAGE,caseId,revision:1,stage,config,...(stage==="solve"?{meshJobId:"mesh"}:{})}});
     async function finish(id:string){const until=Date.now()+110000;while(Date.now()<until){const s=await executor.inspect({backend:executor.backend,id});if(s.state!=="running"){expect(s.state,s.log).toBe("succeeded");return;}await new Promise(r=>setTimeout(r,100));}throw new Error("Integration timed out");}
     try{
       await executor.submit("mesh",spec("mesh"),[]);await finish("mesh");
       const bytes=await readFile(join(root,"mesh/work/mesh.json"));
       await executor.submit("solve",spec("solve"),[{path:"mesh-input.json",size:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex"),url:`data:application/json;base64,${bytes.toString("base64")}`}]);await finish("solve");
-      const ch=SimulationReport.parse(JSON.parse(await readFile(join(root,"solve/work/report.json"),"utf8"))).channel!;
-      expect(ch.nusselt.at(-1)![1]/7.54).toBeGreaterThan(1);expect(ch.nusselt.at(-1)![1]/7.54).toBeLessThan(1.05);
-      expect(Math.abs(ch.fRe!/96-1)).toBeLessThan(.02);expect(Math.abs(ch.energyImbalance!)).toBeLessThan(1e-4);
+      return SimulationReport.parse(JSON.parse(await readFile(join(root,"solve/work/report.json"),"utf8")));
     }finally{await executor.cancelSubmission("mesh");await executor.cancelSubmission("solve");await rm(root,{recursive:true,force:true});}
+  }
+  it("reaches the developed parallel-plate Nusselt number past the thermal entry length",async()=>{
+    const ch=(await solveChannel({...hfe,nx:160,ny:20},"developed")).channel!;
+    expect(ch.nusselt.at(-1)![1]/7.54).toBeGreaterThan(1);expect(ch.nusselt.at(-1)![1]/7.54).toBeLessThan(1.05);
+    expect(Math.abs(ch.fRe!/96-1)).toBeLessThan(.02);expect(Math.abs(ch.energyImbalance!)).toBeLessThan(1e-4);
   },240000);
+
+  it("estimates discretization error from three meshes refined by 1.5",async()=>{
+    const reports=[];for(const [nx,ny] of [[60,8],[90,12],[135,18]] as const)reports.push(await solveChannel({...hfe,nx,ny,iterations:3000},`mesh-${nx}`));
+    const study=channelMeshStudy(reports);if("problem" in study)throw new Error(study.problem);
+    expect(study.estimates.map(e=>e.convergence)).toEqual(["monotonic","monotonic","monotonic"]);
+    const [rise,fRe,nu]=study.estimates as [GridEstimate,GridEstimate,GridEstimate];
+    // Temperature is advected with first-order upwind, so its observed order is near 1; the second-order velocity gives f·Re near 2.
+    expect(rise.order!).toBeGreaterThan(.7);expect(rise.order!).toBeLessThan(1.3);expect(fRe.order!).toBeGreaterThan(1.5);
+    expect(Math.abs(fRe.extrapolated!/96-1)).toBeLessThan(.01);expect(nu.extrapolated!/7.54).toBeGreaterThan(1);
+    expect(Math.max(...study.estimates.map(e=>e.gci!))).toBeLessThan(.05);
+  },360000);
 });
 
 it("counts transient steps rather than rounding physical times",()=>{
