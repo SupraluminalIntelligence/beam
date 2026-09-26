@@ -18,12 +18,13 @@ let runner: ChildProcess | null = null;
 /**
  * Development only: several checkouts can run side by side (see CONTRIBUTING.md, "Several checkouts at once").
  * BEAM_WEB_PORT picks which dev server this window loads, BEAM_NO_RUNNER leaves the runner to another instance,
- * and a separate BEAM_HOME or port gets its own Electron profile so windows don't share storage.
+ * and a window with its own runner profile (BEAM_HOME) or its own port gets its own Electron profile. A window without
+ * a runner ignores an inherited BEAM_HOME here, so runner-less windows on different ports never share storage.
  */
 const devPort = Number(process.env["BEAM_WEB_PORT"] ?? 5173);
 const noRunner = !app.isPackaged && process.env["BEAM_NO_RUNNER"] === "1";
 if (!app.isPackaged) {
-  const profile = process.env["BEAM_HOME"] ? join(process.env["BEAM_HOME"], "electron") : devPort !== 5173 ? `${app.getPath("userData")}-${devPort}` : null;
+  const profile = process.env["BEAM_HOME"] && !noRunner ? join(process.env["BEAM_HOME"], "electron") : devPort !== 5173 ? `${app.getPath("userData")}-${devPort}` : null;
   if (profile) app.setPath("userData", profile);
 }
 

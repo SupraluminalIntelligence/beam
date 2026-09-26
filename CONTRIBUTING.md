@@ -45,7 +45,7 @@ Beam's dev setup assumes one checkout. When several are running at the same time
 |---|---|---|
 | Web port 5173 | Only one checkout can serve the UI, and every dev desktop window loads whatever is on 5173. | `BEAM_WEB_PORT` sets the dev server's port and the port the dev desktop loads. |
 | Runner profile (`~/.beam`) | Every desktop starts a runner. Two runners with one profile are the same machine to Beam and race to claim each run. | `BEAM_NO_RUNNER=1` starts the window without a runner, and runs go to the runner you already have. For runner changes, give the checkout its own `BEAM_HOME` and pair it once. |
-| Electron profile | Windows share storage. | Automatic: a dev desktop with its own `BEAM_HOME` or port gets its own profile. |
+| Electron profile | Windows share storage. | Automatic: a dev desktop with its own runner profile (`BEAM_HOME`) or its own port gets its own Electron profile. A window without a runner ignores `BEAM_HOME` for this. |
 | Convex deployment | Every checkout uses the backend in `apps/web/.env.local`. Deploying one checkout's `convex/` replaces another's. | Not solved. Test backend changes one at a time on a development deployment. |
 
 `pnpm dev:isolated` does the first three for you:

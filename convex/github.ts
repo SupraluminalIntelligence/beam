@@ -58,11 +58,11 @@ export const openChangesWithTokens = internalQuery({
   args: {},
   handler: async (ctx) => {
     const open = await ctx.db.query("changes").withIndex("by_state", (q) => q.eq("state", "open")).collect();
-    const out: { id: Id<"changes">; repo: string; prNumber: number; token: string }[] = [];
+    const out: { id: Id<"changes">; repo: string; prNumber: number; token: string; gen: number }[] = [];
     for (const c of open) {
       if (!c.prNumber) continue;
       const token = await tokenFor(ctx, c);
-      if (token) out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token });
+      if (token) out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token, gen: c.syncGen ?? 0 });
     }
     return out;
   },
@@ -97,15 +97,15 @@ const snapshotV = v.object({
 
 /**
  * Writes what GitHub says about the PR. The last checks stay on the row after it merges or closes.
- * A targeted poll passes its generation: if a newer landing started another poll while this one was fetching, the
+ * Every sync passes the generation it read: if a landing started a newer poll while this one was fetching, the
  * response is about an older head and is dropped.
  */
 export const applyPr = internalMutation({
-  args: { changeId: v.id("changes"), pr: snapshotV, gen: v.optional(v.number()) },
+  args: { changeId: v.id("changes"), pr: snapshotV, gen: v.number() },
   handler: async (ctx, { changeId, pr, gen }) => {
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open") return null;
-    if (gen !== undefined && (c.syncGen ?? 0) !== gen) return null;
+    if ((c.syncGen ?? 0) !== gen) return null;
     const { resolved, patch } = prPatch(pr, Date.now());
     await ctx.db.patch(changeId, { ...patch, ...(resolved ? { state: resolved, resolvedAt: Date.now() } : {}) });
     return resolved ? null : patch.checks.state;
@@ -143,7 +143,7 @@ export const syncChanges = internalAction({
     for (const r of rows) {
       try {
         const pr = await fetchPr(r.repo, r.prNumber, r.token);
-        if (pr) await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr });
+        if (pr) await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr, gen: r.gen }); // a landing mid-fetch means this is an older head
       } catch (e) { console.error("syncChanges", r.repo, r.prNumber, (e as Error).message); }
     }
   },

@@ -11,7 +11,7 @@
 // in this checkout are not live until someone deploys them.
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -43,10 +43,15 @@ const childEnv = { ...process.env };
 if (flag("--runner")) childEnv.BEAM_HOME ??= runnerHome;
 else childEnv.BEAM_NO_RUNNER = "1";
 
+// A local VITE_SITE_URL (the contributor setup) is where the app sends the browser for GitHub access; follow the port.
+// A hosted one (the maintainer setup leaves it unset) works from any port and stays as it is.
+const siteUrl = process.env.VITE_SITE_URL ?? readFileSync(env, "utf8").match(/^VITE_SITE_URL=(.*)$/m)?.[1]?.trim();
+const localSite = !!siteUrl && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(siteUrl);
+
 const windows = process.platform === "win32";
 const children = [];
 const start = (script, port, opts = {}) => {
-  const c = spawn("pnpm", [script], { cwd: root, env: { ...childEnv, BEAM_WEB_PORT: String(port) }, stdio: opts.stdio ?? "inherit", detached: !windows, shell: windows });
+  const c = spawn("pnpm", [script], { cwd: root, env: { ...childEnv, BEAM_WEB_PORT: String(port), ...(localSite ? { VITE_SITE_URL: `http://localhost:${port}` } : {}) }, stdio: opts.stdio ?? "inherit", detached: !windows, shell: windows });
   children.push(c);
   return c;
 };
