@@ -1023,5 +1023,4 @@ body.resizing .side-grip{pointer-events:auto}
 .row.ws-agent-actions{display:flex;justify-content:flex-end;gap:8px}
 .ws-add{border-bottom:1px solid var(--line)}
 @media (prefers-reduced-motion:reduce){.ws-agent-row>svg{transition:none}}
-.bsel.bsel-title{width:auto;max-width:min(60%,360px);padding:4px 8px;font:600 15px var(--font-sans);border-color:transparent;background:transparent}
-.bsel.bsel-title:hover:not(:disabled),.bsel.bsel-title[aria-expanded=true]{border-color:var(--line-2);background:var(--surface)}
+.set-nav-dot{width:6px;height:6px;flex:none;margin-left:auto;background:var(--ink-3)}

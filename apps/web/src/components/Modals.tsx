@@ -16,7 +16,6 @@ import { HOSTED_URL } from "../App";
 import { NotificationSettings } from "./Notifications";
 import { AgentDefaults } from "./AgentDefaults";
 import { WorkspaceSettings } from "./WorkspaceSettings";
-import { Select } from "./Select";
 import { ResourceSharingPolicy } from "./SharedResources";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
@@ -52,15 +51,14 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
         <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
           {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
-          <div className="set-nav-sec">Workspace</div>
-          {navButton("workspace", workspaces.length > 1 ? "Workspaces" : detail.name, <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg>)}
+          <div className="set-nav-sec">Workspaces</div>
+          {workspaces.map((w) => { const on = page === "workspace" && viewing === w.id; return <button key={w.id} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => { setViewing(w.id); setTab("workspace"); }}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg><span className="set-nav-l">{w.name}</span>{w.id === detail.id && <span className="set-nav-dot" title="Open now" aria-label="open now" />}</button>; })}
         </div>
         <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
       </nav>
       <section className="set-main" role="tabpanel" aria-label={title}>
-        <div className="set-main-h">{page === "workspace" && workspaces.length > 1
-          ? <Select label="Workspace" className="bsel-title" value={viewing} onChange={(id) => { setViewing(id); if (focusAgent) setTab("workspace"); }} options={workspaces.map((w) => ({ value: w.id, label: w.name, ...(w.id === detail.id ? { hint: "open now" } : {}) }))} />
-          : <h2>{title}</h2>}{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
+        <div className="set-main-h"><h2>{title}</h2>{sub && <span className="hint">{sub}</span>}<button className="nav-icon" aria-label="Close settings" onClick={onClose}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button></div>
         {page === "workspace" ? <>
             <div className="set-body">{shown ? <WorkspaceSettings key={shown.id} detail={shown} focusAgent={viewing === detail.id ? focusAgent : null} onInvite={() => onInvite(shownRow)} onAddRepo={() => onAddRepo(shownRow)} onOpenDefaults={() => setTab("models")} /> : <div className="row"><span className="hint">Loading…</span></div>}</div>
             <div className="m-f"><span>Model, effort and account are personal: Models &amp; accounts.</span><button className="btn" onClick={onClose}>Done</button></div>
