@@ -53,16 +53,18 @@ async function tokenFor(ctx: QueryCtx, c: Doc<"changes">): Promise<string | null
   return null;
 }
 
-/** Open changes with a PR, plus a token that can read each one. */
+const NO_ACCESS = "No one in this workspace has given Beam GitHub access";
+
+/** Open changes with a PR, plus a token that can read each one (null when nobody's can, so the cron can say so). */
 export const openChangesWithTokens = internalQuery({
   args: {},
   handler: async (ctx) => {
     const open = await ctx.db.query("changes").withIndex("by_state", (q) => q.eq("state", "open")).collect();
-    const out: { id: Id<"changes">; repo: string; prNumber: number; token: string; gen: number }[] = [];
+    const out: { id: Id<"changes">; repo: string; prNumber: number; token: string | null; gen: number }[] = [];
     for (const c of open) {
       if (!c.prNumber) continue;
       const token = await tokenFor(ctx, c);
-      if (token) out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token, gen: c.syncGen ?? 0 });
+      out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token, gen: c.syncGen ?? 0 });
     }
     return out;
   },
@@ -151,6 +153,7 @@ export const syncChanges = internalAction({
     const rows = await ctx.runQuery(internal.github.openChangesWithTokens, {});
     for (const r of rows) {
       try {
+        if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: NO_ACCESS }); continue; }
         const pr = await fetchPr(r.repo, r.prNumber, r.token);
         // Both carry the generation read: a landing mid-fetch means this is about an older head.
         if ("error" in pr) await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: pr.error });
@@ -166,7 +169,7 @@ export const syncChange = internalAction({
   handler: async (ctx, { changeId, gen, attempt }) => {
     const r = await ctx.runQuery(internal.github.changeForSync, { changeId, gen });
     if (!r) return;
-    if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: "No one in this workspace has given Beam GitHub access" }); return; }
+    if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: NO_ACCESS }); return; }
     let next: boolean;
     try {
       const pr = await fetchPr(r.repo, r.prNumber, r.token);
@@ -201,9 +204,12 @@ export const setPr = internalMutation({
   args: { changeId: v.id("changes"), prUrl: v.string(), prNumber: v.number() },
   handler: async (ctx, { changeId, prUrl, prNumber }) => {
     const c = await ctx.db.get(changeId);
-    if (!c || c.prNumber) return;
+    // Closed or rotated while GitHub was opening the PR: don't hang an open PR on a resolved change.
+    if (!c || c.state !== "open") return false;
+    if (c.prNumber) return c.prNumber === prNumber;
     await ctx.db.patch(changeId, { prUrl, prNumber, updatedAt: Date.now() });
     await startSync(ctx, changeId, 0);
+    return true;
   },
 });
 
@@ -225,7 +231,8 @@ export const createPr = action({
       pr = list.ok ? parseRestPr(await list.json()) : null;
     }
     if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : res.ok ? "GitHub may have opened the PR but sent back an unexpected reply. Click Create PR again to link it." : `GitHub refused the PR (${res.status}).` };
-    await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.url, prNumber: pr.number });
+    const saved = await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.url, prNumber: pr.number });
+    if (!saved) return { error: `This change was closed while GitHub opened the PR. It's open at ${pr.url}` };
     return { url: pr.url };
   },
 });

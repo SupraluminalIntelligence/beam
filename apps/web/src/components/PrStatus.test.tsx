@@ -91,6 +91,12 @@ describe("CiPopover", () => {
     expect(html).not.toContain("Checking GitHub");
   });
 
+  it("marks cached CI as stale when the last GitHub read failed", () => {
+    const html = renderToStaticMarkup(<CiPopover change={change({ syncError: "GitHub refused Beam's access to this PR" })} href={c.prUrl!} askHandle={null} onAsk={() => {}} />);
+    expect(html).toContain("Couldn&#x27;t refresh (GitHub refused Beam&#x27;s access to this PR)");
+    expect(html).toMatch(/Failed<\/span><span class="n">1/);
+  });
+
   it("does not offer a fix while CI passes", () => {
     const passing = change({ checks: { ...c.checks!, state: "passing", failed: 0, items: c.checks!.items.slice(1) } });
     expect(renderToStaticMarkup(<CiPopover change={passing} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />)).not.toContain("to fix");

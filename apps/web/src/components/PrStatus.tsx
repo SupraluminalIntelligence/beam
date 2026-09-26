@@ -106,7 +106,7 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
       : c.checks?.state === "none" ? null /* GitHub reports no CI on this PR: nothing to open */
       : (
         <div className="ci" onClick={(e) => e.stopPropagation()}>
-          <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open === "ci"} aria-haspopup="dialog" onClick={toggleCi} title={`CI ${ciWord(c.checks)}`}>
+          <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open === "ci"} aria-haspopup="dialog" onClick={toggleCi} title={`CI ${ciWord(c.checks)}${c.syncError ? ` · couldn't refresh: ${c.syncError}` : ""}`}>
             <CiDot checks={c.checks} />CI<span className="chev" aria-hidden="true">▾</span>
           </button>
           {open === "ci" && <CiPopover change={c} href={href} error={ciError} askHandle={askHandle} onAsk={(t) => { setOpen(null); onAsk(t); }} />}
@@ -124,6 +124,7 @@ export function CiPopover({ change: c, href, error = null, askHandle, onAsk }: {
     <div className="cipop" role="dialog" aria-label={`CI for #${c.prNumber}`}>
       <div className="cih"><span>CI checks</span><button className="cilink" onClick={() => openHref(`${href}/checks`)} title="Open checks on GitHub">↗</button></div>
       {!k && <div className="cinote">{error || c.syncError ? `Beam can't read this PR's checks right now${c.syncError ? ` (${c.syncError})` : ""}. They're on GitHub.` : "Checking GitHub…"}</div>}
+      {k && c.syncError && <div className="cinote stale">Couldn't refresh ({c.syncError}). This is CI as of {ago(k.checkedAt, Date.now())}.</div>}
       {k?.state === "none" && <div className="cinote">No checks reported on the latest commit.</div>}
       {k?.state === "failing" && !k.failed && <div className="cinote">GitHub reports a failing check among more than Beam lists here.</div>}
       {counts.map(([state, label, n]) => <div key={state} className={`cicount ${state}`}><span className={`ci-mark ${state}`} aria-hidden="true" /><span>{label}</span><span className="n">{n}</span></div>)}
