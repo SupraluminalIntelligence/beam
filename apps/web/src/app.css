@@ -1028,3 +1028,4 @@ body.resizing .side-grip{pointer-events:auto}
 .set-nav-group[aria-expanded=false] .set-nav-chev{transform:rotate(-90deg)}
 .set-nav button.set-nav-sub{padding-left:34px;padding-top:5px;padding-bottom:5px}
 @media (prefers-reduced-motion:reduce){.set-nav-group .set-nav-chev{transition:none}}
+.ws-person .k{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}

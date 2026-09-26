@@ -20,6 +20,7 @@ const label = <T extends string>(options: readonly (readonly [T, string])[], v: 
 export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onOpenDefaults }: {
   detail: WorkspaceDetail; focusAgent: string | null; onInvite: () => void; onAddRepo: () => void; onOpenDefaults: () => void;
 }) {
+  const people = useQuery(api.users.byLogins, { logins: detail.members });
   const [open, setOpen] = useState<string | null>(focusAgent);
   useEffect(() => { setOpen(focusAgent); }, [focusAgent]);
   return <div className="ws-settings">
@@ -28,7 +29,7 @@ export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onO
     {detail.repos.length ? detail.repos.map((r) => <div key={r} className="row ws-item"><span className="k">{r}</span></div>)
       : <div className="row connection-note"><span className="hint">No repo yet. Agents need one to work in.</span></div>}
     <div className="sb-sec ws-sec">Members<button className="btn ghost" onClick={onInvite}>Invite</button></div>
-    {detail.members.map((l) => <div key={l} className="row ws-item"><span className="ws-person"><PersonAvatar login={l} className="xs" />{l}</span></div>)}
+    {detail.members.map((l) => <div key={l} className="row ws-item"><span className="ws-person"><PersonAvatar login={l} name={people?.[l]?.name ?? l} image={people?.[l]?.image ?? null} className="xs" />{people?.[l]?.name ?? l}{people?.[l] && people[l]!.name !== l && <span className="k">{l}</span>}</span></div>)}
     <div className="sb-sec ws-sec">Agents<button className="btn ghost" aria-expanded={open === "new"} onClick={() => setOpen(open === "new" ? null : "new")}>Add agent</button></div>
     {open === "new" && <AddAgent detail={detail} onAdded={(id) => setOpen(id)} />}
     {detail.agents.map((a) => <div key={a._id} className={`ws-agent${open === a._id ? " open" : ""}`}>
