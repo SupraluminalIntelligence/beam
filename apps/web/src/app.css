@@ -1035,13 +1035,14 @@ body.resizing .side-grip{pointer-events:auto}
 .tool-chip .av{width:14px;height:14px;font-size:8px}
 .composer .ft .tool-chip.warn{color:var(--warn)}
 .composer-agent{position:relative;flex:none;min-width:0}
-.agent-options{position:absolute;bottom:calc(100% + 8px);left:0;width:320px;max-width:calc(100vw - 48px);padding:6px 0;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-2);box-shadow:6px 6px 0 var(--shadow);z-index:12;font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--ink-2)}
-.agent-options h4{margin:6px 0 4px;font-size:11px;font-weight:500;color:var(--ink-3)}
-.agent-options p{margin:4px 0 0;font:11px/1.5 var(--font-sans);color:var(--ink-3)}
-.agent-options .bsel{width:100%;max-width:none;margin:2px 0 6px}
+.agent-options{position:absolute;bottom:calc(100% + 8px);left:0;width:280px;max-width:calc(100vw - 48px);padding:6px 0;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-2);box-shadow:6px 6px 0 var(--shadow);z-index:12;font-family:var(--font-mono);text-transform:none;letter-spacing:0;color:var(--ink-2)}
+.agent-options h4{margin:6px 0 6px;font-size:10px;font-weight:500;letter-spacing:var(--track-label);text-transform:uppercase;color:var(--ink-3)}
+.agent-options .bsel{width:100%;max-width:none;margin:0 0 6px}
 .agent-options .agent-sec{padding:4px 8px 8px;border-bottom:1px solid var(--line)}
 .agent-options .agent-sec:last-child{border-bottom:0}
-.agent-options .connection-resolved,.agent-options .connection-error{display:block;font-size:11px}
+.agent-options .agent-meta{display:block;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-options .agent-meta.err{color:var(--warn);white-space:normal}
 .agent-options .agent-model{display:flex;align-items:center;justify-content:space-between;gap:8px;font:12px var(--font-mono);color:var(--ink)}
-.composer .ft .agent-options button.btn{width:auto;padding:3px 8px;color:var(--ink-2)}
-.composer .ft .agent-options .agent-restart{float:right;margin:0 0 4px 8px}
+.composer .ft .agent-options .agent-link{font-size:11px;color:var(--ink-3);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-2)}
+.composer .ft .agent-options .agent-link:hover{color:var(--ink);text-decoration-color:currentColor}
+.agent-options .agent-meta+.agent-link{margin-top:4px}

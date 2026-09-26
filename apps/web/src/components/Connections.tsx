@@ -42,7 +42,8 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
   const b = bridge();
   const localRunner = useLocalRunner();
   const runnerDown = !!b && !localRunner && !!preview?.error;
-  const error = runnerDown ? "Beam’s runner on this Mac isn’t running, so there is no machine to run on." : preview?.error ?? null;
+  const error = runnerDown ? "This Mac’s runner isn’t running." : preview?.error ?? null;
+  const where = selected ? `${selected.email ?? selected.name} · ${selected.remote ? `${selected.owner}’s ${selected.machineName}` : "this Mac"}` : null;
   const [restarting, setRestarting] = useState(false);
   const restart = async () => { setRestarting(true); try { await b!.restartRunner(); toast("Restarting the runner…"); } catch (e) { toast((e as Error).message); } finally { setTimeout(() => setRestarting(false), 4000); } };
   return <div className="composer-agent" ref={root}>
@@ -51,16 +52,15 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
       <svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
     </button>
     {open && <div className="agent-options" aria-label={`@${agent.handle} in this chat`}>
-      <div className="agent-sec"><h4>Account for this chat</h4>
+      <div className="agent-sec"><h4>Account</h4>
         <Select label="Account for this chat" disabled={!preview || busy} value={value} placeholder="Selected account unavailable" onChange={async v => {
           setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-        }} options={[{ value: "", label: "Use my default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
-        {runnerDown && <button className="btn ghost agent-restart" disabled={restarting} onClick={() => void restart()}>{restarting ? "Restarting…" : "Restart runner"}</button>}
-        <span className={error ? "connection-error" : "connection-resolved"} role="status">{selected ? `Runs as ${selected.owner}’s ${selected.name}${selected.email ? ` (${selected.email})` : ""} on ${selected.machineName}${selected.remote ? "" : " · this machine"}` : error ?? "Checking account…"}</span>
+        }} options={[{ value: "", label: "My default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
+        <span className={`agent-meta${error ? " err" : ""}`} role="status" title={where ?? error ?? undefined}>{error ?? where ?? "Checking…"}</span>
+        {runnerDown && <button className="agent-link" disabled={restarting} onClick={() => void restart()}>{restarting ? "Restarting…" : "Restart runner"}</button>}
       </div>
-      <div className="agent-sec"><h4>Your model</h4>
-        <div className="agent-model"><span>{names[harness] ?? harness} · {model} · {effort}</span><button className="btn ghost" onClick={() => { setOpen(false); onOpenDefaults(); }}>Change</button></div>
-        <p>Yours in every workspace, set in Models &amp; accounts.</p>
+      <div className="agent-sec"><h4>Model</h4>
+        <div className="agent-model"><span>{model} · {effort}</span><button className="agent-link" title="Your model and effort apply in every workspace" onClick={() => { setOpen(false); onOpenDefaults(); }}>Change</button></div>
       </div>
     </div>}
   </div>;
