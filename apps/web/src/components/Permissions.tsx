@@ -44,7 +44,7 @@ export function ComposerPermissions({ agents }: { agents: Doc<"agents">[] }) {
     finally { setBusy(false); }
   }
   return <div className="composer-permissions" ref={root}>
-    <button ref={trigger} className="permission-trigger" aria-expanded={open} aria-label={`Agent permissions: ${mode === "mixed" ? "Mixed" : permissionLabel(mode)}`} title="Agent permissions" onClick={() => setOpen(!open)}><PermissionIcon mode={mode} /><span>{mode === "mixed" ? "Permissions" : permissionLabel(mode)}</span><span aria-hidden="true">⌄</span></button>
+    <button ref={trigger} className="permission-trigger tool-chip" aria-expanded={open} aria-label={`Agent permissions: ${mode === "mixed" ? "Mixed" : permissionLabel(mode)}`} title="Agent permissions" onClick={() => setOpen(!open)}><PermissionIcon mode={mode} /><span>{mode === "mixed" ? "Permissions" : permissionLabel(mode)}</span><svg className="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg></button>
     {open && <div className="permission-options" aria-label="Agent permissions">
       <p>Shared agent settings · applies to next runs</p>
       {agents.map(agent => <section key={agent._id} aria-label={`Permissions for @${agent.handle}`}>

@@ -13,7 +13,7 @@ export async function login(opts: { name?: string; fromApp?: boolean } = {}): Pr
   if (!start.ok) throw new Error(`device start failed: ${start.status}`);
   const { deviceCode, userCode, verifyUrl } = (await start.json()) as { deviceCode: string; userCode: string; verifyUrl: string };
   if (opts.fromApp) console.log(`BEAM_PAIR ${userCode}`);
-  else console.log(`\nApprove this runner in Beam:\n\n    ${userCode}\n\nSettings → Connected harnesses → Approve a runner, or open ${verifyUrl}\n`);
+  else console.log(`\nApprove this runner in Beam:\n\n    ${userCode}\n\nSettings → Machines → Connect another machine, or open ${verifyUrl}\n`);
   for (;;) {
     await new Promise((r) => setTimeout(r, 2500));
     const res = await fetch(`${site}/runner/device/poll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceCode }) });

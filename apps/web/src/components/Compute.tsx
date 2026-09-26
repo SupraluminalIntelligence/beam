@@ -8,6 +8,7 @@ import { ui } from "../lib/ui";
 import { rememberBrowserUrl } from "../browser/BrowserStart";
 import { extractTerminalLinks } from "../vendor/t3code/terminalLinks";
 import { normalizePreviewUrl } from "../vendor/t3code/previewUrl";
+import { Select } from "./Select";
 import { toast } from "./Toast";
 
 export function JobCard({ id, chatId }: { id: Id<"computeJobs">; chatId: Id<"chats"> }) {
@@ -50,7 +51,7 @@ function NewJob({ chatId }: { chatId: Id<"chats"> }) {
   }
   return <form className="compute-form" onSubmit={e => { e.preventDefault(); void run(); }}><fieldset disabled={busy}>
     <label>Title<input required value={title} onChange={e=>setTitle(e.target.value)} /></label>
-    <label>Run on<select value={runner || targets[0]?.id || ""} onChange={e=>setRunner(e.target.value)}>{!targets.length && <option value="">No compute runner connected</option>}{targets.map(t=><option key={t.id} value={t.id}>{t.name} · local</option>)}</select></label>
+    <label>Run on<Select label="Run on" value={runner || targets[0]?.id || ""} onChange={setRunner} disabled={!targets.length} placeholder="No compute runner connected" options={targets.map(t=>({value:t.id,label:t.name,hint:"local"}))} /></label>
     <label>Executable<input required value={executable} onChange={e=>setExecutable(e.target.value)} placeholder="python3, blockMesh, …" /></label>
     <label>Arguments · JSON array<textarea rows={3} value={args} onChange={e=>setArgs(e.target.value)} spellCheck={false} /></label>
     <p className="compute-help">Runs in a separate directory containing the selected inputs. The executable must be installed on the selected machine.</p>
