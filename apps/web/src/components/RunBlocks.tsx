@@ -4,6 +4,7 @@ import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
+import { PrIcon, openHref, prHref, prState } from "./PrStatus";
 import { activityLabel, activitySummary } from "../lib/activity";
 
 type Run = Doc<"runs"> & { runnerName: string };
@@ -122,30 +123,30 @@ export function Requests({ view, turn, runId }: { view: RunView; turn: number; r
 }
 
 type Landing = { repos: { repo: string; branch: string; base: string; pushed: boolean; add: number; del: number; files: number; prUrl: string | null; compareUrl: string | null; error: string | null }[]; error: string | null };
-const openHref = (href: string) => { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); };
 
-/** What a run left behind, one card per repo it changed. Nothing changed: no card. */
-export function LandingCard({ run }: { run: Run }) {
+/** What a run left behind: one line per repo it changed. Live PR detail (branch, CI) lives in the bar above the composer; this is the record. Nothing changed: no line. */
+export function LandingCard({ run, changes }: { run: Run; changes: Doc<"changes">[] }) {
   const raw = run.landing as null | Landing | { branch?: string };
   if (!raw) return run.state === "failed" ? <div className="ask fail"><div className="askp"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div></div> : null;
   const l: Landing = "repos" in raw ? raw : { repos: [], error: null }; // runs from before threads had one branch; they show nothing
   if (l.error) return <div className="ask fail"><div className="askp"><span className="k">{run.state === "interrupted" ? "run stopped" : "run failed"}</span><span>{l.error}</span></div></div>;
   if (!l.repos.length) return null;
   return <>{l.repos.map((r) => {
-    const href = r.prUrl ?? r.compareUrl;
+    const c = changes.filter((x) => x.repo === r.repo && x.branch === r.branch).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const prUrl = r.prUrl ?? (c ? prHref(c) : null);
+    const prNumber = c?.prNumber ?? (prUrl ? Number(prUrl.split("/").pop()) || null : null);
+    const href = prUrl ?? r.compareUrl;
+    const where = `${r.repo.split("/")[1]}${prNumber ? `#${prNumber}` : ""}`;
+    const what = !r.pushed ? (run.state === "interrupted" ? `stopped · nothing pushed to ${where}` : `nothing pushed to ${where}`) : `${run.state === "interrupted" ? "stopped · " : ""}pushed to ${where}`;
+    const resolved = c && c.state !== "open" ? c.state : null;
     return (
-      <button key={r.repo} className="card" onClick={() => href && openHref(href)} title={href ?? undefined}>
-        <span className="ai">⎇</span>
-        <div>
-          <div className="ttl">{r.branch}</div>
-          <div className="mt">
-            <span>{r.repo.split("/")[1]}</span>
-            <span>{run.state === "interrupted" ? "stopped" : r.pushed ? "pushed" : "not pushed"}</span>
-            {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}
-            {r.error && <span className="err">{r.error}</span>}
-            {href && <span className="hint">{r.prUrl ? "open PR" : "compare on GitHub"}</span>}
-          </div>
-        </div>
+      <button key={r.repo} className="landing" onClick={() => href && openHref(href)} title={href ?? r.branch}>
+        <PrIcon state={c ? prState(c) : prNumber ? "open" : "branch"} />
+        <span className="what">{what}</span>
+        {resolved && <span className={`st ${resolved}`}>{resolved}</span>}
+        {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}
+        {r.error && <span className="err">{r.error}</span>}
+        {href && <span className="hint">{prUrl ? "view PR" : "compare on GitHub"}</span>}
       </button>
     );
   })}</>;

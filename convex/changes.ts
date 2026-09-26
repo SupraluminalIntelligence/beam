@@ -4,6 +4,16 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
+import { internal } from "./_generated/api";
+
+/** Start a fresh GitHub poll for a change's PR; any older poll for it stops. Test contexts have no scheduler. */
+export async function startSync(ctx: MutationCtx, changeId: Id<"changes">, delayMs: number) {
+  const c = await ctx.db.get(changeId);
+  if (!c?.prNumber || !("scheduler" in ctx) || !ctx.scheduler) return;
+  const gen = (c.syncGen ?? 0) + 1;
+  await ctx.db.patch(changeId, { syncGen: gen });
+  await ctx.scheduler.runAfter(delayMs, internal.github.syncChange, { changeId, gen, attempt: 0 });
+}
 
 export const threadRepos = (chat: Doc<"chats">) => chat.repos ?? (chat.repo ? [chat.repo] : []);
 
@@ -47,14 +57,18 @@ export const land = mutation({
     const chat = (await ctx.db.get(run.chatId))!;
     const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing && existing.branch === a.branch) {
-      await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now() });
+      // A new head: the previous commit's CI no longer describes the branch. The poll below fills it back in.
+      await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now(), checks: undefined, headSha: undefined });
+      await startSync(ctx, existing._id, 10_000);
       return existing._id;
     }
-    return ctx.db.insert("changes", {
+    const id = await ctx.db.insert("changes", {
       ...(run.workScope ? { workScope: run.workScope } : {}),
       chatId: chat._id, workspaceId: chat.workspaceId, repo: a.repo, branch: a.branch, base: a.base, state: "open", title: a.title,
       prUrl: a.prUrl, prNumber: a.prNumber, add: a.add, del: a.del, files: a.files, adopted: false, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
     });
+    await startSync(ctx, id, 10_000);
+    return id;
   },
 });
 
@@ -69,11 +83,13 @@ export const adopt = mutation({
     const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing) throw new Error(`this thread already has an open change on ${a.repo} (${existing.branch}); land or close that first`);
     if (!threadRepos(chat).includes(a.repo)) await ctx.db.patch(chat._id, { repos: [...threadRepos(chat), a.repo] });
-    return ctx.db.insert("changes", {
+    const id = await ctx.db.insert("changes", {
       ...(run.workScope ? { workScope: run.workScope } : {}),
       chatId: chat._id, workspaceId: chat.workspaceId, repo: a.repo, branch: a.branch, base: a.base, state: "open", title: a.title,
       prUrl: a.prUrl, prNumber: a.prNumber, add: 0, del: 0, files: 0, adopted: true, createdBy: run.dispatchedBy, updatedAt: Date.now(), resolvedAt: null,
     });
+    await startSync(ctx, id, 0);
+    return id;
   },
 });
 
@@ -98,5 +114,17 @@ export const resolve = mutation({
     if (!c) throw new Error("no such change");
     await requireChat(ctx, c.chatId);
     await ctx.db.patch(changeId, { state, resolvedAt: Date.now() });
+  },
+});
+
+/** Someone opened a PR's checks: read GitHub now unless it was read in the last 15 seconds. */
+export const refresh = mutation({
+  args: { changeId: v.id("changes") },
+  handler: async (ctx, { changeId }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c) throw new Error("no such change");
+    await requireChat(ctx, c.chatId);
+    if (c.state !== "open" || (c.checks && Date.now() - c.checks.checkedAt < 15_000)) return;
+    await startSync(ctx, changeId, 0);
   },
 });

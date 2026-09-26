@@ -12,6 +12,7 @@ import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import { Modal, Seg } from "./Modal";
 import { fold, timeline, type RunView } from "@beam/reducer";
 import { Activity, LandingCard, Requests, RunStatus, isLive } from "./RunBlocks";
+import { CiDot, PrBar, ciWord, openHref, prHref } from "./PrStatus";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
 import { TypingIndicator, useTyping } from "./TypingIndicator";
@@ -109,6 +110,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const liveRun = steerRunId ? liveRuns.find(r => r._id === steerRunId) ?? null : liveRuns.find(r => r.dispatchedBy === me.githubLogin && r.agentId === permissionAgent?._id) ?? null;
   const liveAgent = liveRun ? detail.agents.find(a => a._id === liveRun.agentId) ?? null : null;
   const composerAgent = liveAgent ?? permissionAgent;
+  /** Who "Ask to fix" addresses: the agent that last ran here, else the pinned one, else the first in the chat. */
+  const lastRunAgent = runs?.length ? chatAgents.find((a) => a._id === runs.reduce((x, y) => (y._creationTime > x._creationTime ? y : x)).agentId) : undefined;
+  const askHandle = (lastRunAgent ?? pinned ?? chatAgents[0])?.handle ?? null;
   useEffect(() => { if (steerRunId && runs && !runs.some(r => r._id === steerRunId && isLive(r.state))) setSteerRunId(null); }, [runs, steerRunId]);
   const connectionPreview = useQuery(api.connections.preview, composerAgent && !liveRun ? { chatId: chat._id, harness: composerAgent.harness, ...(localRunnerId ? { localRunnerId } : {}) } : "skip");
 
@@ -185,11 +189,12 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         </span>
         {repos.map((r) => {
           const c = openChangeFor(r) ?? lastChangeFor(r);
-          const href = c?.prUrl ?? null;
+          const href = c ? prHref(c) : null;
           const stateLabel = !c ? "no change yet" : c.state === "open" ? (c.prNumber ? `#${c.prNumber} open` : "branch pushed") : c.prNumber ? `#${c.prNumber} ${c.state}` : c.state;
-          return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${href ? " · open PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
-            onClick={(e) => { e.stopPropagation(); if (href) { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); } }}>
-            <i>{r.split("/")[1]}</i>{stateLabel}
+          const ci = c?.state === "open" && c.prNumber && c.checks && c.checks.state !== "none" ? c.checks : null;
+          return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${ci ? ` · CI ${ciWord(ci)}` : ""}${href ? " · click to view the PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
+            onClick={(e) => { e.stopPropagation(); if (href) openHref(href); }}>
+            <i>{r.split("/")[1]}</i>{stateLabel}{ci && <CiDot checks={ci} />}
             <button className="rm" title={`Remove ${r} from this thread`} aria-label={`Remove ${r} from this thread`} onClick={(e) => { e.stopPropagation(); removeRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} removed from the thread`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>×</button></span>;
         })}
         <span className="sp" />
@@ -252,7 +257,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                   {current && !activeTable && !current.done && <Activity t={{ ...current, activity: [] }} live agentName={name} lastAt={view?.lastAt ?? null} queued={view?.queuedSteers ?? 0} note={view?.note ?? null} />}
                   {view && [...new Set(view.requests.map((r) => r.turn))].map((turn) => <Requests key={turn} view={view} turn={turn} runId={run._id} />)}
                 </>}
-                {row.kind === "landing" && <><RunStatus run={run} view={view} /><LandingCard run={run} /></>}
+                {row.kind === "landing" && <><RunStatus run={run} view={view} /><LandingCard run={run} changes={changes} /></>}
               </div>
             </div>;
           }
@@ -283,6 +288,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       </div>
 
       <TypingIndicator chatId={chat._id} me={me.githubLogin} nameOf={nameOf} />
+      <PrBar changes={changes} askHandle={askHandle} onAsk={(t) => { setText(t); typing.change(t); setPop(null); const el = inputRef.current; if (el) { el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = t.length; }); } }} />
       <div className="composer">
         {liveRuns.length > 0 && <div className="active-agents" aria-label="Active agents">{liveRuns.map(run => {
           const agent = detail.agents.find(a => a._id === run.agentId);

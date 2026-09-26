@@ -1098,3 +1098,49 @@ body.resizing .side-grip{pointer-events:auto}
 @media (max-width:640px){.usage-label{width:90px}.hrow .usage-reset{display:none}}
 .row.shortcut{grid-template-columns:minmax(0,1fr) auto}
 .usage-account .hrow .hint{color:var(--ink-3)}
+
+/* PR status: CI dots, the PR bar above the composer, and its checks popover */
+.ci-dot{display:inline-block;flex:none;width:7px;height:7px;background:var(--line-2)}
+.ci-dot.passing{background:var(--ok)}.ci-dot.failing{background:var(--bad)}.ci-dot.pending{background:var(--warn);animation:pulse 1.6s infinite}
+.thead .chip.change .ci-dot{margin-left:7px}
+.prbar{margin:0 auto 6px;width:min(880px,calc(100% - 36px));display:grid;gap:4px;flex:none}
+.prrow{display:flex;align-items:center;gap:10px;min-width:0;border:1px solid var(--line);border-radius:var(--r-3);background:var(--surface);padding:5px 6px 5px 12px;font:11.5px/1.5 var(--font-mono);color:var(--ink-2)}
+.prrow .prnum{color:var(--ink);font-weight:600}.prrow .prnum:hover{text-decoration:underline;text-underline-offset:2px}
+.prrow .prrepo{color:var(--ink-3)}
+.pr-icon{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.pr-icon.open{color:var(--add)}.pr-icon.draft,.pr-icon.branch{color:var(--ink-3)}.pr-icon.merged{color:var(--ok)}.pr-icon.closed{color:var(--bad)}
+.prrow .prbranchwrap{position:relative;flex:1;min-width:0;display:flex}
+.prrow .prbranch{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;color:var(--ink-2);padding:1px 6px;margin-left:-6px;border-radius:var(--r-1)}
+.prrow .prbranch:hover,.prrow .prbranch[aria-expanded="true"]{background:var(--surface-2);color:var(--ink)}
+.prmenu{position:absolute;left:-6px;bottom:calc(100% + 8px);min-width:220px;background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--shadow);z-index:6;padding:4px;display:grid}
+.prmenu button{text-align:left;padding:6px 10px;font:12px/1.5 var(--font-sans);color:var(--ink-2)}.prmenu button:hover{background:var(--surface-2);color:var(--ink)}
+.cichip.create{flex:none}.cichip.create:disabled{color:var(--ink-3);cursor:default}
+.landing{display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:100%;margin-top:8px;padding:6px 10px;border:1px solid var(--line);background:var(--surface);font:11.5px/1.5 var(--font-mono);color:var(--ink-3);text-align:left;cursor:pointer}
+.landing:hover{border-color:var(--line-2);background:var(--surface-2)}
+.landing .what{color:var(--ink-2)}
+.landing .st{text-transform:uppercase;letter-spacing:var(--track-label);font-size:10px}.landing .st.closed{color:var(--bad)}
+.landing .add{color:var(--add)}.landing .del{color:var(--del)}.landing .err{color:var(--del)}
+.landing .hint{text-decoration:underline;text-underline-offset:2px}
+.prrow .add{color:var(--add)}.prrow .del{color:var(--del)}
+.prrow .ci{position:relative;flex:none}
+.cichip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:var(--r-1);background:var(--surface-2);padding:2px 8px;color:var(--ink-2);font:inherit}
+.cichip:hover,.cichip[aria-expanded="true"]{border-color:var(--line-2);color:var(--ink)}
+.cichip .chev{color:var(--ink-3);font-size:9px}
+.cipop{position:absolute;right:0;bottom:calc(100% + 8px);width:300px;max-width:calc(100vw - 32px);background:var(--surface);border:1px solid var(--line-2);box-shadow:6px 6px 0 var(--shadow);z-index:6;padding:10px 12px;font:12px/1.5 var(--font-sans);color:var(--ink)}
+.cih{display:flex;align-items:center;justify-content:space-between;color:var(--ink-3);font:10px/1.5 var(--font-mono);letter-spacing:var(--track-label);text-transform:uppercase;margin-bottom:6px}
+.cilink{color:var(--ink-3);font-size:13px}.cilink:hover{color:var(--ink)}
+.cinote{color:var(--ink-3);padding:4px 0}
+.cicount{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:3px 0}
+.cicount .n{font-family:var(--font-mono);color:var(--ink-2)}
+.ci-mark{display:inline-block;width:7px;height:7px;background:var(--line-2)}
+.ci-mark.passed{background:var(--ok)}.ci-mark.failed{background:var(--bad)}.ci-mark.pending{background:var(--warn);animation:pulse 1.6s infinite}.ci-mark.skipped{background:transparent;border:1px solid var(--ink-3)}
+.ciitems{border-top:1px solid var(--line);margin-top:6px;padding-top:6px;display:grid}
+.ciitem{display:flex;align-items:center;gap:8px;padding:3px 4px;margin:0 -4px;text-align:left;color:var(--ink-2);font:11.5px/1.5 var(--font-mono);min-width:0}
+.ciitem:hover:not(:disabled){background:var(--surface-2);color:var(--ink)}.ciitem:disabled{cursor:default}
+.ciitem .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cift{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
+.cift button{border:1px solid var(--line-2);border-radius:var(--r-1);padding:3px 8px;font:11px/1.5 var(--font-mono);color:var(--ink-2)}
+.cift button:hover{color:var(--ink);border-color:var(--ink-3)}
+.cift .ciask{border-color:var(--ink);background:var(--ink);color:var(--surface)}.cift .ciask:hover{background:var(--surface);color:var(--ink)}
+.cift .ciago{margin-left:auto;color:var(--ink-3);font:10.5px/1.5 var(--font-mono)}
+@media (max-width:560px){.prrow .prrepo{display:none}.prbar{width:calc(100% - 32px)}}
