@@ -2,16 +2,23 @@
 
 What changed in Beam, newest first. The app shows this under Settings › What's new. Add a line under Unreleased with any user-visible change; a release renames Unreleased to its version and date.
 
-## Unreleased
+## 0.1.9 — 2026-09-26
 
 - PRs from Beam look like any other PR: ready for review instead of draft, titled and described by the agent that did the work, and committed under your own git name so GitHub shows your avatar. Commits fall back to Beam only on a machine with no git identity.
+
+## 0.1.8 — 2026-09-26
+
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
+- Invalid or inaccessible repo names no longer lock a thread while attaching a repo.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.
 - The account menu shows whether your machine is ready, your tightest usage window, and quick links into Settings.
 - Pause desktop notifications for an hour or until tomorrow. The inbox keeps collecting.
 - Settings groups its pages into You, Workspaces and Beam. Folder sharing moved to Machines; Shortcuts lists every shortcut.
 - What's new: this changelog, inside the app.
+
+## 0.1.7 — 2026-09-26
+
 - Settings is a rail of pages: General, Models & accounts, Machines, Notifications, and a page per workspace with its repos, members and agents.
 - Model, effort and account are personal and follow you across workspaces; permissions and context stay shared per workspace agent.
 - Opus 5.5 for Claude Code.
