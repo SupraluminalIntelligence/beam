@@ -194,7 +194,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           const href = c?.prUrl ?? null;
           const stateLabel = !c ? "no change yet" : c.state === "open" ? (c.prNumber ? `#${c.prNumber} open` : "branch pushed") : c.prNumber ? `#${c.prNumber} ${c.state}` : c.state;
           const ci = c?.state === "open" && c.prNumber && c.checks && c.checks.state !== "none" ? c.checks : null;
-          return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${ci ? ` · CI ${ciWord(ci)}` : ""}${href ? " · open PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
+          return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${ci ? ` · CI ${ciWord(ci)}` : ""}${href ? " · click to view the PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
             onClick={(e) => { e.stopPropagation(); if (href) openHref(href); }}>
             <i>{r.split("/")[1]}</i>{stateLabel}{ci && <CiDot checks={ci} />}</span>;
         })}

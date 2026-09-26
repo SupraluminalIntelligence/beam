@@ -146,7 +146,7 @@ export function LandingCard({ run, changes }: { run: Run; changes: Doc<"changes"
         {resolved && <span className={`st ${resolved}`}>{resolved}</span>}
         {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}
         {r.error && <span className="err">{r.error}</span>}
-        {href && <span className="hint">{prUrl ? "open PR" : "compare on GitHub"}</span>}
+        {href && <span className="hint">{prUrl ? "view PR" : "compare on GitHub"}</span>}
       </button>
     );
   })}</>;

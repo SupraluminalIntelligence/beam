@@ -63,6 +63,13 @@ describe("CiPopover", () => {
     expect(html).toContain("Ask @claude to fix");
   });
 
+  it("says when checks can't be read instead of checking forever, and links to the PR as View PR", () => {
+    const html = renderToStaticMarkup(<CiPopover change={change({ checks: undefined })} href={c.prUrl!} error="Server Error" askHandle="claude" onAsk={() => {}} />);
+    expect(html).toContain("can&#x27;t read this PR&#x27;s checks");
+    expect(html).not.toContain("Checking GitHub");
+    expect(html).toContain(">View PR<");
+  });
+
   it("does not offer a fix while CI passes", () => {
     const passing = change({ checks: { ...c.checks!, state: "passing", failed: 0, items: c.checks!.items.slice(1) } });
     expect(renderToStaticMarkup(<CiPopover change={passing} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />)).not.toContain("to fix");

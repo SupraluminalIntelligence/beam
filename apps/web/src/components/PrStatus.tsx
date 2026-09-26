@@ -66,11 +66,12 @@ const errText = (e: unknown) => String((e as Error).message).replace(/^.*Uncaugh
 function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: string | null; onAsk: (text: string) => void }) {
   const [open, setOpen] = useState<"ci" | "branch" | null>(null);
   const [creating, setCreating] = useState(false);
+  const [ciError, setCiError] = useState<string | null>(null);
   const refresh = useMutation(api.changes.refresh);
   const createPr = useAction(api.github.createPr);
   useDismiss(open !== null, () => setOpen(null));
   const toggleCi = () => {
-    if (open !== "ci") void refresh({ changeId: c._id }).catch((e) => toast(errText(e)));
+    if (open !== "ci") { setCiError(null); void refresh({ changeId: c._id }).catch((e) => setCiError(errText(e))); }
     setOpen(open === "ci" ? null : "ci");
   };
   const create = () => {
@@ -104,21 +105,21 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
           <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open === "ci"} aria-haspopup="dialog" onClick={toggleCi} title={`CI ${ciWord(c.checks)}`}>
             <CiDot checks={c.checks} />CI<span className="chev" aria-hidden="true">▾</span>
           </button>
-          {open === "ci" && <CiPopover change={c} href={href} askHandle={askHandle} onAsk={(t) => { setOpen(null); onAsk(t); }} />}
+          {open === "ci" && <CiPopover change={c} href={href} error={ciError} askHandle={askHandle} onAsk={(t) => { setOpen(null); onAsk(t); }} />}
         </div>
       )}
     </div>
   );
 }
 
-export function CiPopover({ change: c, href, askHandle, onAsk }: { change: Change; href: string; askHandle: string | null; onAsk: (text: string) => void }) {
+export function CiPopover({ change: c, href, error = null, askHandle, onAsk }: { change: Change; href: string; error?: string | null; askHandle: string | null; onAsk: (text: string) => void }) {
   const k = c.checks;
   const counts = k ? ([["failed", "Failed", k.failed], ["pending", "Running", k.pending], ["passed", "Passed", k.passed], ["skipped", "Skipped", k.skipped]] as const).filter(([, , n]) => n > 0) : [];
   const worth = k?.items.filter((i) => i.state === "failed" || i.state === "pending").slice(0, 8) ?? [];
   return (
     <div className="cipop" role="dialog" aria-label={`CI for #${c.prNumber}`}>
       <div className="cih"><span>CI checks</span><button className="cilink" onClick={() => openHref(`${href}/checks`)} title="Open checks on GitHub">↗</button></div>
-      {!k && <div className="cinote">Checking GitHub…</div>}
+      {!k && <div className="cinote">{error ? "Beam can't read this PR's checks right now. They're on GitHub." : "Checking GitHub…"}</div>}
       {k?.state === "none" && <div className="cinote">No checks reported on the latest commit.</div>}
       {counts.map(([state, label, n]) => <div key={state} className={`cicount ${state}`}><span className={`ci-mark ${state}`} aria-hidden="true" /><span>{label}</span><span className="n">{n}</span></div>)}
       {worth.length > 0 && <div className="ciitems">{worth.map((i, n) => (
@@ -128,7 +129,7 @@ export function CiPopover({ change: c, href, askHandle, onAsk }: { change: Chang
       ))}</div>}
       <div className="cift">
         {!!k?.failed && askHandle && <button className="ciask" onClick={() => onAsk(fixPrompt(askHandle, c))}>Ask @{askHandle} to fix</button>}
-        <button onClick={() => openHref(href)}>Open PR</button>
+        <button onClick={() => openHref(href)}>View PR</button>
         {k && <span className="ciago">updated {ago(k.checkedAt, Date.now())}</span>}
       </div>
     </div>
