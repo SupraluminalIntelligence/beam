@@ -202,7 +202,7 @@ export const createPr = action({
       const list = await fetch(`https://api.github.com/repos/${c.repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${c.branch}`)}`, { headers });
       pr = list.ok ? parseRestPr(await list.json()) : null;
     }
-    if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : res.ok ? "GitHub opened the PR but sent back an unexpected reply; it will show up on the next sync." : `GitHub refused the PR (${res.status}).` };
+    if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : res.ok ? "GitHub may have opened the PR but sent back an unexpected reply. Click Create PR again to link it." : `GitHub refused the PR (${res.status}).` };
     await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.url, prNumber: pr.number });
     return { url: pr.url };
   },
