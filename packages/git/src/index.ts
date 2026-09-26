@@ -98,10 +98,10 @@ export async function checkpointAndPush(wt: string, branch: string, message: str
   return { committed: !!dirty };
 }
 
-/** A draft PR through the user's own `gh` login, if there is one. Beam holds no GitHub token. */
-export async function draftPullRequest(wt: string, repo: string, branch: string, base: string, title: string, body: string): Promise<string | null> {
+/** A PR ready for review, through the user's own `gh` login if there is one. Beam holds no GitHub token. */
+export async function openPullRequest(wt: string, repo: string, branch: string, base: string, title: string, body: string): Promise<string | null> {
   try {
-    const { stdout } = await run("gh", ["pr", "create", "--draft", "--repo", repo, "--head", branch, "--base", base, "--title", title, "--body", body], { cwd: wt, env: process.env });
+    const { stdout } = await run("gh", ["pr", "create", "--repo", repo, "--head", branch, "--base", base, "--title", title, "--body", body], { cwd: wt, env: process.env });
     const m = stdout.match(/https:\/\/\S+/);
     return m ? m[0] : null;
   } catch {
@@ -159,6 +159,14 @@ export async function ensureRepoWorktree(repo: string, path: string, branch: str
 
 const beamIdentity = ["-c", "user.name=Beam", "-c", "user.email=beam@supraluminal.dev"];
 /**
+ * Commits are the machine owner's, as if they made them: GitHub shows their name and avatar. Beam's own identity is
+ * only the fallback for a machine where git has none, where a commit would otherwise fail.
+ */
+async function identity(wt: string): Promise<string[]> {
+  const [name, email] = await Promise.all([git(["config", "user.name"], wt).catch(() => ""), git(["config", "user.email"], wt).catch(() => "")]);
+  return name && email ? [] : beamIdentity;
+}
+/**
  * Bring the worktree's branch up to origin/<branch>: a fast-forward when it is simply behind, a merge when both sides
  * moved. A merge that conflicts is abandoned and the branch is left as it was; the push then fails and says so.
  */
@@ -166,7 +174,7 @@ async function catchUp(wt: string, branch: string): Promise<void> {
   const remote = `origin/${branch}`;
   if (await git(["merge", "--ff-only", remote], wt).then(() => true, () => false)) return;
   // --no-ff overrides a person's merge.ff=only, which would otherwise refuse the merge too.
-  await git([...beamIdentity, "merge", "--no-ff", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
+  await git([...(await identity(wt)), "merge", "--no-ff", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
 }
 
 export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number }
@@ -177,7 +185,7 @@ export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: bo
 export async function landRepo(wt: string, branch: string, base: string, message: string): Promise<RepoLandResult> {
   await git(["add", "-A"], wt);
   const dirty = !!(await git(["status", "--porcelain"], wt));
-  if (dirty) await git([...beamIdentity, "commit", "-m", message], wt);
+  if (dirty) await git([...(await identity(wt)), "commit", "-m", message], wt);
   const ahead = await git(["rev-list", "--count", `origin/${base}..HEAD`], wt).catch(() => "0");
   if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0 };
   await git(["push", "-u", "origin", branch], wt).catch(async (pushError: unknown) => {

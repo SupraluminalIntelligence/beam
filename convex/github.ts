@@ -196,7 +196,7 @@ export const changeForPr = internalQuery({
     const c = await ctx.db.get(changeId);
     if (!c) throw new Error("no such change");
     await requireChat(ctx, c.chatId);
-    return c.state === "open" && !c.prNumber ? { repo: c.repo, branch: c.branch, base: c.base, title: c.title } : null;
+    return c.state === "open" && !c.prNumber ? { repo: c.repo, branch: c.branch, base: c.base, title: c.title, body: c.body ?? "" } : null;
   },
 });
 
@@ -222,7 +222,7 @@ export const createPr = action({
     const t = await ctx.runQuery(internal.github.myToken, {});
     if (!t) return { error: "Beam has no GitHub access for you. Sign out and back in to grant it." };
     const headers = { authorization: `Bearer ${t.token}`, accept: "application/vnd.github+json", "user-agent": "beam", "content-type": "application/json" };
-    const res = await fetch(`https://api.github.com/repos/${c.repo}/pulls`, { method: "POST", headers, body: JSON.stringify({ title: c.title, head: c.branch, base: c.base, body: "Opened from Beam." }) });
+    const res = await fetch(`https://api.github.com/repos/${c.repo}/pulls`, { method: "POST", headers, body: JSON.stringify({ title: c.title, head: c.branch, base: c.base, body: c.body }) });
     let pr = res.ok ? parseRestPr(await res.json()) : null;
     if (!pr && res.status === 422) {
       // Someone already opened one for this branch: adopt it.
