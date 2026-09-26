@@ -59,6 +59,37 @@ jobs:
           EXPO_NO_TELEMETRY: 1
         run: pnpm exec expo export --platform ios --output-dir "$RUNNER_TEMP/mobile"
 
+  # Shows on a pull request into main whether the deploy after merging would
+  # be refused. Fork pull requests get no secrets, so they skip it.
+  convex-removals:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Convex bindings
+        run: pnpm exec convex codegen --system-udfs --typecheck disable
+
+      - name: Compare with production
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::notice::No CONVEX_DEPLOY_KEY for this pull request; skipping."
+            exit 0
+          fi
+          pnpm convex:removals
+
   # Production Convex follows main. Installed phone and desktop builds call it,
   # so a deploy that would remove a function they may use is refused.
   deploy-convex:
