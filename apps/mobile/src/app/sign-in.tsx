@@ -24,6 +24,8 @@ export default function SignIn() {
   const convex = useConvex();
   const [waiting, setWaiting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Once the code is approved and handed to the device provider, the sign-in cannot be called back, so Cancel is withdrawn.
+  const [committed, setCommitted] = useState(false);
   // Each tap of Sign in is one attempt. Cancel, a newer attempt, or leaving the screen bumps this, and the old attempt stops at its next await.
   const attempt = useRef(0);
   useEffect(() => () => { attempt.current++; }, []);
@@ -50,7 +52,8 @@ export default function SignIn() {
       if (result === "cancelled") return;
       if (result === "approved") {
         closeBrowser();
-        const res = await signIn("device", { deviceCode: d.deviceCode });
+        setCommitted(true);
+        const res = await signIn("device", { deviceCode: d.deviceCode }).finally(() => setCommitted(false));
         if (res.signingIn) return;
         if (!cancelled()) setError("Sign-in did not complete. Try again.");
       } else setError(result === "expired" ? "That code expired. Try again." : "That took too long. Try again.");
@@ -73,7 +76,7 @@ export default function SignIn() {
           <T weight="medium">Approve this code on Beam's website</T>
           <T mono weight="semi" size={28} style={{ letterSpacing: 3 }}>{waiting}</T>
           <T size={14} tone="ink3">A browser opened on Beam. Sign in with GitHub there if asked, then tap Approve. This screen continues by itself.</T>
-          <Button label="Cancel" onPress={cancel} />
+          <Button label={committed ? "Signing in" : "Cancel"} disabled={committed} onPress={cancel} />
         </View>
       ) : (
         <View style={{ gap: 10 }}>
