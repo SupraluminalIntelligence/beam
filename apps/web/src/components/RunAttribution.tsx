@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Doc } from "../../../../convex/_generated/dataModel";
+import { useQuery } from "convex/react";
+import { api } from "../../../../convex/_generated/api";
 
 /** Keep the message header compact; account details belong to the hover card. */
 export function RunAttribution({ run, nameOf }: { run: Doc<"runs">; nameOf: (login: string) => string }) {
@@ -9,6 +11,7 @@ export function RunAttribution({ run, nameOf }: { run: Doc<"runs">; nameOf: (log
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [position, setPosition] = useState<{ left: number; top: number; above: boolean } | null>(null);
   const execution = run.execution;
+  const machineName = useQuery(api.runners.nameForRun, position ? { runId: run._id } : "skip");
   const cancelClose = () => { if (timer.current) clearTimeout(timer.current); };
   const close = () => { cancelClose(); setPosition(null); };
   const hide = () => { cancelClose(); timer.current = setTimeout(() => setPosition(null), 120); };
@@ -41,7 +44,7 @@ export function RunAttribution({ run, nameOf }: { run: Doc<"runs">; nameOf: (log
         <dt>Requested by</dt><dd>{nameOf(run.dispatchedBy)}</dd>
         <dt>Account</dt><dd>{nameOf(execution.accountOwner)}{execution.accountEmail && <small>{execution.accountEmail}</small>}</dd>
         <dt>Connection</dt><dd>{execution.connectionName ?? "Default account"}</dd>
-        <dt>Machine</dt><dd>{execution.machineName ?? "Not recorded"}</dd>
+        <dt>Machine</dt><dd title={machineName && execution.machineName && machineName !== execution.machineName ? `Named ${execution.machineName} when this run started` : undefined}>{machineName ?? execution.machineName ?? "Not recorded"}</dd>
         <dt>Subscription</dt><dd>{execution.accountPlan ?? "Not reported"}</dd>
       </dl>
     </div>, document.body)}

@@ -15,15 +15,16 @@ import { getFunctionName } from 'convex/server';
 const subscribers = new Set<()=>void>();
 const empty: any[] = [], object = {};
 const prefs = { enabled:true,mention:true,completed:true,failed:true,input:true,sound:true };
-const people = { apek:{name:'Apekshik'}, 'noah-dev':{name:'Noah Example'} };
-const messages = Array.from({length:70},(_,i)=>({_id:'m'+i,_creationTime:Date.now()-70000+i*1000,chatId:'chat',author:'apek',kind:'text',text:i===5?'@noah-dev Please review this exact message.':'Context message '+i,runId:null,reactions:[],attachments:[]}));
+const people = { apek:{name:'apekshik'}, 'noah-dev':{name:'Noah Example'} };
+let messages = Array.from({length:70},(_,i)=>({_id:'m'+i,_creationTime:Date.now()-70000+i*1000,chatId:'chat',author:'apek',kind:'text',text:i===5?'@noah-dev Please review this exact message.':'Context message '+i,runId:null,reactions:[],attachments:[]}));
 let rows:any[] = [], version = 0;
+let machine = {id:"runner",name:"apek@host",hostname:"host.local",online:true};
 const emit=()=>{version++;subscribers.forEach(f=>f());};
-window.fixture={calls:[],banners:[],fail:false,add:(id='mention')=>{rows=[...rows,{_id:id,_creationTime:Date.now(),kind:'mention',recipient:'noah-dev',chatId:'chat',workspaceId:'ws',messageId:'m5',title:'Apekshik mentioned you',body:'Design: Please review this exact message.',readAt:null,deliveredAt:null}];emit();},rows:()=>rows};
+window.fixture={sendFail:false,renameFail:false,incoming:()=>{messages=[...messages,{...messages[0],_id:"incoming",_creationTime:Date.now(),text:"Incoming update"}];emit();},calls:[],banners:[],fail:false,add:(id='mention')=>{rows=[...rows,{_id:id,_creationTime:Date.now(),kind:'mention',recipient:'noah-dev',chatId:'chat',workspaceId:'ws',messageId:'m5',title:'Apekshik mentioned you',body:'Design: Please review this exact message.',readAt:null,deliveredAt:null}];emit();},rows:()=>rows};
 export function useQuery(fn:any,args:any){useSyncExternalStore(f=>{subscribers.add(f);return()=>subscribers.delete(f);},()=>version);if(args==='skip')return undefined;switch(getFunctionName(fn)){
-case 'notifications:inbox':return rows;case 'notifications:preferences':return prefs;case 'messages:list':return messages;case 'users:byLogins':return people;case 'runs:eventsForChat':return object;case 'compute:studyContext':return null;default:return empty;}}
+case 'runners:mine':return [machine];case 'notifications:inbox':return rows;case 'notifications:preferences':return prefs;case 'messages:list':return messages;case 'users:byLogins':return people;case 'runs:eventsForChat':return object;case 'compute:studyContext':return null;default:return empty;}}
 const mutations=new Map();
-export function useMutation(fn:any){const name=getFunctionName(fn);if(!mutations.has(name))mutations.set(name,async(args:any)=>{window.fixture.calls.push({name,args});const row=rows.find(r=>r._id===args.id);if(name==='notifications:reserve'){if(!row||row.deliveredAt!==null||row.token)return false;row.token=args.token;return true;}if(name==='notifications:finishDelivery'){if(row?.token===args.token){if(args.accepted)row.deliveredAt=Date.now();delete row.token;emit();}}if(name==='notifications:read'){row.readAt=Date.now();emit();}});return mutations.get(name);}
+export function useMutation(fn:any){const name=getFunctionName(fn);if(!mutations.has(name))mutations.set(name,async(args:any)=>{window.fixture.calls.push({name,args});if(name==='runners:rename'){if(window.fixture.renameFail)throw new Error('Rename failed');machine={...machine,name:args.name};emit();return;}if(name==='messages:send'){if(window.fixture.sendFail)throw new Error('Send failed');messages=[...messages,{...messages[0],_id:'sent'+messages.length,_creationTime:Date.now(),text:args.text}];emit();return {kind:'text'};}const row=rows.find(r=>r._id===args.id);if(name==='notifications:reserve'){if(!row||row.deliveredAt!==null||row.token)return false;row.token=args.token;return true;}if(name==='notifications:finishDelivery'){if(row?.token===args.token){if(args.accepted)row.deliveredAt=Date.now();delete row.token;emit();}}if(name==='notifications:read'){row.readAt=Date.now();emit();}});return mutations.get(name);}
 `);
 await writeFile(`${dir}/entry.tsx`, `
 import React from 'react';import {createRoot} from 'react-dom/client';
@@ -62,10 +63,29 @@ try {
   // Banner navigation and visible highlight use the same message target.
   await page.evaluate(()=>window.fixture.click({...window.fixture.banners[0],id:'focused'}));
   await page.locator('[data-mid="m5"].notification-target').waitFor();
-  // Name search resolves the canonical account instead of requiring its GitHub login.
+  // Username search inserts the chosen Beam username instead of requiring its GitHub login.
   await page.locator('textarea').fill('@Apek');
-  await page.getByRole('button',{name:/Apekshik member/}).click();
-  assert.equal(await page.locator('textarea').inputValue(),'@apek ');
+  await page.getByRole('button',{name:/apekshik member/}).click();
+  assert.equal(await page.locator('textarea').inputValue(),'@apekshik ');
+  // Sending from history resumes smooth following; incoming messages alone must not.
+  const viewport=page.locator('.msgs');
+  await viewport.evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});
+  await page.evaluate(()=>window.fixture.incoming());
+  await page.waitForTimeout(150);
+  assert.equal(await viewport.evaluate(el=>el.scrollTop),0);
+  await page.locator('textarea').fill('Sent from history');
+  await page.getByRole('button',{name:'Send message',exact:true}).click();
+  await page.waitForFunction(()=>{const el=document.querySelector('.msgs');return el.scrollHeight-el.clientHeight-el.scrollTop<3;});
+  await viewport.evaluate(el=>{el.scrollTop=0;el.dispatchEvent(new Event('scroll'));});
+  await page.evaluate(()=>{window.fixture.sendFail=true;});
+  await page.locator('textarea').fill('Keep this failed draft');
+  await page.locator('textarea').press('Enter');
+  await page.waitForFunction(()=>document.querySelector('textarea').value==='Keep this failed draft');
+  assert.equal(await viewport.evaluate(el=>el.scrollTop),0);
+  await page.evaluate(()=>{window.fixture.sendFail=false;});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.locator('textarea').press('Enter');
+  await page.waitForFunction(()=>{const el=document.querySelector('.msgs');return el.scrollHeight-el.clientHeight-el.scrollTop<3;});
   assert.deepEqual(errors,[]);
-  console.log('PASS: native payload, single delivery, inbox unread state, exact-message jump, highlight expiry, focused suppression, banner click, name picker; no live backend used.');
+  console.log('PASS: native payload, single delivery, inbox unread state, exact-message jump, highlight expiry, focused suppression, banner click, name picker, send-from-history scrolling, reduced motion, failed-send draft; no live backend used.');
 } finally { await browser?.close();await server?.close();await rm(dir,{recursive:true,force:true}); }

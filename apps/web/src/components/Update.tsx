@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-type U = { state: "none" | "checking" | "available" | "downloading" | "ready" | "error"; version: string | null; percent: number; message: string | null };
+type U = { state: "none" | "checking" | "available" | "downloading" | "ready" | "installing" | "error"; version: string | null; percent: number; message: string | null };
 type Bridge = { updateStatus?: () => Promise<U>; updateDownload?: () => Promise<void>; updateInstall?: () => Promise<void>; onUpdate?: (cb: (u: U) => void) => () => void };
 const bridge = () => (window as unknown as { beam?: Bridge }).beam;
 
@@ -17,5 +17,6 @@ export function UpdatePill() {
   const b = bridge();
   if (u.state === "available" || u.state === "error") return <button className="upd" title={u.state === "error" ? `Update failed: ${u.message ?? "unknown"} · click to retry` : `Beam ${u.version} is available · click to download`} onClick={() => void b?.updateDownload?.()}>{u.state === "error" ? "retry update" : "update"}</button>;
   if (u.state === "downloading") return <span className="upd busy" title={`Downloading Beam ${u.version}`}>{u.percent}%</span>;
-  return <button className="upd ready" title={`Beam ${u.version} is downloaded · click to restart into it`} onClick={() => void b?.updateInstall?.()}>restart to update</button>;
+  if (u.state === "installing") return <button className="upd busy" disabled aria-live="polite">restarting…</button>;
+  return <button className="upd ready" title={`Beam ${u.version} is downloaded · click to restart into it`} onClick={() => void b?.updateInstall?.().catch((error: unknown) => setU({ ...u, state: "error", message: error instanceof Error ? error.message : String(error) }))}>restart to update</button>;
 }

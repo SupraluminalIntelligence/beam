@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { homedir, hostname, platform } from "node:os";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 export interface RunnerConfig { convexUrl: string; token: string; githubLogin: string; name: string }
@@ -21,4 +22,16 @@ export async function writeConfig(c: RunnerConfig): Promise<void> {
   await writeFile(file(), JSON.stringify(c, null, 2));
   await chmod(file(), 0o600);
 }
-export const defaultName = () => `${process.env["USER"] ?? "me"}@${hostname().replace(/\.local$/, "")}`;
+const legacyName = () => `${process.env["USER"] ?? "me"}@${hostname().replace(/\.local$/, "")}`;
+/** Use macOS's human-readable Computer Name, not its network hostname. */
+export function defaultName(): string {
+  if (platform() === "darwin") {
+    try {
+      const name = execFileSync("/usr/sbin/scutil", ["--get", "ComputerName"], { encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (name) return name.slice(0, 80);
+    } catch { /* Headless hosts may not have a Computer Name. */ }
+  }
+  return hostname().replace(/\.local$/, "").replace(/[-_]+/g, " ").trim().slice(0, 80) || "My computer";
+}
+/** Upgrade the old generated label while preserving explicit CLI names. Server-side aliases win. */
+export const machineName = (configured: string) => configured === legacyName() ? defaultName() : configured;

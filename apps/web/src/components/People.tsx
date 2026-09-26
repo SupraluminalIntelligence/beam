@@ -35,8 +35,10 @@ export function People({ me, members, presence, runners, setModal }: { me: Me; m
           return (
             <div key={l} className="pp-row">
               <PersonAvatar login={l} name={nameOf(l)} image={imageOf(l)} hue={l === me.githubLogin ? "me" : hueClass(l)} />
-              <span className="nm">{nameOf(l)}{l === me.githubLogin && <span className="k"> you</span>}</span>
-              <span className="d">{online(l) ? "online" : "away"}{rs.length ? ` · runner ${rs.join(", ")}` : ""}</span>
+              <div className="pp-identity">
+                <span className="nm" title={nameOf(l)}>{nameOf(l)}{l === me.githubLogin && <span className="k"> you</span>}</span>
+                <span className="d" title={rs.join(", ") || undefined}>{online(l) ? "online" : "away"}{rs.length ? ` · ${rs.join(", ")}` : ""}</span>
+              </div>
               <span className={`sq ${online(l) ? "ok" : "idle"}`} />
             </div>
           );

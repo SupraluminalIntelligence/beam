@@ -159,8 +159,10 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
     const mention = firstMention(body, handles);
     typing.stop();
     setText(""); setPop(null);
+    const followSentMessage = scroll.resume.current;
     try {
       const r = await send({ chatId: chat._id, text: body, mentionHandle: mention, ...(liveRun ? { targetRunId: liveRun._id } : {}), ...(localRunnerId ? { localRunnerId } : {}), ...(connectionPreview?.selected ? { expectedConnection: connectionPreview.selected.key } : {}), attachments: attachments.drafts.map(f=>f.id) });
+      followSentMessage();
       attachments.clear();
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
     } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); } finally { setSending(false); }
