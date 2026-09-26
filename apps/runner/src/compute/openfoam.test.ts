@@ -56,8 +56,31 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM through the
       // Developed laminar planar-channel centreline velocity tends to 1.5 times bulk velocity.
       const outlet=f.centres.flatMap((p,i)=>p[0]>.19?[f.velocity[i]!]:[]);expect(Math.max(...outlet)/defaultChannel.velocity).toBeCloseTo(1.5,1);
       expect((await executor.readOutput({backend:executor.backend,id:"solve"},"case.tar.gz")).length).toBeGreaterThan(1000);
+      // Conservation from the solver's face fluxes, and the developed pressure gradient against f·Re = 96.
+      const ch=solved.channel!;expect(Math.abs(solved.massImbalance!)).toBeLessThan(1e-6);expect(Math.abs(ch.energyImbalance!)).toBeLessThan(1e-4);
+      expect(ch.fRe!).toBeGreaterThan(94);expect(ch.fRe!).toBeLessThan(98);
+      // Flow weighting favours the cooler core, so the bulk outlet temperature sits below the column's arithmetic mean.
+      expect(ch.bulkOutletTemperatureK).toBeGreaterThan(defaultChannel.inletTemperature);expect(ch.bulkOutletTemperatureK).toBeLessThan(solved.outletTemperatureK!);
+      // Thermally developing over the whole channel: local Nu falls along x and stays above the developed 7.54.
+      expect(ch.nusselt[0]![1]).toBeGreaterThan(ch.nusselt.at(-1)![1]);expect(ch.nusselt.at(-1)![1]).toBeGreaterThan(7.54);
     }finally{await executor.cancelSubmission("mesh");await executor.cancelSubmission("solve");await rm(root,{recursive:true,force:true});}
   },120000);
+
+  it("reaches the developed parallel-plate Nusselt number past the thermal entry length",async()=>{
+    // HFE-7100 in a 1 mm gap at 20 cm/s: thermal entry ≈ 16.5 cm of 20 cm, so the last column is within 5% of Nu = 7.54.
+    const config={...defaultChannel,height:.001,nx:160,ny:20,velocity:.2,nu:3.8e-7,pr:9.8,density:1510,inletTemperature:293.15,wallTemperature:323.15};
+    const root=await mkdtemp(join(tmpdir(),"beam-foam-nu-")),executor=new LocalExecutor(root);
+    const spec=(stage:"mesh"|"solve"):ProcessJobSpec=>({version:1,kind:"process",title:"Developed channel",executable:"beam:openfoam",args:[],inputs:stage==="mesh"?[]:[{assetId:"mesh",path:"mesh-input.json"}],outputs:simulationOutputs(stage),timeoutSeconds:120,simulation:{image:OPENFOAM_IMAGE,caseId:"developed",revision:1,stage,config,...(stage==="solve"?{meshJobId:"mesh"}:{})}});
+    async function finish(id:string){const until=Date.now()+110000;while(Date.now()<until){const s=await executor.inspect({backend:executor.backend,id});if(s.state!=="running"){expect(s.state,s.log).toBe("succeeded");return;}await new Promise(r=>setTimeout(r,100));}throw new Error("Integration timed out");}
+    try{
+      await executor.submit("mesh",spec("mesh"),[]);await finish("mesh");
+      const bytes=await readFile(join(root,"mesh/work/mesh.json"));
+      await executor.submit("solve",spec("solve"),[{path:"mesh-input.json",size:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex"),url:`data:application/json;base64,${bytes.toString("base64")}`}]);await finish("solve");
+      const ch=SimulationReport.parse(JSON.parse(await readFile(join(root,"solve/work/report.json"),"utf8"))).channel!;
+      expect(ch.nusselt.at(-1)![1]/7.54).toBeGreaterThan(1);expect(ch.nusselt.at(-1)![1]/7.54).toBeLessThan(1.05);
+      expect(Math.abs(ch.fRe!/96-1)).toBeLessThan(.02);expect(Math.abs(ch.energyImbalance!)).toBeLessThan(1e-4);
+    }finally{await executor.cancelSubmission("mesh");await executor.cancelSubmission("solve");await rm(root,{recursive:true,force:true});}
+  },240000);
 });
 
 it("counts transient steps rather than rounding physical times",()=>{

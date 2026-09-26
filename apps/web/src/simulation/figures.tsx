@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ChannelCase, SimulationFields, SimulationReport } from "@beam/contracts";
+import { PLATES_NU_T, channelEntryLengths, type ChannelCase, type ChannelResults, type SimulationFields, type SimulationReport } from "@beam/contracts";
 
 const number=(n:number)=>Number(n.toPrecision(4)).toString();
 export function ChannelDrawing({config:c,mesh,fields,field,select,section}:{config:ChannelCase;mesh:boolean;fields:SimulationFields|null;field:"velocity"|"pressure"|"temperature";select:(s:string)=>void;section:string}){
@@ -27,5 +27,16 @@ export function ResidualPlot({rows,field}:{rows:SimulationReport["residuals"];fi
     {!!points.length&&<polyline points={points.map(p=>`${60+p.iteration/last*710},${y(p.initial)}`).join(" ")} fill="none" stroke="var(--ink)" strokeWidth="1.5"/>}
     {!points.length&&<text x="400" y="150" textAnchor="middle">Residual history appears after results are exported.</text>}
     <text x="60" y="305">0</text><text x="770" y="305" textAnchor="end">{points.length?last:"—"} iterations</text>
+  </svg></div>;
+}
+/** Local Nusselt number along the channel against the fully developed value; the entrance peak is clipped. */
+export function NusseltPlot({config:c,nusselt}:{config:ChannelCase;nusselt:ChannelResults["nusselt"]}){
+  const top=4*PLATES_NU_T,x=(v:number)=>60+v/c.length*710,y=(v:number)=>250-Math.min(v,top)/top*220,entry=channelEntryLengths(c).heat;
+  return <div className="sim-residuals sim-nusselt"><svg viewBox="0 0 800 290" role="img" aria-label={`Local Nusselt number along the channel; ${number(nusselt.at(-1)![1])} at the last column against ${PLATES_NU_T} fully developed`}>
+    {[0,10,20,30].map(n=><g key={n}><path d={`M60 ${y(n)}H770`} stroke="var(--line)"/><text x="8" y={y(n)+4}>{n}</text></g>)}
+    <path d={`M60 ${y(PLATES_NU_T)}H770`} stroke="var(--ink-3)" strokeDasharray="6 5"/><text x="66" y={y(PLATES_NU_T)+18}>{PLATES_NU_T} fully developed</text>
+    {entry<c.length&&<><path d={`M${x(entry)} 30V250`} stroke="var(--ink-3)" strokeDasharray="2 5"/><text x={x(entry)+(x(entry)>480?-6:6)} y="44" textAnchor={x(entry)>480?"end":"start"}>thermal entry ≈ {number(entry*1000)} mm</text></>}
+    <polyline points={nusselt.map(([px,nu])=>`${x(px)},${y(nu)}`).join(" ")} fill="none" stroke="var(--ink)" strokeWidth="1.5"/>
+    <text x="60" y="276">0</text><text x="415" y="276" textAnchor="middle">LOCAL Nu · 2H · along x</text><text x="770" y="276" textAnchor="end">{number(c.length*1000)} mm</text>
   </svg></div>;
 }

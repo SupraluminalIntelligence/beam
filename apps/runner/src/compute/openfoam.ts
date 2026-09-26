@@ -8,6 +8,7 @@ import { ChannelCase, SimulationJob, SimulationReport, SimulationFields, WakeFie
 import { cylinderFiles, meshPolygons } from "./cylinder.ts";
 import { exportMovingMesh } from "./movingMesh.ts";
 import { planarFiles, planarMesh } from "./planar.ts";
+import { channelPatches, channelResults } from "./channelMetrics.ts";
 const exec = promisify(execFile);
 export async function probeOpenFoam(){
   try{await exec("docker",["info","--format","{{.OSType}}"],{timeout:6000});await exec("docker",["image","inspect",OPENFOAM_IMAGE],{timeout:6000,maxBuffer:1024*1024});return{ready:true,message:"OpenFOAM 2512 · local Docker",image:OPENFOAM_IMAGE};}
@@ -21,8 +22,10 @@ export function foamProcess(spec:ProcessJobSpec,root:string){
   return {...spec,executable:process.execPath,args:[...(cli.endsWith(".ts")?["--experimental-strip-types"]:[]),cli,"openfoam-job",JSON.stringify(spec.simulation),name],dockerContainer:name};
 }
 const header=(object:string,klass="dictionary")=>`FoamFile { version 2.0; format ascii; class ${klass}; object ${object}; }\n`;
+/** One-cell extrusion of the 2-D channel, in metres. */
+const CHANNEL_DEPTH=0.001;
 export function channelFiles(raw:ChannelCase):Record<string,string>{
-  const c=ChannelCase.parse(raw),L=c.length,H=c.height,Z=0.001;
+  const c=ChannelCase.parse(raw),L=c.length,H=c.height,Z=CHANNEL_DEPTH;
   const field=(name:string,dim:string,initial:string,bc:string,vector=false)=>header(name,vector?"volVectorField":"volScalarField")+`dimensions ${dim};\ninternalField uniform ${initial};\nboundaryField { ${bc} frontAndBack { type empty; } }\n`;
   return {
     "system/blockMeshDict":header("blockMeshDict")+`scale 1; vertices ((0 0 0) (${L} 0 0) (${L} ${H} 0) (0 ${H} 0) (0 0 ${Z}) (${L} 0 ${Z}) (${L} ${H} ${Z}) (0 ${H} ${Z})); blocks (hex (0 1 2 3 4 5 6 7) (${c.nx} ${c.ny} 1) simpleGrading (1 1 1)); edges (); boundary (inlet {type patch; faces ((0 4 7 3));} outlet {type patch; faces ((1 2 6 5));} walls {type wall; faces ((0 1 5 4) (3 7 6 2));} frontAndBack {type empty; faces ((0 3 2 1) (4 5 6 7));}); mergePatchPairs ();`,
@@ -98,6 +101,9 @@ export async function exportOpenFoam(raw:unknown,dir:string){
     const left=centres.map((p,i)=>p[0]<c.length/c.nx?i:-1).filter(i=>i>=0),right=centres.map((p,i)=>p[0]>c.length-c.length/c.nx?i:-1).filter(i=>i>=0);
     const mean=(a:number[],idx:number[])=>idx.reduce((s,i)=>s+a[i]!,0)/idx.length;
     report.pressureDropPa=mean(fields.pressure,left)-mean(fields.pressure,right);report.outletTemperatureK=mean(T,right);
+    const mesh=await Promise.all(["boundary","owner"].map(n=>readFile(join(dir,"constant/polyMesh",n),"utf8")));
+    const measured=channelResults(c,centres,U,P,T,channelPatches(mesh[0]!,mesh[1]!,await readFile(join(dir,String(time),"phi"),"utf8")),CHANNEL_DEPTH);
+    report.massImbalance=measured.massImbalance;report.channel=measured.results;
     await writeFile(join(dir,"fields.json"),JSON.stringify(fields));
     }else{
       const C=await field("C",3);

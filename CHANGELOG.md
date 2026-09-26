@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Heated-channel results report what a heat-transfer engineer checks: flow-weighted bulk outlet temperature, mass and thermal balances from the solver's own face fluxes, f·Re against 96, and a local Nusselt number plot against the developed 7.54. Verified on real OpenFOAM solves: balances close to 1e-5 or better, f·Re lands within 1% of 96, and Nu reaches 7.77 at the end of a 1 mm HFE-7100 channel.
 - Heated-channel studies check their own assumptions before anything runs: gravity off (Richardson number), single phase (boiling point), viscosity units and entry lengths. The checks update as you edit Setup, show on the study card and in the Results checks, and agents see them too. Set the fluid's expansion coefficient and boiling point to turn on the first two.
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.

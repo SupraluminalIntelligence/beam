@@ -5,6 +5,15 @@ export type SetupCheckStatus = "ok" | "warn" | "fail" | "unknown" | "info";
 export type SetupCheck = { id: "laminar" | "buoyancy" | "single-phase" | "viscosity" | "development"; label: string; status: SetupCheckStatus; value: string; detail: string };
 
 const G = 9.81;
+/** Fully developed Nusselt number for parallel plates with both walls at one fixed temperature, on 2H (Shah & London 1978). */
+export const PLATES_NU_T = 7.54;
+/** Darcy friction factor times Re for fully developed laminar flow between parallel plates, on 2H. */
+export const PLATES_FRE = 96;
+/** Hydrodynamic (Chen 1973) and thermal (Shah & London, uniform wall temperature) entry lengths in metres. */
+export function channelEntryLengths(c: ChannelCase) {
+  const dh = 2 * c.height, re = c.velocity * dh / c.nu;
+  return { flow: dh * (0.315 / (1 + 0.0175 * re) + 0.011 * re), heat: 0.008 * re * c.pr * dh };
+}
 const num = (n: number) => n !== 0 && (Math.abs(n) >= 1e4 || Math.abs(n) < 1e-2) ? n.toExponential(1).replace("e+", "e") : String(Number(n.toPrecision(3)));
 const kelvin = (t: number) => `${num(t)} K (${num(t - 273.15)} °C)`;
 const metres = (m: number) => m >= 1 ? `${num(m)} m` : m >= 0.01 ? `${num(m * 100)} cm` : `${num(m * 1000)} mm`;
@@ -44,10 +53,10 @@ export function channelSetupChecks(c: ChannelCase): SetupCheck[] {
       : "Viscosity, Prandtl number and density give a thermal diffusivity, α = ν/Pr, in the range of ordinary liquids." });
   else checks.push({ id: "viscosity", label: "viscosity units", status: "info", value: `α ${num(alpha)} m²/s`, detail: "α = ν/Pr. Units are only cross-checked for non-metallic liquids." });
 
-  const flow = dh * (0.315 / (1 + 0.0175 * re) + 0.011 * re), heat = 0.008 * re * c.pr * dh
+  const { flow, heat } = channelEntryLengths(c);
   checks.push({ id: "development", label: "entry length", status: "info", value: c.thermal ? `${metres(flow)} / ${metres(heat)}` : metres(flow),
     detail: `Velocity develops over about ${metres(flow)}` + (c.thermal ? ` and temperature over about ${metres(heat)}, in a ${metres(c.length)} channel. ` + (heat < c.length
-      ? "Both develop before the outlet, where the local Nusselt number should approach 7.54 for two walls at fixed temperature."
-      : "Temperature is still developing at the outlet, so local Nusselt numbers stay above the fully developed 7.54.") : ` in a ${metres(c.length)} channel.`) });
+      ? `Both develop before the outlet, where the local Nusselt number should approach ${PLATES_NU_T} for two walls at fixed temperature.`
+      : `Temperature is still developing at the outlet, so local Nusselt numbers stay above the fully developed ${PLATES_NU_T}.`) : ` in a ${metres(c.length)} channel.`) });
   return checks;
 }
