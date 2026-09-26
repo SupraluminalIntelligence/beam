@@ -4,6 +4,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { connectionStatuses } from "../../../../packages/contracts/src/connections";
 import { bridge } from "../bridge";
+import { Select } from "./Select";
 import { toast } from "./Toast";
 
 const names: Record<string, string> = { codex: "Codex", claude: "Claude Code", omp: "omp" };
@@ -20,13 +21,9 @@ export function ConnectionPicker({ chatId, harness, preview }: {
   const override = preview?.override;
   const value = override?.runnerId ? choiceValue(override.runnerId, override.connectionId ?? "default") : selected?.source === "chat" ? choiceValue(selected.runnerId, selected.connectionId) : "";
   return <div className="connection-picker">
-    <label><span className="sr-only">Account for this chat</span><select aria-label="Account for this chat" disabled={!preview || busy} value={value} onChange={async e => {
-      setBusy(true); try { await save({ chatId, harness, ...(e.target.value ? parseChoice(e.target.value) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-    }}>
-      <option value="">Use my default</option>
-      {value && !preview?.options.some(o => choiceValue(o.runnerId, o.connectionId) === value) && <option value={value}>Selected connection unavailable</option>}
-      {preview?.options.map(o => <option key={choiceValue(o.runnerId, o.connectionId)} value={choiceValue(o.runnerId, o.connectionId)}>{o.name}{o.email ? ` · ${o.email}` : ""} · {o.machineName}{o.online ? "" : " · offline"}</option>)}
-    </select></label>
+    <Select label="Account for this chat" className="bsel-sm" disabled={!preview || busy} value={value} placeholder="Selected connection unavailable" onChange={async v => {
+      setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+    }} options={[{ value: "", label: "Use my default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
     <span className={preview?.error ? "connection-error" : "connection-resolved"} role="status">{selected ? `${selected.owner}’s ${names[harness] ?? harness} · ${selected.name}${selected.email ? ` (${selected.email})` : ""} · ${selected.machineName}${selected.remote ? " · remote" : " · this machine"}` : preview?.error ?? "Checking account…"}</span>
   </div>;
 }
@@ -51,11 +48,8 @@ export function DefaultAccounts({ runners }: { runners: { id: unknown; name: str
       const p = preferences?.find(p => p.harness === harness);
       const options = runners.flatMap(r => connectionStatuses(r.harnesses).filter(s => s.harness === harness).map(s => ({ ...s, runner: r })));
       const value = p?.runnerId ? choiceValue(p.runnerId, p.connectionId ?? "default") : "";
-      return <div className="row" key={harness}><span>{names[harness]}</span><select aria-label={`Preferred ${names[harness]} account`} value={value} disabled={!preferences} onChange={e => void save({ harness, ...(e.target.value ? parseChoice(e.target.value) : {}) }).catch(e => toast(e.message))}>
-        <option value="">Each machine’s own default</option>
-        {value && !options.some(o => choiceValue(o.runner.id as string, o.connectionId) === value) && <option value={value}>Selected connection unavailable</option>}
-        {options.map(o => <option key={choiceValue(o.runner.id as string, o.connectionId)} value={choiceValue(o.runner.id as string, o.connectionId)}>{o.connectionName}{o.email ? ` · ${o.email}` : ""} · {o.runner.name}{o.runner.online ? "" : " · offline"}</option>)}
-      </select></div>;
+      return <div className="row" key={harness}><span>{names[harness]}</span><Select label={`Preferred ${names[harness]} account`} value={value} disabled={!preferences} placeholder="Selected connection unavailable" onChange={v => void save({ harness, ...(v ? parseChoice(v) : {}) }).catch(e => toast(e.message))}
+        options={[{ value: "", label: "Each machine’s own default" }, ...options.map(o => ({ value: choiceValue(o.runner.id as string, o.connectionId), label: `${o.connectionName}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.runner.name}${o.runner.online ? "" : " · offline"}` }))]} /></div>;
     })}
     <div className="row connection-note"><span className="hint">Used for new runs from any of your devices. A chat can still pick its own account.</span></div>
   </section>;
@@ -70,11 +64,11 @@ export function LocalAccounts({ profiles, setProfiles, onChange }: { profiles: P
   const [busy, setBusy] = useState(false);
   const done = async (updated: Profiles) => { setProfiles(updated); setProfileName(""); setAdding(false); await onChange(); };
   return <section className="connection-settings local-accounts">
-    {(["codex", "claude"] as const).map(harness => <div className="row" key={harness}><span>{names[harness]} login</span><select aria-label={`Local ${names[harness]} default`} disabled={busy} value={profiles.defaults[harness] ?? "default"} onChange={async e => {
-      setBusy(true); try { setProfiles(await b!.connections!({ action: "default", harness, id: e.target.value })); await onChange(); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
-    }}><option value="default">Existing CLI login</option>{profiles.profiles.filter(p => p.harness === harness).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>)}
+    {(["codex", "claude"] as const).map(harness => <div className="row" key={harness}><span>{names[harness]} login</span><Select label={`Local ${names[harness]} default`} disabled={busy} value={profiles.defaults[harness] ?? "default"} onChange={async v => {
+      setBusy(true); try { setProfiles(await b!.connections!({ action: "default", harness, id: v })); await onChange(); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
+    }} options={[{ value: "default", label: "Existing CLI login" }, ...profiles.profiles.filter(p => p.harness === harness).map(p => ({ value: p.id, label: p.name }))]} /></div>)}
     {!adding ? <div className="row connection-note"><span><button className="btn ghost" onClick={() => setAdding(true)}>+ Add account</button></span></div> : <>
-      <div className="row connection-add"><select aria-label="New account provider" value={profileHarness} onChange={e => setProfileHarness(e.target.value as "codex" | "claude")}><option value="codex">Codex</option><option value="claude">Claude Code</option></select><input type="text" aria-label="Account name" placeholder="Work account" autoFocus maxLength={80} value={profileName} onChange={e => setProfileName(e.target.value)} /><button className="btn" disabled={busy || !profileName.trim()} onClick={async () => {
+      <div className="row connection-add"><Select label="New account provider" value={profileHarness} onChange={setProfileHarness} options={[{ value: "codex", label: "Codex" }, { value: "claude", label: "Claude Code" }]} /><input type="text" aria-label="Account name" placeholder="Work account" autoFocus maxLength={80} value={profileName} onChange={e => setProfileName(e.target.value)} /><button className="btn" disabled={busy || !profileName.trim()} onClick={async () => {
         setBusy(true); try { const updated = await b!.connections!({ action: "create", harness: profileHarness, name: profileName }); await done(updated); const added = updated.profiles.at(-1); if (added) await b?.signInConnection?.(added.harness, added.id); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
       }}>Sign in</button><button className="btn ghost" disabled={busy || !profileName.trim()} onClick={async () => {
         const configDir = await b?.pickFolder(); if (!configDir) return;

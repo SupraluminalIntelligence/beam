@@ -9,6 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { AgentAvatar } from "./Avatar";
 import { Machines } from "./Harnesses";
 import { Modal, Seg } from "./Modal";
+import { Select } from "./Select";
 import type { Me } from "./Shell";
 import { toast } from "./Toast";
 import { PersonAvatar } from "./Avatar";
@@ -141,13 +142,11 @@ function AgentSettings({ a, detail, onDone, onRemoved, onOpenMachines }: { a: Do
     <div className="set-body">
         <div className="row"><span>Name in chat</span><span className="val">@<input type="text" value={v.handle} onChange={(e) => setDraft({ ...draft, handle: e.target.value.replace(/[^a-z0-9-]/g, "") })} style={{ width: 140, display: "inline-block", marginLeft: 2 }} /></span></div>
         <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Your defaults · {HARNESS_NAME[a.harness]}</div>
-        <div className="row"><span>Preferred account</span><select aria-label="Connection" value={connection} onChange={e => setRunnerChoice(e.target.value)}><option value="">Each machine’s own default</option>{runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => <option key={`${r.id}:${h.connectionId}`} value={JSON.stringify([r.id, h.connectionId])}>{h.connectionName}{h.email ? ` · ${h.email}` : ""} · {r.name}{r.online ? "" : " · offline"}</option>))}</select></div>
-        <div className="row"><span>Your model</span><select aria-label="Your model" value={selectedModel?.model ?? v.model} onChange={(e) => { const m = modelOptions.find((m) => m.model === e.target.value); setDraft({ ...draft, model: e.target.value, effort: m?.efforts.includes(v.effort) ? v.effort : m?.efforts[0] ?? "high" }); }}>
-          {!modelOptions.some((m) => m.model === v.model || m.model === selectedModel?.model) && <option value={v.model}>{v.model}{a.harness === "codex" ? " · unavailable until refreshed" : ""}</option>}
-          {modelOptions.map((m) => <option key={m.model} value={m.model}>{m.name}</option>)}
-        </select></div>
+        <div className="row"><span>Preferred account</span><Select label="Preferred account" value={connection} onChange={setRunnerChoice} placeholder="Selected account unavailable" options={[{ value: "", label: "Each machine’s own default" }, ...runners.flatMap(r => connectionStatuses(r.harnesses).filter(h => h.harness === a.harness).map(h => ({ value: JSON.stringify([r.id, h.connectionId]), label: `${h.connectionName}${h.email ? ` · ${h.email}` : ""}`, hint: `${r.name}${r.online ? "" : " · offline"}` })))]} /></div>
+        <div className="row"><span>Your model</span><Select label="Your model" value={selectedModel?.model ?? v.model} onChange={(model) => { const m = modelOptions.find((m) => m.model === model); setDraft({ ...draft, model, effort: m?.efforts.includes(v.effort) ? v.effort : m?.efforts[0] ?? "high" }); }}
+          options={[...(!modelOptions.some((m) => m.model === v.model || m.model === selectedModel?.model) ? [{ value: v.model, label: v.model, hint: a.harness === "codex" ? "unavailable until refreshed" : "unavailable", disabled: true }] : []), ...modelOptions.map((m) => ({ value: m.model, label: m.name }))]} /></div>
         {a.harness === "codex" && !catalog.length && <div className="row set-note"><span className="hint">Codex models load from a machine’s last check.</span><button className="btn ghost" onClick={onOpenMachines}>Open Machines</button></div>}
-        <div className="row"><span>Your reasoning effort</span><select aria-label="Your reasoning effort" value={v.effort} onChange={(e) => setDraft({ ...draft, effort: e.target.value })}>{!efforts.includes(v.effort) && <option value={v.effort}>{v.effort} · unavailable</option>}{efforts.map((e) => <option key={e} value={e}>{e}</option>)}</select></div>
+        <div className="row"><span>Your reasoning effort</span><Select label="Your reasoning effort" value={v.effort} onChange={(effort) => setDraft({ ...draft, effort })} options={[...(!efforts.includes(v.effort) ? [{ value: v.effort, label: v.effort, hint: "unavailable", disabled: true }] : []), ...efforts.map((e) => ({ value: e, label: e }))]} /></div>
         <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Shared agent settings</div>
         <div className="row"><span>Permissions</span><Seg value={v.permissionMode} options={[["ask", "Supervised"], ["plan", "Plan"], ["auto", "Full access"], ["allowlist", "Allow list"]] as const} onChange={(x) => setDraft({ ...draft, permissionMode: x })} /></div>
         <div className="row"><span>Always allow</span><input type="text" value={v.alwaysAllow.join(", ")} onChange={(e) => setDraft({ ...draft, alwaysAllow: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} /></div>
