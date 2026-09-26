@@ -1,4 +1,5 @@
-import type { RunView, TurnView } from "@beam/reducer";
+/** Shared by the web and phone apps: human messages, reply segments and tool steps in one ordered list. */
+import type { RunView, TurnView } from "./index.ts";
 
 type Message = { _id: string; _creationTime: number; author: string; kind: string; text: string; runId: string | null; turn?: number };
 type Run = { _id: string; _creationTime: number; agentId: string; dispatchMessageId: string; state: string; startedAt: number | null; endedAt: number | null; landing: unknown };

@@ -1,0 +1,30 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "testflight": {
+      "distribution": "store",
+      "channel": "testflight",
+      "environment": "preview",
+      "autoIncrement": true,
+      "node": "22.18.0",
+      "pnpm": "10.29.1",
+      "env": {
+        "BEAM_NATIVE_RUNTIME": "1",
+        "EXPO_PUBLIC_CONVEX_URL": "https://cautious-fish-858.convex.cloud"
+      }
+    }
+  },
+  "submit": {
+    "testflight": {
+      "ios": {
+        "ascAppId": "6816341937",
+        "appleTeamId": "L4M75K683P",
+        "ascApiKeyPath": "$EXPO_ASC_API_KEY_PATH",
+        "ascApiKeyId": "$EXPO_ASC_KEY_ID",
+        "ascApiKeyIssuerId": "$EXPO_ASC_ISSUER_ID"
+      }
+    }
+  }
+}
