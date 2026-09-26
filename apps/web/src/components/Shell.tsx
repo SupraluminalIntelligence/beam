@@ -9,7 +9,7 @@ import { ui, useUi } from "../lib/ui";
 import { BrowserHost } from "../browser/BrowserHost";
 import { WorkspacePane } from "./WorkspacePane";
 import { ChatView } from "./ChatView";
-import { AgentSettingsModal, InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal } from "./Modals";
+import { InviteModal, NewWorkspaceModal, Palette, SettingsModal, AddRepoModal, type SettingsTab } from "./Modals";
 import { Sidebar } from "./Sidebar";
 import { People } from "./People";
 import { TabStrip } from "./TabStrip";
@@ -17,7 +17,7 @@ import { NavigationControls } from "./NavigationControls";
 import { toast } from "./Toast";
 
 export type Me = { id: Id<"users">; name: string; githubLogin: string; image: string | null; isAnonymous: boolean };
-export type ModalKind = null | { kind: "settings" } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite" } | { kind: "newws" } | { kind: "addrepo" } | { kind: "palette" };
+export type ModalKind = null | { kind: "settings"; tab?: SettingsTab } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite"; ws?: WorkspaceRow } | { kind: "newws" } | { kind: "addrepo"; ws?: WorkspaceRow } | { kind: "palette" };
 
 export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }) {
   const u = useUi();
@@ -29,6 +29,8 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   const last = useRef<{ ws: string; detail: NonNullable<typeof liveDetail>; chats: NonNullable<typeof liveChats> } | null>(null);
   if (liveDetail && liveChats) last.current = { ws: wsId, detail: liveDetail, chats: liveChats };
   const detail = liveDetail ?? last.current?.detail;
+  // Settings can invite or connect a repo for any of your workspaces; only the open one has a chat to attach to.
+  const inviteTarget = (ws: WorkspaceRow | undefined, chatId: Id<"chats"> | null) => ws && ws.id !== wsId ? { wsId: ws.id, wsName: ws.name, chatId: null } : { wsId, wsName: detail?.name ?? "", chatId };
   const chats = liveChats ?? (last.current ? [] : undefined);
   const presence = useQuery(api.presence.inWorkspace, { workspaceId: wsId });
   const createChat = useMutation(api.chats.create);
@@ -40,11 +42,11 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
   useEffect(() => {
     // A ?pair= link is a runner on another machine: show the code for a deliberate approval.
     const fromUrl = new URLSearchParams(location.search).get("pair");
-    if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings" }); history.replaceState(null, "", location.pathname); }
+    if (fromUrl) { setPairCode(fromUrl.toUpperCase()); setModal({ kind: "settings", tab: "machines" }); history.replaceState(null, "", location.pathname); }
     const b = bridge();
     if (!b) return;
     // The runner this app launched is ours: approve it the moment we are signed in, no code shown.
-    const auto = (code: string) => approveRunner({ userCode: code }).then((r) => toast(r.already ? "Runner connected" : `Runner ${r.name} connected`)).catch(() => { setPairCode(code); setModal({ kind: "settings" }); });
+    const auto = (code: string) => approveRunner({ userCode: code }).then((r) => toast(r.already ? "Runner connected" : `Runner ${r.name} connected`)).catch(() => { setPairCode(code); setModal({ kind: "settings", tab: "machines" }); });
     void b.runnerStatus().then((s) => { if (s.pendingPair) void auto(s.pendingPair); });
     return b.onPairCode((code) => void auto(code));
   }, [approveRunner]);
@@ -98,11 +100,10 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
         </div>
       </div>
       <BrowserHost activeChat={activeId} obscured={modal!==null} />
-      <SettingsModal open={modal?.kind === "settings"} onClose={() => { setModal(null); setPairCode(null); }} me={me} pairCode={pairCode} />
-      <AgentSettingsModal open={modal?.kind === "agent"} agentId={modal?.kind === "agent" ? modal.id : null} detail={detail} onClose={() => setModal(null)} />
-      <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active && !active.private ? active._id : null} />
+      <SettingsModal open={modal?.kind === "settings" || modal?.kind === "agent"} onClose={() => { setModal(null); setPairCode(null); }} me={me} detail={detail} pairCode={pairCode} tab={modal?.kind === "settings" ? modal.tab : modal?.kind === "agent" ? `agent:${modal.id}` : undefined} workspaces={workspaces} onInvite={(ws) => setModal({ kind: "invite", ws })} onAddRepo={(ws) => setModal({ kind: "addrepo", ws })} />
+      <InviteModal open={modal?.kind === "invite"} onClose={() => setModal(null)} {...inviteTarget(modal?.kind === "invite" ? modal.ws : undefined, active && !active.private ? active._id : null)} />
       <NewWorkspaceModal open={modal?.kind === "newws"} onClose={() => setModal(null)} />
-      <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} wsId={wsId} wsName={detail.name} chatId={active?._id ?? null} />
+      <AddRepoModal open={modal?.kind === "addrepo"} onClose={() => setModal(null)} {...inviteTarget(modal?.kind === "addrepo" ? modal.ws : undefined, active?._id ?? null)} />
       <Palette open={modal?.kind === "palette"} onClose={() => setModal(null)} workspaces={workspaces} />
     </div>
   );

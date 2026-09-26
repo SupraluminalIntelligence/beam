@@ -55,7 +55,7 @@ export function useAttachments(chatId: Id<"chats">) {
     }
   }
   const remove = (id: Id<"files">) => { void discard({id}).catch(e=>toast(e.message)); };
-  const controls = <><input ref={input} type="file" multiple hidden onChange={e=>{void add(Array.from(e.target.files ?? []));e.target.value="";}} /><button disabled={busy} onClick={()=>input.current?.click()} title="Attach files">＋ Attach</button></>;
+  const controls = <><input ref={input} type="file" multiple hidden onChange={e=>{void add(Array.from(e.target.files ?? []));e.target.value="";}} /><button className="tool-chip" disabled={busy} onClick={()=>input.current?.click()} title="Attach files"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Attach</button></>;
   const chips = <div className="file-drafts">{drafts.map(f=><DraftFile key={f.id} chatId={chatId} id={f.id} name={f.name} remove={()=>remove(f.id)} />)}{busy && <span role="status">Uploading…</span>}</div>;
   return {drafts,busy,add,paste,controls,chips,clear:()=>{}};
 }
