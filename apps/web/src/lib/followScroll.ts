@@ -4,11 +4,12 @@ import { useLayoutEffect, useRef } from "react";
 export function useFollowScroll(chatId: string, ready: boolean) {
   const viewport = useRef<HTMLDivElement>(null);
   const pause = useRef(() => {});
+  const resume = useRef(() => {});
   const content = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = viewport.current, body = content.current;
     if (!el || !body || !ready) return;
-    let following = true, frame = 0, previous = 0, lastTime = 0;
+    let active = true, following = true, frame = 0, previous = 0, lastTime = 0;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const bottom = () => Math.max(0, el.scrollHeight - el.clientHeight);
     const cancel = () => { cancelAnimationFrame(frame); frame = 0; lastTime = 0; };
@@ -26,6 +27,7 @@ export function useFollowScroll(chatId: string, ready: boolean) {
       else { el.scrollTop = target; previous = el.scrollTop; lastTime = 0; }
     };
     const follow = () => { if (following && !frame) frame = requestAnimationFrame(step); };
+    resume.current = () => { if (active) { following = true; previous = el.scrollTop; follow(); } };
     const scroll = () => {
       const top = el.scrollTop;
       if (top < previous - 1) stop();
@@ -50,11 +52,12 @@ export function useFollowScroll(chatId: string, ready: boolean) {
     el.addEventListener("touchmove", touchMove, { passive: true });
     el.addEventListener("keydown", key);
     return () => {
+      active = false; resume.current = () => {}; pause.current = () => {};
       cancel(); observer.disconnect();
       el.removeEventListener("scroll", scroll); el.removeEventListener("wheel", wheel);
       el.removeEventListener("touchstart", touchStart); el.removeEventListener("touchmove", touchMove);
       el.removeEventListener("keydown", key);
     };
   }, [chatId, ready]);
-  return { viewport, content, pause };
+  return { viewport, content, pause, resume };
 }

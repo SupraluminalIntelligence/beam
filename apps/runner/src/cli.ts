@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 import { adapters, which, profileEnv, hydratePathFromLoginShell } from "@beam/harness";
 import { api } from "../../../convex/_generated/api.js";
-import { readConfig } from "./config.ts";
+import { machineName, readConfig } from "./config.ts";
 import { probeProfiles, manageProfiles, profileFor } from "./profiles.ts";
 import { login } from "./login.ts";
 import { contributeResource, watchResources } from "./resources.ts";
@@ -82,7 +82,7 @@ if (cmd === "start") {
   const token = cfg.token;
   let statuses = await probeAll();
   let computeSupported = process.platform !== "win32";
-  const registration = { token, name: cfg.name, hostname: hostname(), platform: process.platform, harnesses: statuses, launchedByApp: flag("--app") };
+  const registration = { token, name: machineName(cfg.name), hostname: hostname(), platform: process.platform, harnesses: statuses, launchedByApp: flag("--app") };
   // Older deployments do not accept the optional compute capability yet.
   const runnerId = await client.mutation(api.runners.hello, { ...registration, openfoam: await probeOpenFoam(), ...(process.platform !== "win32" ? { computeBackend: "local-process" as const } : {}) }).catch(async (error) => {
     if (process.platform === "win32") throw error;
