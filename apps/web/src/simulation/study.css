@@ -13,3 +13,4 @@
 .study-target{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .study-target .k{color:var(--ink-3);font-size:11px}
 .study-target svg.chev{width:10px;height:10px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;opacity:.7}
+.study-target svg.study-ico{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
