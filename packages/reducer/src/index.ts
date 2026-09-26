@@ -78,3 +78,5 @@ export function apply(prev: RunView, e: RunEvent & { at?: number }): RunView {
 }
 
 export const fold = (runId: string, events: readonly RunEvent[]): RunView => events.reduce(apply, emptyRun(runId));
+
+export { timeline, type TimelineRow } from "./timeline.ts";

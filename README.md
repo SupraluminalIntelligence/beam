@@ -14,6 +14,7 @@ A Supraluminal Intelligence desktop app where a team and their coding agents sha
 |---|---|
 | `apps/desktop` | Electron main + preload. Spawns the runner, loads `apps/web`. |
 | `apps/web` | React UI. Never assumes Electron. |
+| `apps/mobile` | Expo phone app. Chats, inbox, approvals and reactions on the same Convex backend. |
 | `apps/runner` | `beam-runner` CLI. A Convex client that hosts runs on this machine. |
 | `packages/contracts` | zod schemas shared by everything. |
 | `packages/harness` | Adapter interface plus Claude Code, Codex, and omp adapters and probes. |

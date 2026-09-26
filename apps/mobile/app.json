@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Beam",
+    "slug": "beam",
+    "scheme": "beam",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.supraluminal.beam.mobile"
+    },
+    "android": {
+      "package": "ai.supraluminal.beam.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#141414",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FBFBF9",
+          "dark": {
+            "backgroundColor": "#0B0C0E"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c11eae23-33f1-4dc3-ae1f-4c03316febde"
+      }
+    },
+    "owner": "apekshik",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c11eae23-33f1-4dc3-ae1f-4c03316febde"
+    }
+  }
+}
