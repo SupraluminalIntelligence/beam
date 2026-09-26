@@ -19,6 +19,7 @@ import { WorkspaceSettings } from "./WorkspaceSettings";
 import { ResourceSharingPolicy } from "./SharedResources";
 import { UsagePage } from "./Usage";
 import { markChangelogSeen, releases, useChangelogUnseen } from "../lib/changelog";
+import { chatStatus, useChatActivity } from "../lib/chatStatus";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 
@@ -258,13 +259,14 @@ export function Palette({ open, onClose, workspaces }: { open: boolean; onClose:
   const u = useUi();
   const wsId = (u.ws ?? workspaces[0]?.id) as Id<"workspaces"> | undefined;
   const chats = useQuery(api.chats.list, wsId ? { workspaceId: wsId } : "skip");
+  const activity = useChatActivity(wsId);
   const [q, setQ] = useState("");
   useEffect(() => { if (open) setQ(""); }, [open]);
   const rows = (chats ?? []).filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()));
   return (
     <Modal open={open} onClose={onClose} className="pal">
       <input placeholder="Jump to a chat…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === "Enter" && rows[0] && wsId) { ui.openChat(wsId, rows[0]._id); onClose(); } }} />
-      <div className="list">{rows.map((c) => <button key={c._id} onClick={() => { if (wsId) ui.openChat(wsId, c._id); onClose(); }}><span className="sq idle" /><span className="nm">{c.title}<small>{c.private ? "private" : `${c.members.length} member${c.members.length === 1 ? "" : "s"}`}{c.repo ? ` · ${c.repo}` : ""}</small></span><span className="d">{c.activeBranch ?? ""}</span></button>)}{rows.length === 0 && <div className="empty" style={{ padding: "16px 14px" }}>Nothing matches.</div>}</div>
+      <div className="list">{rows.map((c) => <button key={c._id} onClick={() => { if (wsId) ui.openChat(wsId, c._id); onClose(); }}><span className={`sq ${chatStatus(c, activity)}`} /><span className="nm">{c.title}<small>{c.private ? "private" : `${c.members.length} member${c.members.length === 1 ? "" : "s"}`}{c.repo ? ` · ${c.repo}` : ""}</small></span><span className="d">{c.activeBranch ?? ""}</span></button>)}{rows.length === 0 && <div className="empty" style={{ padding: "16px 14px" }}>Nothing matches.</div>}</div>
     </Modal>
   );
 }

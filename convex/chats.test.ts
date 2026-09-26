@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
-import { list, remove, setState } from "./chats";
+import { activity, chatActivity, list, remove, setState } from "./chats";
 import { send } from "./messages";
 import { apply, context } from "./router";
 
@@ -20,7 +20,8 @@ function fixture() {
       const filters: [string, unknown][] = [];
       const q = { eq: (key: string, value: unknown) => { filters.push([key, value]); return q; } };
       fn(q);
-      return { collect: async () => tables[table]!.filter(row => filters.every(([key, value]) => row[key] === value)) };
+      const rows = () => tables[table]!.filter(row => filters.every(([key, value]) => row[key] === value));
+      return { collect: async () => rows(), order: () => ({ take: async (n: number) => rows().reverse().slice(0, n) }) };
     } }),
   };
   return { tables, queryCtx: { db }, ctx: { db, scheduler: { runAfter: vi.fn() } } };
@@ -70,4 +71,28 @@ it("allows finished work and prevents stale clients or delayed routing from reop
   await call(apply, ctx, { messageId: "message", agent: "codex", why: "scheduled earlier" });
   expect(tables.runs).toHaveLength(1);
   expect(tables.chats![0].state).toBe("deleted");
+});
+
+it("ranks chat activity: waiting on you, then running, then unread outcomes", () => {
+  expect(chatActivity({ asking: true, working: true, unread: ["failed"] })).toBe("ask");
+  expect(chatActivity({ asking: false, working: true, unread: ["failed"] })).toBe("work");
+  expect(chatActivity({ asking: false, working: false, unread: ["completed", "failed"] })).toBe("bad");
+  expect(chatActivity({ asking: false, working: false, unread: ["mention", "completed"] })).toBe("done");
+  expect(chatActivity({ asking: false, working: false, unread: ["mention"] })).toBe("new");
+  expect(chatActivity({ asking: false, working: false, unread: ["input"] })).toBe("idle");
+});
+
+it("reports live status per chat from runs, jobs and the viewer's unread notifications", async () => {
+  const { queryCtx, tables } = fixture();
+  tables.chats!.push({ _id: "asking", workspaceId: "workspace", title: "Asks", private: false, members: ["alice"], lastMessageAt: 3 },
+    { _id: "job", workspaceId: "workspace", title: "Job", private: false, members: ["alice"], lastMessageAt: 4 },
+    { _id: "secret", workspaceId: "workspace", title: "Bob's", private: true, members: ["bob"], lastMessageAt: 5 });
+  tables.runs = [{ _id: "r1", chatId: "chat", state: "working" }, { _id: "r2", chatId: "asking", state: "working", openRequests: ["q1"] },
+    { _id: "r3", chatId: "other", state: "landed", openRequests: ["stale"] }, { _id: "r4", chatId: "secret", state: "working" }];
+  tables.computeJobs = [{ _id: "j1", chatId: "job", state: "running" }];
+  tables.notifications = [{ _id: "n1", recipient: "alice", chatId: "other", kind: "completed", readAt: null },
+    { _id: "n2", recipient: "bob", chatId: "job", kind: "failed", readAt: null }];
+  expect(await call(activity, queryCtx, { workspaceId: "workspace" })).toEqual({ chat: "work", asking: "ask", job: "work", other: "done" });
+  tables.notifications[0]!.readAt = 1;
+  expect(await call(activity, queryCtx, { workspaceId: "workspace" })).toEqual({ chat: "work", asking: "ask", job: "work" });
 });

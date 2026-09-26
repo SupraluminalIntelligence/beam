@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Chats show live status in the sidebar, tabs and ⌘K: pulsing blue while an agent or job runs, half amber when an agent is waiting on you, green when a run finished and you haven't looked, ✕ when it failed, and a blue outline when someone mentions you.
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.

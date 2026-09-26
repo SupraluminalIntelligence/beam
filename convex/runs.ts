@@ -96,14 +96,21 @@ async function applyRunUsage(ctx: MutationCtx, runner: Doc<"runners">, run: Doc<
   if (harnesses) await ctx.db.patch(runner._id, { harnesses });
 }
 
+async function trackRequest(ctx: MutationCtx, runId: Id<"runs">, requestId: string, open: boolean) {
+  const run = await ctx.db.get(runId);
+  if (!run) return;
+  const rest = (run.openRequests ?? []).filter((id) => id !== requestId);
+  await ctx.db.patch(runId, { openRequests: open ? [...rest, requestId] : rest });
+}
+
 async function insertEvents(ctx: MutationCtx, runId: Id<"runs">, events: unknown[]) {
   const last = await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", runId)).order("desc").first();
   let seq = (last?.seq ?? -1) + 1;
   for (const event of events) {
     await ctx.db.insert("runEvents", { runId, seq: seq++, event });
     const e = event as { type?: string; requestId?: string };
-    if (e.type === "request.opened" && typeof e.requestId === "string") await notifyRun(ctx, runId, "input", `input:${e.requestId}`);
-    if (e.type === "request.resolved" && typeof e.requestId === "string") await resolveInputNotifications(ctx, runId, e.requestId);
+    if (e.type === "request.opened" && typeof e.requestId === "string") { await trackRequest(ctx, runId, e.requestId, true); await notifyRun(ctx, runId, "input", `input:${e.requestId}`); }
+    if (e.type === "request.resolved" && typeof e.requestId === "string") { await trackRequest(ctx, runId, e.requestId, false); await resolveInputNotifications(ctx, runId, e.requestId); }
   }
 }
 

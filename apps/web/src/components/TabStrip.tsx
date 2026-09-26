@@ -1,8 +1,10 @@
 import type { Doc } from "../../../../convex/_generated/dataModel";
 import { ui } from "../lib/ui";
 import { ICO } from "./Avatar";
+import { chatStatus, chatStatusLabel, useChatActivity } from "../lib/chatStatus";
 
 export function TabStrip({ wsId, chats, tabs, activeId, onNew }: { wsId: string; chats: Doc<"chats">[]; tabs: string[]; activeId: string | null; onNew: () => void }) {
+  const activity = useChatActivity(wsId);
   return (
     <div className="tabs-strip">
       {tabs.map((id) => {
@@ -11,7 +13,7 @@ export function TabStrip({ wsId, chats, tabs, activeId, onNew }: { wsId: string;
         const on = id === activeId;
         return (
           <div key={id} className={`tab${on ? " on" : ""}`} role="button" tabIndex={0} onClick={() => ui.openChat(wsId, id)} onKeyDown={(e) => { if (e.key === "Enter") ui.openChat(wsId, id); }}>
-            <span className="sq idle" />
+            <span className={`sq ${chatStatus(c, activity, on)}`} title={chatStatusLabel(chatStatus(c, activity, on))} />
             {c.private && <span className="lk">{ICO.lock}</span>}
             <span className={`tn${c.untitled ? " untitled" : ""}`}>{c.title}</span>
             <button className="tx" onClick={(e) => { e.stopPropagation(); ui.closeChat(wsId, id); }} title="Close tab (⌘W)">×</button>

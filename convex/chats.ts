@@ -15,6 +15,41 @@ export const list = query({
   },
 });
 
+export type ChatActivity = "ask" | "work" | "bad" | "done" | "new" | "idle";
+
+/** Most urgent first: an agent waiting on you, then anything running, then unread outcomes. */
+export function chatActivity(a: { asking: boolean; working: boolean; unread: ("completed" | "failed" | "input" | "mention")[] }): ChatActivity {
+  if (a.asking) return "ask";
+  if (a.working) return "work";
+  if (a.unread.includes("failed")) return "bad";
+  if (a.unread.includes("completed")) return "done";
+  if (a.unread.includes("mention")) return "new";
+  return "idle";
+}
+
+/** Live status square for every visible chat in a workspace, keyed by chat id. Idle chats are omitted. */
+export const activity = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    const u = await requireMember(ctx, workspaceId);
+    const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
+    const chats = all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!)));
+    const inbox = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", u.githubLogin!)).order("desc").take(100);
+    const out: Record<string, ChatActivity> = {};
+    for (const c of chats) {
+      const runs = (await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect()).filter((r) => isLive(r.state));
+      const jobs = (await ctx.db.query("computeJobs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect()).filter((j) => !jobFinished(j.state));
+      const status = chatActivity({
+        asking: runs.some((r) => (r.openRequests ?? []).length > 0) || jobs.some((j) => j.state === "awaiting-approval"),
+        working: runs.length > 0 || jobs.length > 0,
+        unread: inbox.filter((n) => n.chatId === c._id && n.readAt === null).map((n) => n.kind),
+      });
+      if (status !== "idle") out[c._id] = status;
+    }
+    return out;
+  },
+});
+
 /** Keep history and git references intact, but remove the chat from the workspace. */
 export const remove = mutation({
   args: { chatId: v.id("chats") },

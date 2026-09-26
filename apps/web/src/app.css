@@ -637,6 +637,7 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .th-done{display:block;width:100%;text-align:left;padding:5px 14px 5px 30px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:var(--track-status);color:var(--ink-3)}
 .th-done:hover{color:var(--ink-2)}
 .th-item .sq.settled{background:var(--ok)}
+.th-item.lit{color:var(--ink)}
 .ws-rename{background:var(--surface-2);border:0;border-bottom:1px solid var(--line-2);color:var(--ink);font:inherit;font-weight:500;padding:0 2px;margin:-1px 0;outline:none;min-width:0}
 
 /* ---- people in the title bar ---- */
@@ -805,13 +806,16 @@ body.resizing .side-grip{pointer-events:auto}
 .app-navigation *{-webkit-app-region:no-drag}
 
 /* ---- PLATE components: shape carries state, hairlines carry structure, ink carries identity ---- */
-/* status squares: filled blue pulsing = live, half amber = needs you, hollow = open and idle, filled grey = settled or done, × = failed */
+/* status squares: filled blue pulsing = live, half amber = needs you, hollow = open and idle, filled grey = settled or done, × = failed, filled green = finished and unread */
 .sq,.sq.idle,.stepline .sq,.pp-row .sq{background:transparent;border:1px solid var(--line-2);box-sizing:border-box}
 .sq.ok,.stepline .sq.ok,.pp-row .sq.ok,.th-item .sq.settled{background:var(--ink-3);border-color:var(--ink-3)}
 .sq.work,.stepline .sq.run{background:var(--live);border-color:var(--live);animation:pulse 1.6s infinite;box-shadow:none}
 .sq.ask{border-color:var(--warn);background:linear-gradient(135deg,var(--warn) 50%,transparent 50%)}
 .sq.bad,.stepline .sq.bad{border:0;background:none;color:var(--bad);font-family:var(--font-mono);font-size:9px;line-height:7px;text-align:center}
 .sq.bad::before,.stepline .sq.bad::before{content:"✕"}
+/* chat list only: an outcome you haven't looked at yet. green filled = finished, hollow blue = someone mentioned you */
+.sq.done{background:var(--ok-hue);border-color:var(--ok-hue)}
+.sq.new{border-color:var(--live);border-width:1.5px}
 .job-dot{border:1px solid var(--line-2);background:transparent;box-sizing:border-box}
 .job-dot.running,.job-dot.preparing,.job-dot.publishing{background:var(--live);border-color:var(--live);animation:pulse 1.6s infinite}
 .job-dot.succeeded{background:var(--ink-3);border-color:var(--ink-3)}
