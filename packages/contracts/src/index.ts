@@ -108,6 +108,12 @@ export type RepoLanding = z.infer<typeof RepoLanding>;
 export const Landing = z.object({ repos: z.array(RepoLanding), error: z.string().nullable() });
 export type Landing = z.infer<typeof Landing>;
 
+/** "owner/name" from what a person or agent typed (a GitHub URL, a .git suffix), or null when it is not one. */
+export function repoName(input: string): string | null {
+  const name = input.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
+  return /^[\w.-]+\/[\w.-]+$/.test(name) ? name : null;
+}
+
 export const ChangeState = z.enum(["open", "merged", "closed"]);
 export const ThreadState = z.enum(["open", "settled"]);
 

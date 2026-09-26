@@ -181,8 +181,6 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <span className="ddh">Add a repo from {detail.name}</span>
             {detail.repos.filter((r) => !repos.includes(r)).map((r) => <button key={r} onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} added · checked out in the thread on the next run`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r}</button>)}
             <button onClick={(e) => { e.stopPropagation(); setRepoOpen(false); setModal({ kind: "addrepo" }); }}>+ connect another repo</button>
-            {repos.length > 0 && <span className="ddh">In this thread</span>}
-            {repos.map((r) => <button key={r} className="dim" onClick={(e) => { e.stopPropagation(); setRepoOpen(false); removeRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} removed from the thread`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>{r} <span className="k">remove</span></button>)}
           </span>
         </span>
         {repos.map((r) => {
@@ -191,7 +189,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           const stateLabel = !c ? "no change yet" : c.state === "open" ? (c.prNumber ? `#${c.prNumber} open` : "branch pushed") : c.prNumber ? `#${c.prNumber} ${c.state}` : c.state;
           return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${href ? " · open PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}
             onClick={(e) => { e.stopPropagation(); if (href) { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); } }}>
-            <i>{r.split("/")[1]}</i>{stateLabel}</span>;
+            <i>{r.split("/")[1]}</i>{stateLabel}
+            <button className="rm" title={`Remove ${r} from this thread`} aria-label={`Remove ${r} from this thread`} onClick={(e) => { e.stopPropagation(); removeRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} removed from the thread`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>×</button></span>;
         })}
         <span className="sp" />
         <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
