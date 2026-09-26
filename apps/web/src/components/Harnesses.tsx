@@ -55,24 +55,24 @@ function MachineCard({ r, local, children }: { r: Runner; local: boolean; childr
     <div className="hlist">
       <div className="hrow head">
         <span className={`sq ${r.online ? "ok" : "idle"}`} />
-        <MachineName r={r} />
-        <span className="k">{local ? "this machine · " : ""}{r.hostname} · {r.online ? "online" : `last seen ${ago(r.lastSeen)}`}{r.launchedByApp ? "" : " · headless"}</span>
+        <span className="hwho"><MachineName r={r} /><span className="k">{local ? "this machine · " : ""}{r.hostname}{r.launchedByApp ? "" : " · headless"}</span></span>
         <span className="sp" />
-        <button className="k" disabled={!r.online || probing} onClick={async () => { setProbing(true); await requestProbe({ runnerId: r.id as Id<"runners"> }); setTimeout(() => setProbing(false), 4000); toast("Re-probing"); }}>{probing ? "probing…" : "refresh"}</button>
+        <span className={`hseen${r.online ? " on" : ""}`}>{r.online ? "online" : `offline · last seen ${ago(r.lastSeen)}`}</span>
+        <button className={`nav-icon hrefresh${probing ? " busy" : ""}`} title={r.online ? "Check harnesses again" : "Machine is offline"} aria-label={probing ? "Checking harnesses" : "Check harnesses again"} disabled={!r.online || probing} onClick={async () => { setProbing(true); await requestProbe({ runnerId: r.id as Id<"runners"> }); setTimeout(() => setProbing(false), 4000); toast("Re-probing"); }}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v3h3M4 13a8 8 0 0 0 14.6 4.5M20 20v-3h-3" /></svg></button>
       </div>
       {statuses.map((s) => {
         const profile = s.connectionId && s.connectionId !== "default";
         return <div key={`${s.harness}:${s.connectionId ?? "default"}`} className="hrow">
           <AgentAvatar harness={s.harness} />
           <span className="nm">{NAME[s.harness] ?? s.harness}{profile && s.connectionName ? ` · ${s.connectionName}` : ""}</span>
-          <span className="k">{s.installed ? `v${s.version ?? "?"}` : "not installed"}</span>
-          <span className={`st ${s.auth}`}>{s.auth === "authenticated" ? "signed in" : s.auth === "unauthenticated" ? "not signed in" : s.installed ? "unverified" : ""}</span>
+          <span className="k ver">{s.installed ? `v${s.version ?? "?"}` : ""}</span>
+          <span className={`st ${s.installed ? s.auth : "missing"}`}>{!s.installed ? "not installed" : s.auth === "authenticated" ? "signed in" : s.auth === "unauthenticated" ? "not signed in" : "unverified"}</span>
           <span className="k">{[s.plan, s.email].filter(Boolean).join(" · ")}</span>
           <span className="sp" />
           {s.installed && s.auth !== "authenticated" && (profile
-            ? local && b?.signInConnection && <button className="cmd" onClick={() => void b.signInConnection!(s.harness as "codex" | "claude", s.connectionId!).catch((e) => toast(e.message))}>sign in in Terminal</button>
-            : <Cmd cmd={LOGIN[s.harness] ?? ""} label="sign in" />)}
-          {!s.installed && <Cmd cmd={INSTALL[s.harness] ?? ""} label="install" />}
+            ? local && b?.signInConnection && <button className="cmd" title={`Sign in to ${s.connectionName ?? "this profile"} in Terminal`} onClick={() => void b.signInConnection!(s.harness as "codex" | "claude", s.connectionId!).catch((e) => toast(e.message))}><CmdIcon kind="sign in" />Sign in</button>
+            : <Cmd cmd={LOGIN[s.harness] ?? ""} kind="sign in" />)}
+          {!s.installed && <Cmd cmd={INSTALL[s.harness] ?? ""} kind="install" />}
         </div>;
       })}
       {notes.length > 0 && <div className="hnote">{notes.map((s) => <div key={`${s.harness}:${s.connectionId ?? "default"}`}>{NAME[s.harness] ?? s.harness}: {s.message}</div>)}</div>}
@@ -90,13 +90,25 @@ function MachineName({ r }: { r: Runner }) {
     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); e.currentTarget.value = r.name; e.currentTarget.blur(); } }} />;
 }
 
-function Cmd({ cmd, label }: { cmd: string; label: string }) {
+type CmdKind = "sign in" | "install" | "copy";
+const CMD_ICON: Record<CmdKind, ReactNode> = {
+  "sign in": <path d="M15 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3" />,
+  install: <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />,
+  copy: <><rect x="9" y="9" width="12" height="12" rx="1" /><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" /></>,
+};
+function CmdIcon({ kind }: { kind: CmdKind }) {
+  return <svg viewBox="0 0 24 24" aria-hidden="true">{CMD_ICON[kind]}</svg>;
+}
+
+/** Runs the command in Terminal in the desktop app; copies it in a browser. The command itself is in the tooltip. */
+function Cmd({ cmd, kind }: { cmd: string; kind: "sign in" | "install" }) {
   const b = bridge();
+  const label = kind === "install" ? "Install" : "Sign in";
   return (
-    <button className="k cmd" title={cmd} onClick={async () => {
+    <button className="cmd" title={b ? `Runs in Terminal: ${cmd}` : `Copy: ${cmd}`} onClick={async () => {
       if (b) { await b.openTerminalWith(cmd); toast(`Opened Terminal with: ${cmd}`); }
       else { await navigator.clipboard.writeText(cmd).catch(() => {}); toast(`Copied: ${cmd}`); }
-    }}>{b ? `${label} in Terminal` : `copy ${label} command`}</button>
+    }}><CmdIcon kind={b ? kind : "copy"} />{b ? label : `Copy ${label.toLowerCase()}`}</button>
   );
 }
 
