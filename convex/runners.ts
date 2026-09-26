@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { me, requireMember } from "./lib";
+import { me, requireChat, requireMember } from "./lib";
 import { sha256 } from "./runnerAuth";
 
 const foamCapability = v.object({ ready: v.boolean(), message: v.string(), image: v.string() });
@@ -119,7 +119,19 @@ export const rename = mutation({
   handler: async (ctx, { runnerId, name }) => {
     const user = await me(ctx); const runner = await ctx.db.get(runnerId);
     if (!runner || runner.ownerLogin !== user.githubLogin) throw new Error("Not your machine");
-    const displayName = name.trim(); if (!displayName || displayName.length > 80) throw new Error("Use a name between 1 and 80 characters");
+    const displayName = name.trim(); if (!displayName || displayName.length > 80 || /[\u0000-\u001f\u007f]/.test(displayName)) throw new Error("Use a name between 1 and 80 characters, without line breaks");
     await ctx.db.patch(runnerId, { displayName });
+  },
+});
+
+/** Resolve only the machine used by an accessible run, including offline machines. */
+export const nameForRun = query({
+  args: { runId: v.id("runs") },
+  handler: async (ctx, { runId }) => {
+    const run = await ctx.db.get(runId);
+    if (!run) return null;
+    await requireChat(ctx, run.chatId);
+    const runner = run.runnerId ? await ctx.db.get(run.runnerId) : null;
+    return runner ? runner.displayName ?? runner.name : run.execution?.machineName ?? null;
   },
 });
