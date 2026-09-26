@@ -1003,3 +1003,4 @@ body.resizing .side-grip{pointer-events:auto}
 .bsel-list .ck{width:12px;flex:none;text-align:center;color:var(--ink-2)}
 .bsel-l{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bsel-h{margin-left:auto;padding-left:16px;font-size:10.5px;color:var(--ink-3)}
+.agent-defaults+.agent-defaults .hrow.head{border-top:1px solid var(--line)}

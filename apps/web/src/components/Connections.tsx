@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { connectionStatuses } from "../../../../packages/contracts/src/connections";
 import { bridge } from "../bridge";
 import { Select } from "./Select";
 import { toast } from "./Toast";
@@ -36,23 +35,6 @@ export function useLocalProfiles() {
   const [profiles, setProfiles] = useState<Profiles | null>(null);
   useEffect(() => { if (b?.connections) void b.connections({ action: "list" }).then(setProfiles).catch(e => toast(e.message)); }, []);
   return [profiles, setProfiles] as const;
-}
-
-/** Cross-device preference: which account new runs use, wherever they start. */
-export function DefaultAccounts({ runners }: { runners: { id: unknown; name: string; online: boolean; harnesses: unknown }[] }) {
-  const preferences = useQuery(api.connections.preferences);
-  const save = useMutation(api.connections.setPreference);
-  return <section className="connection-settings">
-    <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Default accounts</div>
-    {(["codex", "claude"] as const).map(harness => {
-      const p = preferences?.find(p => p.harness === harness);
-      const options = runners.flatMap(r => connectionStatuses(r.harnesses).filter(s => s.harness === harness).map(s => ({ ...s, runner: r })));
-      const value = p?.runnerId ? choiceValue(p.runnerId, p.connectionId ?? "default") : "";
-      return <div className="row" key={harness}><span>{names[harness]}</span><Select label={`Preferred ${names[harness]} account`} value={value} disabled={!preferences} placeholder="Selected connection unavailable" onChange={v => void save({ harness, ...(v ? parseChoice(v) : {}) }).catch(e => toast(e.message))}
-        options={[{ value: "", label: "Each machine’s own default" }, ...options.map(o => ({ value: choiceValue(o.runner.id as string, o.connectionId), label: `${o.connectionName}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.runner.name}${o.runner.online ? "" : " · offline"}` }))]} /></div>;
-    })}
-    <div className="row connection-note"><span className="hint">Used for new runs from any of your devices. A chat can still pick its own account.</span></div>
-  </section>;
 }
 
 /** Inside this machine's card: which login each CLI uses here, and adding another. Credentials stay on this machine. */

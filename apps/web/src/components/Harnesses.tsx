@@ -5,7 +5,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { bridge } from "../bridge";
 import { useLocalRunner } from "../lib/localRunner";
 import { AgentAvatar } from "./Avatar";
-import { DefaultAccounts, LocalAccounts, useLocalProfiles } from "./Connections";
+import { LocalAccounts, useLocalProfiles } from "./Connections";
 import { toast } from "./Toast";
 
 type Status = { connectionId?: string; connectionName?: string; harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null; probedAt: number };
@@ -32,7 +32,6 @@ export function Machines({ pairCode }: { pairCode?: string | null }) {
   }, [runners, requestProbe]);
   const sorted = [...(runners ?? [])].sort((x, y) => Number(y.id === localId) - Number(x.id === localId) || Number(y.online) - Number(x.online));
   return <>
-    <DefaultAccounts runners={runners ?? []} />
     <div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Your machines</div>
     {runners === undefined ? <div className="row"><span className="hint">Loading…</span></div>
       : runners.length === 0 ? <div className="row connection-note"><span className="hint">No machine yet. {b ? "The app is starting one; it connects on its own in a few seconds." : "Run `beam-runner login` on a machine, or open the desktop app."}</span></div>
