@@ -17,7 +17,7 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   const typed = useRef({ text: "", at: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [pos, setPos] = useState<{ left: number; top: number; width: number; up: boolean } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number; maxWidth: number; up: boolean } | null>(null);
   const current = options.find((o) => o.value === value);
   const enabled = (i: number) => !!options[i] && !options[i]!.disabled;
 
@@ -35,7 +35,10 @@ export function Select<T extends string>({ value, options, onChange, label, disa
     const r = trigger.current.getBoundingClientRect();
     const below = window.innerHeight - r.bottom, above = r.top;
     const up = below < 220 && above > below;
-    setPos({ left: r.left, top: up ? r.top - 4 : r.bottom + 4, width: Math.max(r.width, 180), up });
+    // As wide as its longest option, never narrower than the trigger, never past the window's edge.
+    const maxWidth = Math.min(480, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - 12 - maxWidth));
+    setPos({ left, top: up ? r.top - 4 : r.bottom + 4, minWidth: Math.min(Math.max(r.width, 180), maxWidth), maxWidth, up });
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -76,7 +79,7 @@ export function Select<T extends string>({ value, options, onChange, label, disa
     </button>
     {open && pos && createPortal(
       <div ref={list} id={id} className="bsel-list" role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={`${id}-${active}`} onKeyDown={onListKey}
-        style={{ left: pos.left, width: pos.width, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }}>
+        style={{ left: pos.left, minWidth: pos.minWidth, maxWidth: pos.maxWidth, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }}>
         {options.map((o, i) => <div key={o.value} id={`${id}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
           className={i === active ? "active" : ""} onPointerEnter={() => enabled(i) && setActive(i)} onClick={() => pick(i)}>
           <span className="ck" aria-hidden="true">{o.value === value ? "✓" : ""}</span><span className="bsel-l">{o.label}</span>{o.hint && <span className="bsel-h">{o.hint}</span>}
