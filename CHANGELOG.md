@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Open PRs sit above the composer with their number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Chat cards and header chips show the PR number, title and CI too.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.
 - The account menu shows whether your machine is ready, your tightest usage window, and quick links into Settings.
