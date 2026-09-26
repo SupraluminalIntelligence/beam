@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireChat } from "./lib";
 import { startSync } from "./changes";
-import { MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, prPatch, type ChecksSummary, type PrSnapshot } from "./prStatus";
+import { MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, type ChecksSummary, type PrSnapshot } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
 export const myToken = internalQuery({
@@ -195,15 +195,15 @@ export const createPr = action({
     if (!t) return { error: "Beam has no GitHub access for you. Sign out and back in to grant it." };
     const headers = { authorization: `Bearer ${t.token}`, accept: "application/vnd.github+json", "user-agent": "beam", "content-type": "application/json" };
     const res = await fetch(`https://api.github.com/repos/${c.repo}/pulls`, { method: "POST", headers, body: JSON.stringify({ title: c.title, head: c.branch, base: c.base, body: "Opened from Beam." }) });
-    let pr = res.ok ? (await res.json()) as { html_url: string; number: number } : null;
+    let pr = res.ok ? parseRestPr(await res.json()) : null;
     if (!pr && res.status === 422) {
       // Someone already opened one for this branch: adopt it.
       const owner = c.repo.split("/")[0];
       const list = await fetch(`https://api.github.com/repos/${c.repo}/pulls?state=open&head=${encodeURIComponent(`${owner}:${c.branch}`)}`, { headers });
-      pr = list.ok ? ((await list.json()) as { html_url: string; number: number }[])[0] ?? null : null;
+      pr = list.ok ? parseRestPr(await list.json()) : null;
     }
-    if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : `GitHub refused the PR (${res.status}).` };
-    await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.html_url, prNumber: pr.number });
-    return { url: pr.html_url };
+    if (!pr) return { error: res.status === 403 || res.status === 404 ? `Your GitHub account can't open PRs on ${c.repo}.` : res.ok ? "GitHub opened the PR but sent back an unexpected reply; it will show up on the next sync." : `GitHub refused the PR (${res.status}).` };
+    await ctx.runMutation(internal.github.setPr, { changeId, prUrl: pr.url, prNumber: pr.number });
+    return { url: pr.url };
   },
 });

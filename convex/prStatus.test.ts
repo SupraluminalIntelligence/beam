@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkState, keepPolling, parsePrPage, prPatch, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
+import { checkState, keepPolling, parsePrPage, parseRestPr, prPatch, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
 
 const run = (name: string, status: string, conclusion: string | null = null): RollupContext => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://ci/${name}` });
 const status = (context: string, state: string): RollupContext => ({ __typename: "StatusContext", context, state, targetUrl: null });
@@ -73,6 +73,16 @@ describe("prPatch", () => {
     expect(prPatch({ ...snap, state: "MERGED", merged: true }, 0).resolved).toBe("merged");
     expect(prPatch({ ...snap, state: "CLOSED" }, 0).resolved).toBe("closed");
     expect(prPatch(snap, 0).resolved).toBeNull();
+  });
+});
+
+describe("parseRestPr", () => {
+  it("reads a created PR or the first of a list, and rejects anything else", () => {
+    expect(parseRestPr({ html_url: "https://github.com/acme/beam/pull/7", number: 7, extra: 1 })).toEqual({ url: "https://github.com/acme/beam/pull/7", number: 7 });
+    expect(parseRestPr([{ html_url: "https://github.com/acme/beam/pull/8", number: 8 }])).toEqual({ url: "https://github.com/acme/beam/pull/8", number: 8 });
+    expect(parseRestPr([])).toBeNull();
+    expect(parseRestPr({ html_url: "https://github.com/acme/beam/pull/7" })).toBeNull();
+    expect(parseRestPr({ message: "Validation Failed" })).toBeNull();
   });
 });
 

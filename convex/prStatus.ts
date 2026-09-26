@@ -99,6 +99,13 @@ export function prPatch(pr: PrSnapshot, now: number) {
   };
 }
 
+const RestPr = z.object({ html_url: z.string().url(), number: z.number().int().positive() });
+/** A PR from GitHub's REST API (the one Create PR opened, or the first of a list when one already existed), validated. */
+export function parseRestPr(json: unknown): { url: string; number: number } | null {
+  const one = RestPr.safeParse(Array.isArray(json) ? json[0] : json);
+  return one.success ? { url: one.data.html_url, number: one.data.number } : null;
+}
+
 /** Right after a push, poll every 30s while checks run. CI can take a few polls to register; after that, silence means no CI. */
 export const POLL_MS = 30_000;
 export function keepPolling(checks: ChecksSummary["state"], attempt: number): boolean {
