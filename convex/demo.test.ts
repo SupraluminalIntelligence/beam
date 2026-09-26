@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { demoMatches, ensure, reset, DEMO_LOGIN } from "./demo";
+import { demoMatches, ensure, followUps, reset, DEMO_LOGIN } from "./demo";
 
 const env = { DEMO_EMAIL: "Review@Example.test", DEMO_PASSWORD: "correct horse battery" };
 
@@ -30,7 +30,8 @@ function fakeDb() {
       return { collect: async () => rows(), first: async () => rows()[0] ?? null };
     } }),
   };
-  return { tables, ctx: { db } };
+  const scheduled: any[] = [];
+  return { tables, scheduled, ctx: { db, scheduler: { runAfter: async (ms: number, _fn: unknown, args: unknown) => { scheduled.push({ ms, args }); } } } };
 }
 
 describe("demo workspace", () => {
@@ -55,16 +56,28 @@ describe("demo workspace", () => {
 });
 
 describe("demo timeline", () => {
-  it("times each run's steps between its dispatch and its reply as stored", async () => {
+  it("runs its steps in order after the dispatch, and the reply after the steps", async () => {
     const { tables, ctx } = fakeDb();
     await (ensure as any)._handler(ctx, {});
     for (const run of tables.runs!) {
       const dispatch = tables.messages!.find((m) => m._id === run.dispatchMessageId)!;
-      const reply = tables.messages!.find((m) => m.runId === run._id && m.kind === "report")!;
-      const times = tables.runEvents!.filter((e) => e.runId === run._id).map((e) => e.event.at);
-      expect(times.every((t: number) => t > dispatch._creationTime && t < reply._creationTime)).toBe(true);
-      expect(times).toEqual([...times].sort((a, b) => a - b));
+      const events = tables.runEvents!.filter((e) => e.runId === run._id).map((e) => e.event);
+      const times = events.map((e: any) => e.at);
+      expect(times[0]).toBeGreaterThan(dispatch._creationTime + 50);
+      expect(new Set(times).size).toBe(times.length);
+      expect(times).toEqual([...times].sort((a: number, b: number) => a - b));
+      expect(events.at(-2).type).toBe("message.started");
     }
+  });
+  it("writes the follow-up replies a moment later, once", async () => {
+    const { tables, ctx, scheduled } = fakeDb();
+    await (ensure as any)._handler(ctx, {});
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].ms).toBeGreaterThanOrEqual(1_000);
+    await (followUps as any)._handler(ctx, scheduled[0].args);
+    await (followUps as any)._handler(ctx, scheduled[0].args);
+    expect(tables.messages!.filter((m) => m.text === "Perfect 🙏")).toHaveLength(1);
+    expect(tables.messages!.filter((m) => m.text === "Option 1 reads best to me.")).toHaveLength(1);
   });
   it("reset rebuilds only the demo workspace and leaves everyone else alone", async () => {
     const { tables, ctx } = fakeDb();

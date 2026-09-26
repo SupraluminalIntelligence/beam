@@ -1,3 +1,5 @@
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -65,8 +67,11 @@ async function seed(ctx: MutationCtx, userId: Id<"users">) {
     const runId = await ctx.db.insert("runs", { chatId, agentId, runnerId, dispatchedBy: DEMO_LOGIN, dispatchMessageId: dispatch, state: "landed", branch, worktree: null, resumeCursor: null, landing, startedAt: null, endedAt: null,
       execution: { model, modelName: model, effort, accountOwner: DEMO_LOGIN, accountEmail: null, accountPlan: null, machineName: "demo-mac" } });
     const replyId = await say(chatId, `agent:${agentId}`, reply, 0, { kind: "report", runId, turn: 1 });
-    const from = (await ctx.db.get(dispatch))!._creationTime, to = (await ctx.db.get(replyId))!._creationTime;
-    const slots = steps.length * 2 + 2, at = (i: number) => from + ((to - from) * (i + 1)) / (slots + 2);
+    // Everything in one mutation is stamped within a millisecond, too close to order by, so the run takes a
+    // real second after its dispatch and the follow-up messages are written after that (see followUps).
+    const from = (await ctx.db.get(dispatch))!._creationTime;
+    const slots = steps.length * 2 + 2, at = (i: number) => from + 100 + i * Math.floor(800 / slots);
+    const to = at(slots);
     const events: Record<string, unknown>[] = [{ type: "turn.started", runId, turnId: "t1", at: at(0) }];
     steps.forEach(([kind, summary, ms], i) => {
       events.push({ type: "item.started", runId, itemId: `i${i}`, kind, summary, at: at(1 + i * 2) });
@@ -87,7 +92,7 @@ async function seed(ctx: MutationCtx, userId: Id<"users">) {
     "Run history is now a table under each experiment, newest first, with the seed, the commit and how long it took. Tests pass.",
     { repos: [{ repo, branch: "tracker/run-history", base: "main", pushed: true, add: 112, del: 9, files: 3, prUrl: null, compareUrl: null, error: null }], error: null }, "tracker/run-history");
   await ctx.db.insert("changes", { chatId: tracker, workspaceId, repo, branch: "tracker/run-history", base: "main", state: "open", title: "Run history per experiment", prUrl: null, prNumber: 12, add: 112, del: 9, files: 3, adopted: false, createdBy: DEMO_LOGIN, updatedAt: now - 20 * min, resolvedAt: null });
-  await say(tracker, "demo-maya", "Perfect 🙏", now - 18 * min, { reactions: [{ emoji: "🎉", by: [DEMO_LOGIN] }] });
+
 
   const copy = await chat("Empty-state copy", now - 6 * min);
   await say(copy, "demo-sam", "The empty state just says \"No workspaces yet.\" Can it tell people what to do next?", now - 12 * min);
@@ -95,8 +100,27 @@ async function seed(ctx: MutationCtx, userId: Id<"users">) {
   await run(copy, codex, "GPT-6 Astra", "medium", d2, [["read", "Read src/components/Empty.tsx", 250]],
     "Three options:\n\n1. **No workspaces yet.** Create one on your Mac, or ask a teammate to invite your GitHub login.\n2. **Nothing here yet.** Workspaces you create or join show up here.\n3. **Start on your Mac.** Make a workspace there and it appears on your phone.",
     { repos: [], error: null }, null);
-  await say(copy, "demo-sam", "Option 1 reads best to me.", now - 6 * min, { reactions: [{ emoji: "👍", by: [DEMO_LOGIN] }] });
+  await ctx.scheduler?.runAfter(2_000, internal.demo.followUps, { workspaceId });
 }
+
+/** Replies that come after each run, written a moment later so they sort after it. */
+const FOLLOW_UPS: Record<string, [string, string, { emoji: string; by: string[] }[]]> = {
+  "Tracker: run history per experiment": ["demo-maya", "Perfect 🙏", [{ emoji: "🎉", by: [DEMO_LOGIN] }]],
+  "Empty-state copy": ["demo-sam", "Option 1 reads best to me.", [{ emoji: "👍", by: [DEMO_LOGIN] }]],
+};
+export const followUps = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    for (const chat of await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()) {
+      const f = FOLLOW_UPS[chat.title];
+      if (!f) continue;
+      const existing = await ctx.db.query("messages").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).collect();
+      if (existing.some((m) => m.text === f[1])) continue;
+      await ctx.db.insert("messages", { chatId: chat._id, author: f[0], kind: "text", text: f[1], runId: null, reactions: f[2] });
+      await ctx.db.patch(chat._id, { lastMessageAt: Date.now() });
+    }
+  },
+});
 
 /** Rebuild the demo workspace from scratch. Deletes only rows inside workspaces the demo user belongs to, plus its machine. */
 export const reset = internalMutation({
