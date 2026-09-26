@@ -3,6 +3,9 @@ import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
 import { ConvexCredentials } from "@convex-dev/auth/providers/ConvexCredentials";
 import { internal } from "./_generated/api";
 import { convexAuth } from "@convex-dev/auth/server";
+import { demoMatches } from "./demo";
+
+declare const process: { env: Record<string, string | undefined> };
 
 /**
  * GitHub is the real sign-in: membership follows repo access and the runner opens PRs with it.
@@ -29,6 +32,14 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         if (!deviceCode) return null;
         const r = await ctx.runMutation(internal.runnerAuth.consumeDesktop, { deviceCode });
         return r ? { userId: r.userId } : null;
+      },
+    }),
+    /** App review: one fixed demo account, configured by DEMO_EMAIL and DEMO_PASSWORD. Off when they are unset. */
+    ConvexCredentials({
+      id: "demo",
+      authorize: async (creds, ctx) => {
+        if (!demoMatches(creds["email"], creds["password"], process.env)) return null;
+        return ctx.runMutation(internal.demo.ensure, {});
       },
     }),
     Anonymous({

@@ -2,12 +2,12 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
-import { Image, Platform, View } from "react-native";
+import { Image, Platform, Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, SITE_URL } from "../lib/convex";
 import { waitForApproval } from "../lib/deviceCode";
 import { errorText } from "../lib/format";
-import { useTheme } from "../lib/theme";
+import { font, radius, useTheme } from "../lib/theme";
 import { Button, Icon, T } from "../ui";
 
 /**
@@ -82,6 +82,7 @@ export default function SignIn() {
         <View style={{ gap: 10 }}>
           <Button primary label="Sign in with GitHub" onPress={start} />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><Icon name="github" size={13} color={t.ink3} /><T mono size={11} tone="ink3">through Beam's website, one time</T></View>
+          <DemoSignIn />
         </View>
       )}
       {error ? <T mono size={12} tone="bad">{error}</T> : null}
@@ -89,4 +90,34 @@ export default function SignIn() {
     </View>
   );
 
+}
+
+/** For App Store review: a fixed demo account with its own sample workspace. Folded away behind a link. */
+function DemoSignIn() {
+  const t = useTheme();
+  const { signIn } = useAuthActions();
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function go() {
+    if (busy || !email.trim() || !password) return;
+    setBusy(true); setError(null);
+    try {
+      const r = await signIn("demo", { email: email.trim(), password });
+      if (!r.signingIn) setError("That email and password don't match the demo account.");
+    } catch { setError("That email and password don't match the demo account."); }
+    setBusy(false);
+  }
+  const field = { minHeight: 46, borderWidth: 1, borderColor: t.line2, borderRadius: radius.control, paddingHorizontal: 12, color: t.ink, fontFamily: font.sans, fontSize: 16 } as const;
+  if (!open) return <Pressable onPress={() => setOpen(true)} hitSlop={8} style={{ paddingTop: 6 }}><T mono size={11} tone="ink3" style={{ textDecorationLine: "underline" }}>Use a demo account</T></Pressable>;
+  return (
+    <View style={{ gap: 8, paddingTop: 10 }}>
+      <TextInput value={email} onChangeText={setEmail} placeholder="Demo email" placeholderTextColor={t.ink3} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" textContentType="username" style={field} />
+      <TextInput value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor={t.ink3} secureTextEntry textContentType="password" onSubmitEditing={() => void go()} style={field} />
+      {error ? <T mono size={12} tone="bad">{error}</T> : null}
+      <Button label={busy ? "Signing in" : "Sign in to the demo"} disabled={busy} onPress={() => void go()} />
+    </View>
+  );
 }
