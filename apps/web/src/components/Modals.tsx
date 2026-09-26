@@ -35,6 +35,7 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
   useEffect(() => { if (open) setTab(pairCode ? "machines" : initialTab); }, [open, initialTab, pairCode]);
   // The workspace page can show any of your workspaces; it opens on the one you are in.
   const [viewing, setViewing] = useState(detail.id);
+  const [wsOpen, setWsOpen] = useState(true);
   useEffect(() => { if (open) setViewing(detail.id); }, [open, detail.id]);
   const otherDetail = useQuery(api.workspaces.detail, open && viewing !== detail.id ? { workspaceId: viewing } : "skip");
   const shown = viewing === detail.id ? detail : otherDetail ?? null;
@@ -51,9 +52,10 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
         <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
           {SETTINGS_TABS.map(([v, label, icon]) => navButton(v, label, <svg viewBox="0 0 24 24" aria-hidden="true">{icon}</svg>))}
-          <div className="set-nav-sec">Workspaces</div>
-          {workspaces.map((w) => { const on = page === "workspace" && viewing === w.id; return <button key={w.id} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => { setViewing(w.id); setTab("workspace"); }}>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg><span className="set-nav-l">{w.name}</span>{w.id === detail.id && <span className="set-nav-dot" title="Open now" aria-label="open now" />}</button>; })}
+          <button className="set-nav-group" aria-expanded={wsOpen} onClick={() => setWsOpen(!wsOpen)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /></svg><span className="set-nav-l">Workspaces</span><svg className="set-nav-chev" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg></button>
+          {wsOpen && workspaces.map((w) => { const on = page === "workspace" && viewing === w.id; return <button key={w.id} role="tab" aria-selected={on} className={`set-nav-sub${on ? " on" : ""}`} onClick={() => { setViewing(w.id); setTab("workspace"); }}>
+            <span className="set-nav-l">{w.name}</span>{w.id === detail.id && <span className="set-nav-dot" title="Open now" aria-label="open now" />}</button>; })}
         </div>
         <button className="set-nav-out" onClick={() => void signOut()}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4M16 17l5-5-5-5M21 12H9" /></svg>Log out</button>
       </nav>

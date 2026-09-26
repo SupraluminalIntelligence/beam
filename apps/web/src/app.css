@@ -1024,3 +1024,8 @@ body.resizing .side-grip{pointer-events:auto}
 .ws-add{border-bottom:1px solid var(--line)}
 @media (prefers-reduced-motion:reduce){.ws-agent-row>svg{transition:none}}
 .set-nav-dot{width:6px;height:6px;flex:none;margin-left:auto;background:var(--ink-3)}
+.set-nav-group{margin-top:12px}
+.set-nav-group .set-nav-chev{width:12px;height:12px;margin-left:auto;flex:none;fill:none;stroke:var(--ink-3);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .14s ease}
+.set-nav-group[aria-expanded=false] .set-nav-chev{transform:rotate(-90deg)}
+.set-nav button.set-nav-sub{padding-left:34px;padding-top:5px;padding-bottom:5px}
+@media (prefers-reduced-motion:reduce){.set-nav-group .set-nav-chev{transition:none}}
