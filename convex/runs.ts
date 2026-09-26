@@ -9,6 +9,7 @@ import { notifyRun, resolveInputNotifications } from "./notifications";
 import { resolveForChat } from "./connections";
 import { canResume } from "../packages/contracts/src/execution";
 import { connectionStatuses } from "../packages/contracts/src/connections";
+import { applyConnectionUsage, UsageWindow } from "../packages/contracts/src/usage";
 
 const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
@@ -79,10 +80,21 @@ export const claim = mutation({
 export const appendEvents = mutation({
   args: { token: v.string(), runId: v.id("runs"), events: v.array(v.any()) },
   handler: async (ctx, { token, runId, events }) => {
-    await ownRun(ctx, token, runId);
-    await insertEvents(ctx, runId, events);
+    const { runner, run } = await ownRun(ctx, token, runId);
+    // Plan usage belongs to the account the run used, not to the chat.
+    const usage = events.filter((e) => (e as { type?: string }).type === "usage.updated");
+    if (usage.length) await applyRunUsage(ctx, runner, run, usage);
+    await insertEvents(ctx, runId, usage.length ? events.filter((e) => !usage.includes(e)) : events);
   },
 });
+
+async function applyRunUsage(ctx: MutationCtx, runner: Doc<"runners">, run: Doc<"runs">, events: unknown[]) {
+  const agent = await ctx.db.get(run.agentId);
+  if (!agent) return;
+  const windows = events.flatMap((e) => UsageWindow.array().safeParse((e as { windows?: unknown }).windows).data ?? []);
+  const harnesses = applyConnectionUsage(runner.harnesses, agent.harness, run.execution?.connectionId ?? "default", windows, Date.now());
+  if (harnesses) await ctx.db.patch(runner._id, { harnesses });
+}
 
 async function insertEvents(ctx: MutationCtx, runId: Id<"runs">, events: unknown[]) {
   const last = await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", runId)).order("desc").first();

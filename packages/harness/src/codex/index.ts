@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { HarnessStatus } from "@beam/contracts";
+import { codexRateLimitWindows, usageLimits, usageUnavailable, type CodexRateLimits, type HarnessStatus, type UsageLimits } from "@beam/contracts";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
 import { which } from "../path.ts";
 import { withTimeout } from "../version.ts";
@@ -8,12 +8,18 @@ import { CodexSession } from "./session.ts";
 import { profileEnv, type HarnessProfile } from "../profile.ts";
 
 /**
- * Codex via `codex app-server` JSON-RPC over stdio. Probe: initialize, then account/read.
+ * Codex via `codex app-server` JSON-RPC over stdio. Probe: initialize, account/read, then the plan's rate limits.
  * { chatgpt: email, planType } means a subscription, { apiKey } an API key, nothing means `codex login`.
  */
 const PLAN: Record<string, string> = { free: "Free", go: "Go", plus: "Plus", pro: "Pro 20x", prolite: "Pro 5x", team: "Team", business: "Business", enterprise: "Enterprise", edu: "Edu" };
 
 export const CLIENT_INFO = { name: "beam", title: "Beam", version: "0.0.1" };
+
+/** Plan windows for a ChatGPT sign-in. A failed read reports "failed" so the last good numbers stay on screen. */
+async function readUsage(rpc: JsonRpcChild): Promise<UsageLimits> {
+  try { return usageLimits(Date.now(), codexRateLimitWindows((await withTimeout(rpc.request<{ rateLimits?: CodexRateLimits | null }>("account/rateLimits/read", null), 10_000, "codex account/rateLimits/read")).rateLimits)); }
+  catch { return usageUnavailable(Date.now(), "failed"); }
+}
 
 export async function probeCodex(profile?: HarnessProfile, cwd?: string): Promise<HarnessStatus> {
   const base = { harness: "codex" as const, probedAt: Date.now(), plan: null, email: null };
@@ -38,8 +44,8 @@ export async function probeCodex(profile?: HarnessProfile, cwd?: string): Promis
     if (!a) return acct.requiresOpenaiAuth
       ? { ...base, installed: true, version, auth: "unauthenticated", message: "Not signed in. Run `codex login`." }
       : { ...base, installed: true, version, auth: "authenticated", plan: "external", message: null };
-    if (a.type === "chatgpt") return { ...base, installed: true, version, auth: "authenticated", plan: a.planType ? `ChatGPT ${PLAN[a.planType] ?? a.planType}` : "ChatGPT", email: a.email ?? null, message: null };
-    if (a.type === "apiKey") return { ...base, installed: true, version, auth: "authenticated", plan: "API key", message: null };
+    if (a.type === "chatgpt") return { ...base, installed: true, version, auth: "authenticated", plan: a.planType ? `ChatGPT ${PLAN[a.planType] ?? a.planType}` : "ChatGPT", email: a.email ?? null, message: null, usage: await readUsage(rpc) };
+    if (a.type === "apiKey") return { ...base, installed: true, version, auth: "authenticated", plan: "API key", message: null, usage: usageUnavailable(Date.now(), "unsupported") };
     return { ...base, installed: true, version, auth: "authenticated", plan: a.type, message: null };
   } catch (e) {
     return { ...base, installed: true, version: null, auth: "unknown", message: `Could not verify sign-in: ${(e as Error).message}` };

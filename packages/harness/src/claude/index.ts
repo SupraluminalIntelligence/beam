@@ -1,4 +1,4 @@
-import type { HarnessStatus, RunEvent } from "@beam/contracts";
+import { claudeRateLimitUpdate, claudeUsage, type HarnessStatus, type RunEvent, type UsageLimits } from "@beam/contracts";
 import { createSdkMcpServer, query, tool, type PermissionMode, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { tmpdir } from "node:os";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
@@ -10,8 +10,8 @@ import { profileEnv, type HarnessProfile } from "../profile.ts";
 
 /**
  * Claude Code via the Agent SDK. The probe opens a query whose prompt never yields,
- * reads initializationResult().account, and closes. No message is sent, no tokens spent,
- * and Beam never logs in for the user: the CLI finds its own credentials.
+ * reads initializationResult().account and the plan's usage windows, and closes. No message is
+ * sent, no tokens spent, and Beam never logs in for the user: the CLI finds its own credentials.
  */
 const PLAN: Record<string, string> = {
   claudemaxsubscription: "Max", claudemax5xsubscription: "Max 5x", claudemax20xsubscription: "Max 20x",
@@ -46,13 +46,19 @@ export async function probeClaude(profile?: HarnessProfile, cwd?: string): Promi
     const src = (acct.tokenSource ?? "").toLowerCase();
     const apiKey = src.includes("apikey") || src.includes("authtoken");
     if (apiKey) return { ...base, installed: true, version, auth: "authenticated", plan: "API key", email: acct.email ?? null, message: null };
-    if (acct.email || acct.subscriptionType) return { ...base, installed: true, version, auth: "authenticated", plan: planLabel(acct.subscriptionType), email: acct.email ?? null, message: null };
+    if (acct.email || acct.subscriptionType) return { ...base, installed: true, version, auth: "authenticated", plan: planLabel(acct.subscriptionType), email: acct.email ?? null, message: null, usage: await readUsage(q) };
     return { ...base, installed: true, version, auth: "unauthenticated", message: "Not signed in. Run `claude auth login`." };
   } catch (e) {
     return { ...base, installed: true, version, auth: "unknown", message: `Could not verify sign-in: ${(e as Error).message}` };
   } finally {
     try { q?.close(); } catch {}
   }
+}
+
+/** The SDK marks this read experimental. Any failure reports "failed" so the last good numbers stay on screen. */
+async function readUsage(q: Query): Promise<UsageLimits> {
+  try { return claudeUsage(await withTimeout(q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(), 10_000, "claude usage"), Date.now()); }
+  catch { return claudeUsage(null, Date.now()); }
 }
 
 /**
@@ -151,7 +157,9 @@ class ClaudeSession implements Session {
         return;
       }
       case "rate_limit_event": {
-        const info = (m as unknown as { rate_limit_info: { status: string; resetsAt?: number; rateLimitType?: string } }).rate_limit_info;
+        const info = (m as unknown as { rate_limit_info: { status: string; resetsAt?: number; rateLimitType?: string; utilization?: number } }).rate_limit_info;
+        const windows = claudeRateLimitUpdate(info);
+        if (windows.length) this.emit({ type: "usage.updated", runId, windows });
         if (info.status === "rejected") this.emit({ type: "status", runId, message: `rate limited${info.resetsAt ? ` · resets ${new Date(info.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`, until: info.resetsAt ? info.resetsAt * 1000 : null });
         else if (info.status === "allowed_warning") this.emit({ type: "status", runId, message: "close to the rate limit", until: null });
         return;

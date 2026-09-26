@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { RunEvent } from "@beam/contracts";
+import { codexRateLimitWindows, RunEvent, type CodexRateLimits } from "@beam/contracts";
 import type { Session, StartSession } from "../adapter.ts";
 import { AsyncQueue } from "../queue.ts";
 import { matchesAllow, truncate } from "../tools.ts";
@@ -176,6 +176,11 @@ export class CodexSession implements Session {
     if (this.stopped) return;
     const p = Envelope.parse(raw);
     if (p.threadId && p.threadId !== this.threadId) return;
+    if (method === "account/rateLimits/updated") {
+      const windows = codexRateLimitWindows((raw as { rateLimits?: CodexRateLimits | null }).rateLimits);
+      if (windows.length) this.emit({ type: "usage.updated", windows });
+      return;
+    }
     if (method === "turn/started") { this.beginTurn(Turn.parse(p.turn).id); return; }
     if (method === "turn/completed") {
       const turn = Turn.parse(p.turn);
