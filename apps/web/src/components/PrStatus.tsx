@@ -97,14 +97,16 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
         )}
       </div>
       <span className="add">+{c.add}</span><span className="del">−{c.del}</span>
-      {c.prNumber && href ? (
+      {!c.prNumber || !href ? <button className="cichip create" disabled={creating} onClick={create}>{creating ? "Creating…" : "Create PR"}</button>
+      : c.checks?.state === "none" ? null /* GitHub reports no CI on this PR: nothing to open */
+      : (
         <div className="ci" onClick={(e) => e.stopPropagation()}>
           <button className={`cichip ${c.checks?.state ?? "unknown"}`} aria-expanded={open === "ci"} aria-haspopup="dialog" onClick={toggleCi} title={`CI ${ciWord(c.checks)}`}>
             <CiDot checks={c.checks} />CI<span className="chev" aria-hidden="true">▾</span>
           </button>
           {open === "ci" && <CiPopover change={c} href={href} askHandle={askHandle} onAsk={(t) => { setOpen(null); onAsk(t); }} />}
         </div>
-      ) : <button className="cichip create" disabled={creating} onClick={create}>{creating ? "Creating…" : "Create PR"}</button>}
+      )}
     </div>
   );
 }

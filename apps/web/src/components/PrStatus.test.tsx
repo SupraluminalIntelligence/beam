@@ -36,6 +36,12 @@ describe("PrBar", () => {
     expect(html).not.toContain("cichip failing");
   });
 
+  it("drops the CI chip when GitHub reports no checks, but keeps it until GitHub has been read", () => {
+    const none = renderToStaticMarkup(<PrBar changes={[change({ checks: { ...change().checks!, state: "none", passed: 0, failed: 0, skipped: 0, items: [] } })]} askHandle={null} onAsk={() => {}} />);
+    expect(none).not.toContain("cichip");
+    expect(renderToStaticMarkup(<PrBar changes={[change({ checks: undefined })]} askHandle={null} onAsk={() => {}} />)).toContain('class="cichip unknown"');
+  });
+
   it("colors the icon by where the PR stands", () => {
     expect(prState(change())).toBe("open");
     expect(prState(change({ draft: true }))).toBe("draft");
