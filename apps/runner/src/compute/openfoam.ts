@@ -10,6 +10,7 @@ import { exportMovingMesh } from "./movingMesh.ts";
 import { planarFiles, planarMesh } from "./planar.ts";
 import { channelPatches, channelResults, labelList } from "./channelMetrics.ts";
 import { parallelFiles, parallelResults } from "./parallelChannels.ts";
+import { runDomain3d } from "./domain3d.ts";
 const exec = promisify(execFile);
 export async function probeOpenFoam(){
   try{await exec("docker",["info","--format","{{.OSType}}"],{timeout:6000});await exec("docker",["image","inspect",OPENFOAM_IMAGE],{timeout:6000,maxBuffer:1024*1024});return{ready:true,message:"OpenFOAM 2512 · local Docker",image:OPENFOAM_IMAGE};}
@@ -58,6 +59,7 @@ export async function runOpenFoam(raw:unknown,name:string){
   const sim=SimulationJob.parse(raw),c=sim.config,dir=process.cwd();
   if(!/^beam-foam-[a-f0-9]{20}$/.test(name))throw new Error("Invalid container handle");
   const ready=await probeOpenFoam();if(!ready.ready)throw new Error(ready.message);
+  if(c.geometry==="domain3d")return runDomain3d(sim,dir,(script,resources)=>foamContainer(dir,name,script,resources,["mesh.log","snappy.log","patch.log","check.log","meshview.log","decompose.log","solve.log","reconstruct.log"]),residualHistory);
   for(const [path,text] of Object.entries(c.geometry==="channel"?channelFiles(c):c.geometry==="planar"?planarFiles(c):c.geometry==="parallel-channels"?parallelFiles(c):cylinderFiles(c))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
   if(c.geometry==="planar"&&sim.stage==="mesh"){const generated=planarMesh(c);await writeFile(join(dir,"mesh-view.json"),JSON.stringify({version:1,polygons:generated.polygons}));for(const [path,text] of Object.entries(generated.files)){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}}
   const meshNames=foamMeshNames;
@@ -68,20 +70,24 @@ export async function runOpenFoam(raw:unknown,name:string){
   }
   console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM image ${OPENFOAM_IMAGE}`);
   const commands=[sim.stage==="mesh"&&c.geometry!=="planar"?"blockMesh > mesh.log 2>&1":"true","checkMesh -allTopology -allGeometry > check.log 2>&1","cat check.log","grep -q 'Mesh OK' check.log",...(sim.stage==="solve"?["echo BEAM_STAGE solving",`${c.geometry==="channel"?"buoyantBoussinesqSimpleFoam":c.geometry==="parallel-channels"?"buoyantBoussinesqPimpleFoam":"pimpleFoam"} > solve.log 2>&1`,"cat solve.log","echo BEAM_STAGE exporting","postProcess -func writeCellCentres -latestTime > centres.log 2>&1",...(c.geometry==="planar"&&c.motion?["checkMesh -allTopology -allGeometry -time '0:' > motion-check.log 2>&1"]:[])]:[])];
-  const script="source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /case; set -e; "+commands.join("; ");
+  await foamContainer(dir,name,commands.join("; "),{cpus:2,memory:"2g"},["mesh.log","check.log","solve.log","centres.log","motion-check.log"]);
+  await exportOpenFoam(sim,dir);
+}
+async function foamContainer(dir:string,name:string,commands:string,resources:{cpus:number;memory:string},logs:string[]){
+  const script="source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /case; set -e; "+commands;
   // No network, credentials or host mounts beyond this job directory. Images are installed explicitly.
-  const child=spawn("docker",["run","--rm","--pull=never","--name",name,"--network","none","--cpus","2","--memory","2g","--pids-limit","256","-v",`${dir}:/case`,"-w","/case","--entrypoint","/bin/bash",OPENFOAM_IMAGE,"-lc",script],{stdio:["ignore","pipe","pipe"]});
+  const child=spawn("docker",["run","--rm","--pull=never","--name",name,"--network","none","--cpus",String(resources.cpus),"--memory",resources.memory,"--pids-limit","256","-v",`${dir}:/case`,"-w","/case","--entrypoint","/bin/bash",OPENFOAM_IMAGE,"-lc",script],{stdio:["ignore","pipe","pipe"]});
   child.stdout.on("data",d=>process.stdout.write(d));child.stderr.on("data",d=>process.stderr.write(d));
   // Tail the solver log while it runs; the durable supervisor keeps the bounded live log.
   let offset=0,reading=false;const timer=setInterval(async()=>{if(reading)return;reading=true;try{const s=await readFile(join(dir,"solve.log"),"utf8");if(s.length>offset){process.stdout.write(s.slice(offset));offset=s.length;}}catch{}finally{reading=false;}},1000);
   const code=await new Promise<number|null>((resolve,reject)=>{child.once("error",reject);child.once("close",resolve);}).finally(()=>clearInterval(timer));
-  if(code!==0){for(const path of ["mesh.log","check.log","solve.log","centres.log","motion-check.log"]){try{console.error((await readFile(join(dir,path),"utf8")).slice(-4000));}catch{}}throw new Error(`OpenFOAM exited with code ${code}`);}
-  await exportOpenFoam(sim,dir);
+  if(code!==0){for(const path of logs){try{console.error((await readFile(join(dir,path),"utf8")).slice(-4000));}catch{}}throw new Error(`OpenFOAM exited with code ${code}`);}
 }
 const foamMeshNames=["points","faces","owner","neighbour","boundary"];
 /** Export existing solver files without launching or modifying the calculation. */
 export async function exportOpenFoam(raw:unknown,dir:string){
   const sim=SimulationJob.parse(raw),c=sim.config,meshNames=foamMeshNames;
+  if(c.geometry==="domain3d")throw new Error("3D studies are exported by exportDomain3d");
   const check=await readFile(join(dir,"check.log"),"utf8"),cells=Number(check.match(/cells:\s+(\d+)/)?.[1]);
   if(!Number.isInteger(cells)||cells<1||cells>12800)throw new Error("Mesh exceeds cell budget");
   if(c.geometry!=="planar"&&cells!==(c.geometry==="channel"?c.nx*c.ny:c.geometry==="parallel-channels"?parallelLayout(c).cells:c.version===1?5568:7344))throw new Error("Generated mesh cell count does not match the case");

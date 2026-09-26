@@ -4,6 +4,8 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- 3D simulation studies: a box domain with spheres, boxes and cylinders, meshed with snappyHexMesh and solved laminar or with k-ω SST turbulence on up to four cores. Results play back on slice planes and body walls in a 3D view.
+
 ## 0.1.10 — 2026-09-26
 
 - Chats show live status in the sidebar, tabs and ⌘K: pulsing blue while an agent or job runs, half amber when an agent is waiting on you, green when a run finished and you haven't looked, ✕ when it failed, and a blue outline when someone mentions you.
