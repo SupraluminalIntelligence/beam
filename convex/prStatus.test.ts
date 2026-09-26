@@ -1,54 +1,78 @@
 import { describe, expect, it } from "vitest";
-import { keepPolling, prPatch, summarizeChecks, type GitHubPr, type RollupContext } from "./prStatus";
+import { checkState, keepPolling, parsePrPage, prPatch, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
 
 const run = (name: string, status: string, conclusion: string | null = null): RollupContext => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://ci/${name}` });
 const status = (context: string, state: string): RollupContext => ({ __typename: "StatusContext", context, state, targetUrl: null });
+const item = (name: string, state: CheckItem["state"]): CheckItem => ({ name, state, url: null });
+
+describe("checkState", () => {
+  it("treats cancelled, timed out and errored checks as failures, skipped and stale as skipped", () => {
+    expect([run("a", "COMPLETED", "CANCELLED"), run("b", "COMPLETED", "TIMED_OUT"), status("c", "ERROR")].map(checkState)).toEqual(["failed", "failed", "failed"]);
+    expect([run("a", "COMPLETED", "SKIPPED"), run("b", "COMPLETED", "STALE")].map(checkState)).toEqual(["skipped", "skipped"]);
+    expect([run("a", "COMPLETED", "NEUTRAL"), status("b", "SUCCESS")].map(checkState)).toEqual(["passed", "passed"]);
+    expect([run("a", "IN_PROGRESS"), run("b", "QUEUED"), status("c", "EXPECTED")].map(checkState)).toEqual(["pending", "pending", "pending"]);
+  });
+});
 
 describe("summarizeChecks", () => {
   it("counts each kind of check and puts failures first", () => {
-    const s = summarizeChecks([
-      run("lint", "COMPLETED", "SUCCESS"), run("docs", "COMPLETED", "SKIPPED"), run("e2e", "IN_PROGRESS"),
-      run("test", "COMPLETED", "FAILURE"), status("vercel", "SUCCESS"), run("neutral", "COMPLETED", "NEUTRAL"),
-    ], 5);
-    expect(s).toMatchObject({ state: "failing", passed: 3, failed: 1, pending: 1, skipped: 1, checkedAt: 5 });
-    expect(s.items.map((i) => i.name)).toEqual(["test", "e2e", "lint", "vercel", "neutral", "docs"]);
-    expect(s.items[0]!.url).toBe("https://ci/test");
-  });
-
-  it("treats cancelled, timed out and errored checks as failures", () => {
-    expect(summarizeChecks([run("a", "COMPLETED", "CANCELLED"), run("b", "COMPLETED", "TIMED_OUT"), status("c", "ERROR")], 0).failed).toBe(3);
+    const s = summarizeChecks([item("lint", "passed"), item("docs", "skipped"), item("e2e", "pending"), item("test", "failed")], null, 5);
+    expect(s).toMatchObject({ state: "failing", passed: 1, failed: 1, pending: 1, skipped: 1, checkedAt: 5 });
+    expect(s.items.map((i) => i.name)).toEqual(["test", "e2e", "lint", "docs"]);
   });
 
   it("is pending while anything runs, passing once all pass or skip, none with no checks", () => {
-    expect(summarizeChecks([run("a", "COMPLETED", "SUCCESS"), run("b", "QUEUED")], 0).state).toBe("pending");
-    expect(summarizeChecks([status("a", "EXPECTED")], 0).state).toBe("pending");
-    expect(summarizeChecks([run("a", "COMPLETED", "SUCCESS"), run("b", "COMPLETED", "SKIPPED")], 0).state).toBe("passing");
-    expect(summarizeChecks([], 0).state).toBe("none");
+    expect(summarizeChecks([item("a", "passed"), item("b", "pending")], null, 0).state).toBe("pending");
+    expect(summarizeChecks([item("a", "passed"), item("b", "skipped")], null, 0).state).toBe("passing");
+    expect(summarizeChecks([], null, 0).state).toBe("none");
+  });
+
+  it("trusts GitHub's rollup over the checks it read, so a failure past the last page still shows", () => {
+    expect(summarizeChecks([item("a", "passed")], "FAILURE", 0).state).toBe("failing");
+    expect(summarizeChecks([item("a", "passed")], "PENDING", 0).state).toBe("pending");
+    expect(summarizeChecks([item("a", "failed")], "PENDING", 0).state).toBe("failing");
+    expect(summarizeChecks([item("a", "passed")], "SUCCESS", 0).state).toBe("passing");
+  });
+});
+
+describe("parsePrPage", () => {
+  const page = (rollup: unknown = { state: "SUCCESS", contexts: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [run("test", "COMPLETED", "SUCCESS"), {}] } }) => ({ data: { repository: { pullRequest: {
+    state: "OPEN", merged: false, isDraft: true, title: "Add workspace deletion", url: "https://github.com/acme/beam/pull/12", additions: 137, deletions: 11, changedFiles: 6, headRefOid: "abc123",
+    commits: { nodes: [{ commit: { statusCheckRollup: rollup } }] },
+  } } } });
+
+  it("reads the PR, its checks and the next page, skipping nodes that are not checks", () => {
+    const r = parsePrPage(page());
+    if ("error" in r) throw new Error(r.error);
+    expect(r.next).toBeNull();
+    expect(r.pr).toMatchObject({ title: "Add workspace deletion", isDraft: true, headRefOid: "abc123", rollupState: "SUCCESS", items: [{ name: "test", state: "passed", url: "https://ci/test" }] });
+    const more = parsePrPage(page({ state: "PENDING", contexts: { pageInfo: { hasNextPage: true, endCursor: "c1" }, nodes: [] } }));
+    expect("next" in more && more.next).toBe("c1");
+  });
+
+  it("has no checks when the head commit has no rollup", () => {
+    const r = parsePrPage(page(null));
+    expect("pr" in r && r.pr.items).toEqual([]);
+    expect("pr" in r && r.pr.rollupState).toBeNull();
+  });
+
+  it("rejects a malformed response at the boundary instead of passing it on", () => {
+    const bad = page(); (bad.data.repository.pullRequest as Record<string, unknown>).additions = "137";
+    expect(parsePrPage(bad)).toMatchObject({ error: expect.stringContaining("additions") });
+    expect(parsePrPage({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository" }] })).toEqual({ error: "Could not resolve to a Repository" });
+    expect(parsePrPage("nope")).toMatchObject({ error: expect.any(String) });
   });
 });
 
 describe("prPatch", () => {
-  const pr = (over: Partial<GitHubPr> = {}): GitHubPr => ({
-    state: "OPEN", merged: false, isDraft: true, title: "Add workspace deletion", additions: 137, deletions: 11, changedFiles: 6, headRefOid: "abc123",
-    commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [run("test", "COMPLETED", "SUCCESS"), {}] } } } }] },
-    ...over,
+  const snap = { state: "OPEN" as const, merged: false, isDraft: false, title: "t", url: "https://github.com/acme/beam/pull/12", additions: 1, deletions: 2, changedFiles: 3, headRefOid: "h", rollupState: null, items: [] };
+  it("stores the PR's URL so a change that only knew its number can link to it", () => {
+    expect(prPatch(snap, 0).patch).toMatchObject({ prUrl: "https://github.com/acme/beam/pull/12", add: 1, del: 2, files: 3, headSha: "h", draft: false });
   });
-
-  it("reads the PR's title, size, head and checks, skipping contexts GitHub left empty", () => {
-    const { resolved, patch } = prPatch(pr(), 9);
-    expect(resolved).toBeNull();
-    expect(patch).toMatchObject({ title: "Add workspace deletion", draft: true, headSha: "abc123", add: 137, del: 11, files: 6 });
-    expect(patch.checks).toMatchObject({ state: "passing", passed: 1, items: [{ name: "test" }] });
-  });
-
   it("reports merged and closed PRs", () => {
-    expect(prPatch(pr({ state: "MERGED", merged: true }), 0).resolved).toBe("merged");
-    expect(prPatch(pr({ state: "CLOSED" }), 0).resolved).toBe("closed");
-  });
-
-  it("has no checks when the head commit has no rollup", () => {
-    expect(prPatch(pr({ commits: { nodes: [{ commit: { statusCheckRollup: null } }] } }), 0).patch.checks.state).toBe("none");
-    expect(prPatch(pr({ commits: { nodes: [] } }), 0).patch.checks.state).toBe("none");
+    expect(prPatch({ ...snap, state: "MERGED", merged: true }, 0).resolved).toBe("merged");
+    expect(prPatch({ ...snap, state: "CLOSED" }, 0).resolved).toBe("closed");
+    expect(prPatch(snap, 0).resolved).toBeNull();
   });
 });
 

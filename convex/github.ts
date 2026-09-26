@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireChat } from "./lib";
 import { startSync } from "./changes";
-import { POLL_MS, PR_QUERY, keepPolling, prPatch, type ChecksSummary, type GitHubPr } from "./prStatus";
+import { MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, prPatch, type ChecksSummary, type PrSnapshot } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
 export const myToken = internalQuery({
@@ -88,30 +88,51 @@ export const markResolved = internalMutation({
   },
 });
 
-/** Writes what GitHub says about the PR. The last checks stay on the row after it merges or closes. */
+const checkItemV = v.object({ name: v.string(), state: v.union(v.literal("passed"), v.literal("failed"), v.literal("pending"), v.literal("skipped")), url: v.union(v.string(), v.null()) });
+const snapshotV = v.object({
+  state: v.union(v.literal("OPEN"), v.literal("CLOSED"), v.literal("MERGED")), merged: v.boolean(), isDraft: v.boolean(), title: v.string(), url: v.string(),
+  additions: v.number(), deletions: v.number(), changedFiles: v.number(), headRefOid: v.string(),
+  rollupState: v.union(v.string(), v.null()), items: v.array(checkItemV),
+});
+
+/**
+ * Writes what GitHub says about the PR. The last checks stay on the row after it merges or closes.
+ * A targeted poll passes its generation: if a newer landing started another poll while this one was fetching, the
+ * response is about an older head and is dropped.
+ */
 export const applyPr = internalMutation({
-  args: { changeId: v.id("changes"), pr: v.any() },
-  handler: async (ctx, { changeId, pr }) => {
+  args: { changeId: v.id("changes"), pr: snapshotV, gen: v.optional(v.number()) },
+  handler: async (ctx, { changeId, pr, gen }) => {
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open") return null;
-    const { resolved, patch } = prPatch(pr as GitHubPr, Date.now());
+    if (gen !== undefined && (c.syncGen ?? 0) !== gen) return null;
+    const { resolved, patch } = prPatch(pr, Date.now());
     await ctx.db.patch(changeId, { ...patch, ...(resolved ? { state: resolved, resolvedAt: Date.now() } : {}) });
     return resolved ? null : patch.checks.state;
   },
 });
 
-/** The PR, its head commit and every check on it, in one request. Null on any GitHub error. */
-async function fetchPr(repo: string, prNumber: number, token: string): Promise<GitHubPr | null> {
+/** The PR, its head commit and its checks, a page of checks per request. Null on any GitHub error. */
+async function fetchPr(repo: string, prNumber: number, token: string): Promise<PrSnapshot | null> {
   const [owner, name] = repo.split("/");
-  const res = await fetch("https://api.github.com/graphql", {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "beam" },
-    body: JSON.stringify({ query: PR_QUERY, variables: { owner, name, number: prNumber } }),
-  });
-  if (!res.ok) return null;
-  const body = (await res.json()) as { data?: { repository?: { pullRequest?: GitHubPr | null } | null }; errors?: { message: string }[] };
-  if (body.errors?.length) console.error("fetchPr", repo, prNumber, body.errors[0]!.message);
-  return body.data?.repository?.pullRequest ?? null;
+  let first: PrSnapshot | null = null;
+  const items: PrSnapshot["items"] = [];
+  let after: string | null = null;
+  for (let page = 0; page < MAX_CHECK_PAGES; page++) {
+    const res: Response = await fetch("https://api.github.com/graphql", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "beam" },
+      body: JSON.stringify({ query: PR_QUERY, variables: { owner, name, number: prNumber, after } }),
+    });
+    if (!res.ok) break;
+    const parsed = parsePrPage(await res.json());
+    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); break; }
+    first ??= parsed.pr;
+    items.push(...parsed.pr.items);
+    after = parsed.next;
+    if (!after) break;
+  }
+  return first && { ...first, items };
 }
 
 /** Every few minutes: state, diff size and CI for every open PR. Keeps the change chips honest without anyone running anything. */
@@ -137,7 +158,7 @@ export const syncChange = internalAction({
     let checks: string | null = "pending";
     try {
       const pr = await fetchPr(r.repo, r.prNumber, r.token);
-      checks = pr ? await ctx.runMutation(internal.github.applyPr, { changeId, pr }) : "pending";
+      checks = pr ? await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen }) : "pending";
     } catch (e) { console.error("syncChange", r.repo, r.prNumber, (e as Error).message); }
     if (checks && keepPolling(checks as ChecksSummary["state"], attempt)) await ctx.scheduler.runAfter(POLL_MS, internal.github.syncChange, { changeId, gen, attempt: attempt + 1 });
   },

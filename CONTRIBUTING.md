@@ -52,7 +52,7 @@ Beam's dev setup assumes one checkout. When several are running at the same time
 
 ```sh
 pnpm dev:isolated              # first free port from 5174, desktop window, no runner of its own
-pnpm dev:isolated --runner     # also a runner, under ~/.beam-dev-<folder name> (pair it once)
+pnpm dev:isolated --runner     # also a runner, under ~/.beam-dev-<folder>-<path hash> (pair it once)
 pnpm dev:isolated --port 5180  # a fixed port
 pnpm dev:isolated --web-only   # dev server only, for a browser
 ```

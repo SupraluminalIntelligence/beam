@@ -9,9 +9,11 @@
 //
 // Everything still talks to the one Convex deployment in apps/web/.env.local. Backend changes
 // in this checkout are not live until someone deploys them.
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync } from "node:fs";
-import { createServer, connect } from "node:net";
+import { createServer } from "node:net";
+import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,23 +34,49 @@ if (!existsSync(env)) {
 }
 
 const free = (port) => new Promise((ok) => { const s = createServer().once("error", () => ok(false)).once("listening", () => s.close(() => ok(true))).listen(port, "::"); });
-const listening = (port) => new Promise((ok) => { const c = connect(port, "localhost").once("connect", () => { c.end(); ok(true); }).once("error", () => ok(false)); });
-let port = portArg ?? 5174;
-if (portArg !== null && !(await free(port))) { console.error(`port ${port} is taken`); process.exit(1); }
-while (!(await free(port))) { if (++port > 5199) { console.error("no free port in 5174-5199"); process.exit(1); } }
+const nextFree = async (from) => { for (let p = from; p <= 5199; p++) if (await free(p)) return p; console.error(`no free port in ${from}-5199`); process.exit(1); };
+if (portArg !== null && !(await free(portArg))) { console.error(`port ${portArg} is taken`); process.exit(1); }
 
-const childEnv = { ...process.env, BEAM_WEB_PORT: String(port) };
-if (flag("--runner")) childEnv.BEAM_HOME ??= join(homedir(), `.beam-dev-${basename(root)}`);
+// Two worktrees can share a folder name (…/a/beam, …/b/beam); the path hash keeps their runner profiles apart.
+const runnerHome = join(homedir(), `.beam-dev-${basename(root)}-${createHash("sha256").update(root).digest("hex").slice(0, 8)}`);
+const childEnv = { ...process.env };
+if (flag("--runner")) childEnv.BEAM_HOME ??= runnerHome;
 else childEnv.BEAM_NO_RUNNER = "1";
 
+const windows = process.platform === "win32";
 const children = [];
-const start = (script) => { const c = spawn("pnpm", [script], { cwd: root, env: childEnv, stdio: "inherit", detached: true }); children.push(c); c.on("exit", stop); return c; };
-function stop() { for (const c of children) try { process.kill(-c.pid, "SIGTERM"); } catch {} process.exit(0); }
+const start = (script, port, opts = {}) => {
+  const c = spawn("pnpm", [script], { cwd: root, env: { ...childEnv, BEAM_WEB_PORT: String(port) }, stdio: opts.stdio ?? "inherit", detached: !windows, shell: windows });
+  children.push(c);
+  return c;
+};
+// Signal each child's whole tree: pnpm's children (Vite, Electron) outlive pnpm otherwise.
+const kill = (c) => { try { if (windows) spawnSync("taskkill", ["/pid", String(c.pid), "/T", "/F"], { stdio: "ignore" }); else process.kill(-c.pid, "SIGTERM"); } catch {} };
+function stop() { for (const c of children) kill(c); process.exit(0); }
 process.on("SIGINT", stop); process.on("SIGTERM", stop);
 
-console.log(`web on http://localhost:${port}${flag("--web-only") ? "" : flag("--runner") ? ` · runner profile ${childEnv.BEAM_HOME}` : " · no runner (runs go to your usual one)"}`);
-start("dev:web");
-if (!flag("--web-only")) {
-  for (let i = 0; !(await listening(port)); i++) { if (i > 120) { console.error("the dev server did not come up"); stop(); } await new Promise((r) => setTimeout(r, 500)); }
-  start("dev:desktop");
+/**
+ * Start Vite and wait for it to say it serves `port`. Probing for a free port and then binding it is a race with
+ * another checkout doing the same; strictPort makes the loser exit, so the loser tries the next port. Only this Vite's
+ * own "Local: …:port" line counts, never a connection that some other checkout's server could answer.
+ */
+const serveWeb = (port) => new Promise((resolve) => {
+  const c = start("dev:web", port, { stdio: ["ignore", "pipe", "inherit"] });
+  let ready = false;
+  createInterface({ input: c.stdout }).on("line", (line) => {
+    process.stdout.write(line + "\n");
+    if (!ready && line.replace(/\x1b\[[0-9;]*m/g, "").includes(`localhost:${port}/`)) { ready = true; resolve({ child: c, port }); }
+  });
+  c.on("exit", () => { if (!ready) { children.splice(children.indexOf(c), 1); resolve(null); } else stop(); });
+});
+
+let web = null;
+for (let tries = 0, port = portArg ?? (await nextFree(5174)); !web; tries++) {
+  web = await serveWeb(port);
+  if (web) break;
+  if (portArg !== null || tries >= 5) { console.error(`the dev server could not start on ${port}`); stop(); }
+  port = await nextFree(port + 1);
 }
+
+console.log(`web on http://localhost:${web.port}${flag("--web-only") ? "" : flag("--runner") ? ` · runner profile ${childEnv.BEAM_HOME}` : " · no runner (runs go to your usual one)"}`);
+if (!flag("--web-only")) start("dev:desktop", web.port).on("exit", stop);

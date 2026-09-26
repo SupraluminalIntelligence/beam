@@ -7,6 +7,9 @@ import { toast } from "./Toast";
 type Change = Doc<"changes">;
 type Checks = NonNullable<Change["checks"]>;
 
+/** A PR's page. Some changes know only their number (older rows, the demo); GitHub's URL for it is predictable. */
+export const prHref = (c: Pick<Change, "repo" | "prUrl" | "prNumber">) => c.prUrl ?? (c.prNumber ? `https://github.com/${c.repo}/pull/${c.prNumber}` : null);
+
 export const openHref = (href: string) => { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); };
 
 const CI_WORD: Record<Checks["state"], string> = { passing: "passing", failing: "failing", pending: "running", none: "no checks" };
@@ -81,7 +84,7 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
       .catch((e) => toast(errText(e)))
       .finally(() => setCreating(false));
   };
-  const href = c.prUrl;
+  const href = prHref(c);
   const branchUrl = `https://github.com/${c.repo}/tree/${c.branch.split("/").map(encodeURIComponent).join("/")}`;
   return (
     <div className="prrow">

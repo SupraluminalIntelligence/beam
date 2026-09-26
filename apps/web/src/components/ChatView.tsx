@@ -12,7 +12,7 @@ import { AgentAvatar, ICO, PersonAvatar } from "./Avatar";
 import { Modal, Seg } from "./Modal";
 import { fold, timeline, type RunView } from "@beam/reducer";
 import { Activity, LandingCard, Requests, RunStatus, isLive } from "./RunBlocks";
-import { CiDot, PrBar, ciWord, openHref } from "./PrStatus";
+import { CiDot, PrBar, ciWord, openHref, prHref } from "./PrStatus";
 import type { Me, ModalKind } from "./Shell";
 import { toast } from "./Toast";
 import { TypingIndicator, useTyping } from "./TypingIndicator";
@@ -189,7 +189,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         </span>
         {repos.map((r) => {
           const c = openChangeFor(r) ?? lastChangeFor(r);
-          const href = c?.prUrl ?? null;
+          const href = c ? prHref(c) : null;
           const stateLabel = !c ? "no change yet" : c.state === "open" ? (c.prNumber ? `#${c.prNumber} open` : "branch pushed") : c.prNumber ? `#${c.prNumber} ${c.state}` : c.state;
           const ci = c?.state === "open" && c.prNumber && c.checks && c.checks.state !== "none" ? c.checks : null;
           return <span key={r} className={`chip change ${c?.state ?? "none"}`} title={c ? `${c.branch} · +${c.add} −${c.del} · ${c.files} files${ci ? ` · CI ${ciWord(ci)}` : ""}${href ? " · click to view the PR" : ""}` : `${r} · a branch and PR appear when an agent lands work here`}

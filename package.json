@@ -31,7 +31,8 @@
     "@auth/core": "^0.41.3",
     "@convex-dev/auth": "^0.0.95",
     "convex": "^1.43.0",
-    "jose": "^6.2.10"
+    "jose": "^6.2.10",
+    "zod": "^3.24.0"
   },
   "type": "module",
   "license": "MIT"

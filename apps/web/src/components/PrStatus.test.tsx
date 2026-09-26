@@ -25,6 +25,13 @@ describe("PrBar", () => {
     expect(html).toContain('class="cichip failing"');
   });
 
+  it("shows a PR that has a number but no stored URL, linking to it on GitHub", () => {
+    const html = renderToStaticMarkup(<PrBar changes={[change({ prUrl: null })]} askHandle={null} onAsk={() => {}} />);
+    expect(html).toContain("#12");
+    expect(html).toContain("cichip failing");
+    expect(html).not.toContain("Create PR");
+  });
+
   it("renders nothing when no PR is open", () => {
     expect(renderToStaticMarkup(<PrBar changes={[change({ state: "closed" })]} askHandle={null} onAsk={() => {}} />)).toBe("");
   });

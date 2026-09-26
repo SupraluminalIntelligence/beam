@@ -4,7 +4,7 @@ import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
-import { PrIcon, openHref, prState } from "./PrStatus";
+import { PrIcon, openHref, prHref, prState } from "./PrStatus";
 import { activityLabel, activitySummary } from "../lib/activity";
 
 type Run = Doc<"runs"> & { runnerName: string };
@@ -133,7 +133,7 @@ export function LandingCard({ run, changes }: { run: Run; changes: Doc<"changes"
   if (!l.repos.length) return null;
   return <>{l.repos.map((r) => {
     const c = changes.filter((x) => x.repo === r.repo && x.branch === r.branch).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    const prUrl = r.prUrl ?? c?.prUrl ?? null;
+    const prUrl = r.prUrl ?? (c ? prHref(c) : null);
     const prNumber = c?.prNumber ?? (prUrl ? Number(prUrl.split("/").pop()) || null : null);
     const href = prUrl ?? r.compareUrl;
     const where = `${r.repo.split("/")[1]}${prNumber ? `#${prNumber}` : ""}`;
