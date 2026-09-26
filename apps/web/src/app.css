@@ -627,6 +627,9 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .thead .chip.change.merged{color:var(--ink-3)}
 .thead .chip.change.none{color:var(--ink-3)}
 .thead .chip.addrepo{color:var(--ink-3)}
+.thead .chip.change .rm{background:none;border:0;padding:0 0 0 7px;margin:0;font:inherit;line-height:1;color:var(--ink-3);cursor:pointer;opacity:.55}
+.thead .chip.change:hover .rm,.thead .chip.change .rm:focus-visible{opacity:1}
+.thead .chip.change .rm:hover{color:var(--bad)}
 .dd button.dim{color:var(--ink-3)}.dd button.dim .k{float:right;font-size:10px}
 .donebtn{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);border:1px solid var(--line);padding:1px 8px;margin-right:10px;height:22px}
 .donebtn:hover{color:var(--ink);border-color:var(--line-2)}
