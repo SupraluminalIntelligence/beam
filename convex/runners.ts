@@ -59,7 +59,7 @@ const FRESH = 90_000;
 const shape = (r: { _id: unknown; name: string; displayName?: string; hostname: string; platform: string; ownerLogin: string; online: boolean; lastSeen: number; allowSharedRuns?: boolean; harnesses: unknown; launchedByApp: boolean }) =>
   ({ id: r._id, allowSharedRuns: r.allowSharedRuns ?? false, name: r.displayName ?? r.name, hostname: r.hostname, platform: r.platform, ownerLogin: r.ownerLogin, online: r.online && r.lastSeen > Date.now() - FRESH, lastSeen: r.lastSeen, harnesses: r.harnesses, launchedByApp: r.launchedByApp });
 
-/** My runners, for Settings → Connected harnesses. */
+/** My runners, for Settings → Machines. */
 export const mine = query({
   args: {},
   handler: async (ctx) => {

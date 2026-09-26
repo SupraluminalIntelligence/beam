@@ -45,7 +45,7 @@ Chat is the record. Agents speak only when spoken to. Git is the shared filesyst
 
 Install Codex CLI 0.151 or newer on the runner's machine and sign in with `codex login`.
 GPT-6 Astra is available in both model pickers; use CLI 0.155.1 or newer for Astra.
-Refresh Connected harnesses, then mention `@codex` in a chat (or pin it in a private chat).
+Refresh the machine in Settings → Machines, then mention `@codex` in a chat (or pin it in a private chat).
 Restart a running development runner after updating this checkout.
 
 The adapter uses the user's `codex app-server` over stdio. It supports streamed replies and

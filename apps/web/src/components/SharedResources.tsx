@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Select } from "./Select";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -30,5 +31,5 @@ export function SharedResources({ chatId }: { chatId: Id<"chats"> }) {
 
 export function ResourceSharingPolicy() {
   const policy = useQuery(api.resources.sharingPolicy); const save = useMutation(api.resources.setSharingPolicy);
-  return <div className="row connection-policy"><span>New workspace folders</span><select aria-label="Workspace resource sharing" value={policy ?? "auto"} disabled={!policy} onChange={e => void save({ policy: e.target.value as "auto" | "ask" }).catch(e => toast(e.message))}><option value="auto">Share automatically</option><option value="ask">Keep private until I approve</option></select></div>;
+  return <div className="row connection-policy"><span>New workspace folders</span><Select label="Workspace resource sharing" value={policy ?? "auto"} disabled={!policy} onChange={(v) => void save({ policy: v }).catch(e => toast(e.message))} options={[{ value: "auto", label: "Share automatically" }, { value: "ask", label: "Keep private until I approve" }]} /></div>;
 }

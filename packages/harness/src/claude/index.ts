@@ -21,7 +21,7 @@ const PLAN: Record<string, string> = {
 const planLabel = (s: string | undefined) => (s ? PLAN[s.toLowerCase().replace(/[^a-z0-9]/g, "")] ?? s : null);
 
 /** Beam's display names → model ids. Unknown names pass through untouched. */
-const MODEL_IDS: Record<string, string> = { "Fable 5.1": "claude-fable-5-1", "Fable 5.0": "claude-fable-5", "Opus 5.0": "claude-opus-5", "Sonnet 5.0": "claude-sonnet-5" };
+const MODEL_IDS: Record<string, string> = { "Fable 5.1": "claude-fable-5-1", "Fable 5.0": "claude-fable-5", "Opus 5.5": "claude-opus-5-5", "Opus 5.0": "claude-opus-5", "Sonnet 5.0": "claude-sonnet-5" };
 export const claudeModelId = (name: string) => MODEL_IDS[name] ?? name;
 
 const baseEnv = (profile?: HarnessProfile) => ({ ...profileEnv("claude", profile), CLAUDE_CODE_AUTO_CONNECT_IDE: "0" }) as Record<string, string>;

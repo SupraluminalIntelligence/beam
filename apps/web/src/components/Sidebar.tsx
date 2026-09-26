@@ -142,7 +142,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
         <div className="menu" hidden={!acct}>
           <div className="mh"><PersonAvatar login={p.me.githubLogin} name={p.me.name} image={p.me.image} hue="me" /><div><div className="mn">{p.me.name}</div><div className="k">{p.me.githubLogin}{p.me.isAnonymous ? " · guest" : ""}</div></div></div>
           <button onClick={() => { setAcct(false); toast("Usage: wired in M1 from the harness probes"); }}><span>Usage this month</span><span className="k">M1</span></button>
-          <button onClick={() => { setAcct(false); p.setModal({ kind: "settings" }); }}><span>Connected harnesses</span><span className="k">M1</span></button>
+          <button onClick={() => { setAcct(false); p.setModal({ kind: "settings", tab: "machines" }); }}><span>Machines and accounts</span></button>
           <button onClick={() => { setAcct(false); p.setModal({ kind: "invite" }); }}><span>Invite a teammate</span></button>
           <button onClick={() => { setAcct(false); p.setModal({ kind: "settings" }); }}><span>Settings</span><span className="k">⌘,</span></button>
           <button onClick={() => void signOut()}><span>Log out</span></button>
