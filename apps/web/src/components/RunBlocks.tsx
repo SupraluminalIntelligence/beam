@@ -4,6 +4,7 @@ import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
+import { CiDot, ciWord, openHref } from "./PrStatus";
 import { activityLabel, activitySummary } from "../lib/activity";
 
 type Run = Doc<"runs"> & { runnerName: string };
@@ -122,28 +123,32 @@ export function Requests({ view, turn, runId }: { view: RunView; turn: number; r
 }
 
 type Landing = { repos: { repo: string; branch: string; base: string; pushed: boolean; add: number; del: number; files: number; prUrl: string | null; compareUrl: string | null; error: string | null }[]; error: string | null };
-const openHref = (href: string) => { const b = (window as unknown as { beam?: { openExternal?: (u: string) => void } }).beam; if (b?.openExternal) b.openExternal(href); else window.open(href, "_blank", "noopener"); };
 
-/** What a run left behind, one card per repo it changed. Nothing changed: no card. */
-export function LandingCard({ run }: { run: Run }) {
+/** What a run left behind, one card per repo it changed. Nothing changed: no card. The diff is what the run pushed; the PR's number, title, state and CI are live. */
+export function LandingCard({ run, changes }: { run: Run; changes: Doc<"changes">[] }) {
   const raw = run.landing as null | Landing | { branch?: string };
   if (!raw) return run.state === "failed" ? <div className="ask fail"><div className="askp"><span className="k">run failed</span><span>See the log above. Nothing was pushed.</span></div></div> : null;
   const l: Landing = "repos" in raw ? raw : { repos: [], error: null }; // runs from before threads had one branch; they show nothing
   if (l.error) return <div className="ask fail"><div className="askp"><span className="k">{run.state === "interrupted" ? "run stopped" : "run failed"}</span><span>{l.error}</span></div></div>;
   if (!l.repos.length) return null;
   return <>{l.repos.map((r) => {
-    const href = r.prUrl ?? r.compareUrl;
+    const c = changes.filter((x) => x.repo === r.repo && x.branch === r.branch).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const prUrl = r.prUrl ?? c?.prUrl ?? null;
+    const href = prUrl ?? r.compareUrl;
+    const status = run.state === "interrupted" ? "stopped" : !r.pushed ? "not pushed" : c && c.state !== "open" ? c.state : c?.draft ? "draft" : "pushed";
     return (
       <button key={r.repo} className="card" onClick={() => href && openHref(href)} title={href ?? undefined}>
         <span className="ai">⎇</span>
         <div>
-          <div className="ttl">{r.branch}</div>
+          <div className="ttl">{c?.prNumber ? <><span className="num">#{c.prNumber}</span> {c.title}</> : r.branch}</div>
           <div className="mt">
             <span>{r.repo.split("/")[1]}</span>
-            <span>{run.state === "interrupted" ? "stopped" : r.pushed ? "pushed" : "not pushed"}</span>
+            {c?.prNumber && <span>{r.branch}</span>}
+            <span>{status}</span>
             {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}
+            {c?.prNumber && c.checks && c.checks.state !== "none" && <span className={`ci ${c.checks.state}`}><CiDot checks={c.checks} />CI {ciWord(c.checks)}</span>}
             {r.error && <span className="err">{r.error}</span>}
-            {href && <span className="hint">{r.prUrl ? "open PR" : "compare on GitHub"}</span>}
+            {href && <span className="hint">{prUrl ? "open PR" : "compare on GitHub"}</span>}
           </div>
         </div>
       </button>

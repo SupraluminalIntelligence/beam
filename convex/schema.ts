@@ -106,6 +106,15 @@ export default defineSchema({
     workScope: v.optional(v.string()),
     adopted: v.boolean(),                    // came from an existing PR rather than a run
     createdBy: v.string(), updatedAt: v.number(), resolvedAt: v.union(v.number(), v.null()),
+    // Read back from GitHub by github.ts; absent until the first sync of a PR.
+    draft: v.optional(v.boolean()), headSha: v.optional(v.string()),
+    checks: v.optional(v.object({
+      state: v.union(v.literal("pending"), v.literal("passing"), v.literal("failing"), v.literal("none")),
+      passed: v.number(), failed: v.number(), pending: v.number(), skipped: v.number(),
+      items: v.array(v.object({ name: v.string(), state: v.union(v.literal("passed"), v.literal("failed"), v.literal("pending"), v.literal("skipped")), url: v.union(v.string(), v.null()) })),
+      checkedAt: v.number(),
+    })),
+    syncGen: v.optional(v.number()),         // bumped to start a fresh poll; an older poll sees the new number and stops
   }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
   /** Jobs are independent of agent runs. Never reap them when an agent or runner disconnects. */
