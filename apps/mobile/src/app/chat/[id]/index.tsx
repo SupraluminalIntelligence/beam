@@ -79,6 +79,8 @@ export default function ChatScreen() {
           data={c.rows}
           keyExtractor={(r) => r.key}
           extraData={held?.id}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 12 }}
           onScroll={(e) => { const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent; atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 80; }}
           scrollEventThrottle={64}
