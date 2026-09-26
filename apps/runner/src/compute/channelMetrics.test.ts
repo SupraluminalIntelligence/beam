@@ -45,6 +45,10 @@ it("uses the imposed flux and the solver's wall face temperatures under a wall h
   for(const [,nu] of r.results.nusselt)expect(nu).toBeCloseTo(12,1);
   // Face value = first cell + gradient × half a cell, as fixedGradient evaluates it.
   expect(r.results.maxWallTemperatureK).toBeCloseTo(T0+A*(dy/2-c.height/2)**2+A*c.height*dy/2,9);
+  // Downstream the wall sits 0.08 K above the bulk after a 30 K rise; Nu is still defined there.
+  const a=5e3,long=grid({...c,wallHeatFlux:k*a*c.height},()=>c.velocity,(x,y)=>T0+30*x/c.length+a*(y-c.height/2)**2,()=>0);
+  expect(long.results.nusselt).toHaveLength(c.nx);
+  for(const [,nu] of long.results.nusselt)expect(nu).toBeCloseTo(12,1);
 });
 it("assigns patch cells from the owner list",()=>{
   const boundary="3\n(\ninlet\n{\nnFaces 1;\nstartFace 2;\n}\noutlet\n{\nnFaces 1;\nstartFace 3;\n}\nwalls\n{\nnFaces 2;\nstartFace 4;\n}\n)";

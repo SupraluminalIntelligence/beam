@@ -64,7 +64,8 @@ export function channelResults(c: ChannelCase, centres: [number, number, number]
     const bottom = wallT.get(col[0]!)!, top = wallT.get(col[c.ny - 1]!)!, Tw = (bottom + top) / 2;
     const gradient = (w: number, a: number, b: number) => (8 * w - 9 * T[col[a]!]! + T[col[b]!]!) / (3 * dy); // into the fluid, from T at 0, dy/2 and 3dy/2
     const flux = imposed ?? (gradient(bottom, 0, 1) + gradient(top, c.ny - 1, c.ny - 2)) / 2;
-    if (Math.abs(Tw - bulk) > 0.01 * Math.abs(Tw - Tin)) nusselt.push([centres[col[0]!]![0], flux * dh / (Tw - bulk)]);
+    // At a fixed wall temperature the fluid approaches the wall and Nu loses its denominator; under a flux Tw − bulk stays finite as both rise.
+    if (imposed !== null ? Tw - bulk > 0 : Math.abs(Tw - bulk) > 0.01 * Math.abs(Tw - Tin)) nusselt.push([centres[col[0]!]![0], flux * dh / (Tw - bulk)]);
   }
 
   // Developed pressure gradient: regress column-mean kinematic pressure beyond 1.5 hydrodynamic entry lengths, away from the outlet column.
