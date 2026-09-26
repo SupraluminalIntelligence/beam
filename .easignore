@@ -1,0 +1,36 @@
+# Preserve repository and mobile ignore rules in the cloud build archive.
+node_modules
+dist
+dist-electron
+release
+.DS_Store
+*.log
+.env
+.env.*
+.convex
+.beam
+.vercel
+.expo
+web-build
+expo-env.d.ts
+*.tsbuildinfo
+.kotlin
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+credentials.json
+.metro-health-check*
+/apps/mobile/ios
+/apps/mobile/android
+.claude
+.codex
+/design
+/docs
+
+# The app imports these generated clients. Upload them without deploying Convex.
+!convex/_generated
+!convex/_generated/**

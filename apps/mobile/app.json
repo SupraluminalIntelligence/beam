@@ -9,7 +9,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ai.supraluminal.beam.mobile"
+      "bundleIdentifier": "ai.supraluminal.beam.mobile",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "ai.supraluminal.beam.mobile",
