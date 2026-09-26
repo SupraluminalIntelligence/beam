@@ -8,7 +8,7 @@ import { Activity, AgentBody, AgentReply, Frame, Landing, PersonBody, PersonMess
 import { MessageActions, type Held } from "../../../chat/Actions";
 import { HARNESS } from "../../../lib/agents";
 import { api, type Id } from "../../../lib/convex";
-import { dayLabel } from "../../../lib/format";
+import { dayLabel, errorText } from "../../../lib/format";
 import { font, radius, useTheme } from "../../../lib/theme";
 import { AgentMark, Avatar, Empty, Icon, Sq, Stack, T, TopBar } from "../../../ui";
 import { Screen } from "../../../ui/Screen";
@@ -135,6 +135,9 @@ function Composer({ inputRef, text, setText, chatId, handles, members, agents, n
   const stop = useMutation(api.runs.interrupt);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // The run whose stop was accepted; the button reads "Stopping" until the runner ends it and `live` moves on.
+  const [stopping, setStopping] = useState<Id<"runs"> | null>(null);
+  const [stopBusy, setStopBusy] = useState(false);
   const q = text.match(/(?:^|\s)@([a-z0-9-]*)$/i)?.[1]?.toLowerCase();
   const picks = q === undefined ? [] : [
     ...agents.filter((a) => a.handle.startsWith(q) || (HARNESS[a.harness]?.name ?? "").toLowerCase().startsWith(q)).map((a) => ({ v: a.handle, label: HARNESS[a.harness]?.name ?? a.handle, d: `${a.model} · ${a.effort}`, agent: a.harness })),
@@ -146,9 +149,17 @@ function Composer({ inputRef, text, setText, chatId, handles, members, agents, n
     const mention = [...body.matchAll(MENTION)].map((m) => m[2]!.toLowerCase()).find((h) => handles.has(h)) ?? null;
     setSending(true); setError(null);
     try { await send({ chatId, text: body, mentionHandle: mention }); setText(""); onSent(); }
-    catch (e) { setError(String((e as Error).message).replace(/^.*Uncaught Error: /, "").split("\n")[0]!.slice(0, 160)); }
+    catch (e) { setError(errorText(e)); }
     setSending(false);
   }
+  async function stopRun(runId: Id<"runs">) {
+    if (stopBusy) return;
+    setStopBusy(true); setError(null);
+    try { await stop({ runId }); setStopping(runId); }
+    catch (e) { setError(`Could not stop: ${errorText(e)}`); }
+    setStopBusy(false);
+  }
+  const halting = stopBusy || stopping === live;
   return (
     <View style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
       {picks.length ? (
@@ -170,7 +181,7 @@ function Composer({ inputRef, text, setText, chatId, handles, members, agents, n
           style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, color: t.ink, fontFamily: font.sans, fontSize: 16 }}
           onKeyPress={(e) => { if (Platform.OS === "web" && e.nativeEvent.key === "Enter" && !(e as unknown as { shiftKey?: boolean }).shiftKey) { e.preventDefault(); void submit(); } }}
         />
-        {live ? <Pressable onPress={() => void stop({ runId: live })} style={{ height: 36, paddingHorizontal: 12, borderWidth: 1, borderColor: t.line2, borderRadius: radius.control, justifyContent: "center" }}><T mono size={12} tone="ink2">Stop</T></Pressable> : null}
+        {live ? <Pressable disabled={halting} onPress={() => void stopRun(live)} style={{ height: 36, paddingHorizontal: 12, borderWidth: 1, borderColor: t.line2, borderRadius: radius.control, justifyContent: "center", opacity: halting ? 0.5 : 1 }}><T mono size={12} tone="ink2">{halting ? "Stopping" : "Stop"}</T></Pressable> : null}
         <Pressable disabled={!text.trim() || sending} onPress={() => void submit()} accessibilityLabel="Send" style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: radius.control, borderWidth: 1, borderColor: text.trim() ? t.ink : t.line2, backgroundColor: text.trim() ? t.ink : "transparent" }}>
           <Icon name="send" size={16} color={text.trim() ? t.surface : t.ink3} />
         </Pressable>

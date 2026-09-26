@@ -1,10 +1,10 @@
-import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
+import type { ActivityLine, OpenRequest, RunView, TurnView } from "@beam/reducer";
 import { useMutation } from "convex/react";
 import * as Haptics from "expo-haptics";
 import { useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { api, type Id } from "../lib/convex";
-import { duration, elapsed, hhmm } from "../lib/format";
+import { duration, elapsed, errorText, hhmm } from "../lib/format";
 import { useNow } from "../lib/hooks";
 import { font, radius, useTheme } from "../lib/theme";
 import { AgentMark, Avatar, Sq, T } from "../ui";
@@ -137,35 +137,50 @@ export function Activity({ turn, live, waiting, agent }: { turn: TurnView; live:
 
 /** A question or approval the agent is waiting on. Anyone in the chat can answer; the first answer wins. */
 export function Requests({ run, view }: { run: Run; view: RunView }) {
+  return <>{view.requests.map((r) => <Request key={r.requestId} run={run} r={r} />)}</>;
+}
+
+/** One request, with its own typed answer so a draft never carries over to the next question. Buttons lock while the answer is on its way and unlock with the reason if it fails. */
+function Request({ run, r }: { run: Run; r: OpenRequest }) {
   const t = useTheme();
   const respond = useMutation(api.runs.respond);
   const [answer, setAnswer] = useState("");
-  const send = (requestId: string, decision: string) => { tap(); void respond({ runId: run._id, requestId, decision }); };
-  return <>{view.requests.map((r) => (
-    <View key={r.requestId} style={{ marginTop: 8, borderWidth: 1, borderColor: t.warn, borderRadius: radius.object, overflow: "hidden", backgroundColor: t.surface }}>
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function send(decision: string) {
+    if (!decision || sending) return;
+    tap(); setSending(true); setError(null);
+    try { await respond({ runId: run._id, requestId: r.requestId, decision }); setAnswer(""); }
+    catch (e) { setError(errorText(e)); }
+    setSending(false);
+  }
+  const typed = answer.trim();
+  return (
+    <View style={{ marginTop: 8, borderWidth: 1, borderColor: t.warn, borderRadius: radius.object, overflow: "hidden", backgroundColor: t.surface }}>
       <View style={{ padding: 12, gap: 6 }}>
         <T mono caps size={10} tone="warn">{r.kind === "input" ? "waiting for an answer" : "waiting for approval"}</T>
         <T mono={r.kind === "approval"} size={r.kind === "approval" ? 13 : 15} selectable>{r.prompt}</T>
+        {error ? <T mono size={11} tone="bad">{error}</T> : null}
       </View>
       {r.kind === "approval" ? (
-        <View style={{ flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line }}>
+        <View style={{ flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line, opacity: sending ? 0.4 : 1 }}>
           {(r.options ?? ["allow", "deny"]).map((o, i, all) => (
-            <Pressable key={o} onPress={() => send(r.requestId, o)} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderRightWidth: i < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderRightColor: t.line, backgroundColor: pressed ? t.surface2 : "transparent" })}>
+            <Pressable key={o} disabled={sending} onPress={() => void send(o)} style={({ pressed }) => ({ flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", borderRightWidth: i < all.length - 1 ? StyleSheet.hairlineWidth : 0, borderRightColor: t.line, backgroundColor: pressed ? t.surface2 : "transparent" })}>
               <T mono size={13} tone={o === "deny" ? "bad" : "ink"}>{o}</T>
             </Pressable>
           ))}
         </View>
       ) : (
-        <>
-          {(r.options ?? []).map((o) => <Pressable key={o} onPress={() => send(r.requestId, o)} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line }}><T mono size={13}>{o}</T></Pressable>)}
+        <View style={{ opacity: sending ? 0.4 : 1 }}>
+          {(r.options ?? []).map((o) => <Pressable key={o} disabled={sending} onPress={() => void send(o)} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line }}><T mono size={13}>{o}</T></Pressable>)}
           <View style={{ flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.line }}>
-            <TextInput value={answer} onChangeText={setAnswer} placeholder="Type an answer" placeholderTextColor={t.ink3} style={{ flex: 1, minHeight: 48, paddingHorizontal: 14, color: t.ink, fontFamily: font.sans, fontSize: 15 }} onSubmitEditing={() => answer.trim() && send(r.requestId, answer.trim())} returnKeyType="send" />
-            <Pressable disabled={!answer.trim()} onPress={() => send(r.requestId, answer.trim())} style={{ paddingHorizontal: 16, justifyContent: "center", borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.line, opacity: answer.trim() ? 1 : 0.4 }}><T mono size={13}>Send</T></Pressable>
+            <TextInput value={answer} onChangeText={setAnswer} editable={!sending} placeholder="Type an answer" placeholderTextColor={t.ink3} style={{ flex: 1, minHeight: 48, paddingHorizontal: 14, color: t.ink, fontFamily: font.sans, fontSize: 15 }} onSubmitEditing={() => void send(typed)} returnKeyType="send" />
+            <Pressable disabled={!typed || sending} onPress={() => void send(typed)} style={{ paddingHorizontal: 16, justifyContent: "center", borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.line, opacity: typed ? 1 : 0.4 }}><T mono size={13}>Send</T></Pressable>
           </View>
-        </>
+        </View>
       )}
     </View>
-  ))}</>;
+  );
 }
 
 /** The state line for a live run with nothing else to show yet. */
