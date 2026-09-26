@@ -77,6 +77,20 @@ describe("CiPopover", () => {
     expect(html).toContain(">View PR<");
   });
 
+  it("keeps Ask to fix when only GitHub's rollup knows of a failure, and says why no check is listed", () => {
+    const rollupOnly = change({ checks: { ...c.checks!, state: "failing", failed: 0, items: c.checks!.items.slice(1) } });
+    const html = renderToStaticMarkup(<CiPopover change={rollupOnly} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />);
+    expect(html).toContain("Ask @claude to fix");
+    expect(html).toContain("more than Beam lists");
+    expect(fixPrompt("claude", rollupOnly)).toBe("@claude CI is failing on acme/beam#12. Read the failing checks and push a fix.");
+  });
+
+  it("shows why GitHub could not be read instead of checking forever", () => {
+    const html = renderToStaticMarkup(<CiPopover change={change({ checks: undefined, syncError: "GitHub answered 502" })} href={c.prUrl!} askHandle={null} onAsk={() => {}} />);
+    expect(html).toContain("GitHub answered 502");
+    expect(html).not.toContain("Checking GitHub");
+  });
+
   it("does not offer a fix while CI passes", () => {
     const passing = change({ checks: { ...c.checks!, state: "passing", failed: 0, items: c.checks!.items.slice(1) } });
     expect(renderToStaticMarkup(<CiPopover change={passing} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />)).not.toContain("to fix");

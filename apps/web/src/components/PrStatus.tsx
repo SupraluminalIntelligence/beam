@@ -22,7 +22,8 @@ export function CiDot({ checks }: { checks: Change["checks"] }) {
 /** The message "Ask to fix" puts in the composer. A person still sends it. */
 export function fixPrompt(handle: string, c: Pick<Change, "repo" | "prNumber" | "checks">) {
   const failing = c.checks?.items.filter((i) => i.state === "failed").map((i) => i.name) ?? [];
-  return `@${handle} CI is failing on ${c.repo}#${c.prNumber} (${failing.slice(0, 5).join(", ")}${failing.length > 5 ? ", …" : ""}). Read the failing checks and push a fix.`;
+  const names = failing.length ? ` (${failing.slice(0, 5).join(", ")}${failing.length > 5 ? ", …" : ""})` : "";
+  return `@${handle} CI is failing on ${c.repo}#${c.prNumber}${names}. Read the failing checks and push a fix.`;
 }
 
 const ago = (t: number, now: number) => { const s = Math.max(0, Math.round((now - t) / 1000)); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`; };
@@ -122,8 +123,9 @@ export function CiPopover({ change: c, href, error = null, askHandle, onAsk }: {
   return (
     <div className="cipop" role="dialog" aria-label={`CI for #${c.prNumber}`}>
       <div className="cih"><span>CI checks</span><button className="cilink" onClick={() => openHref(`${href}/checks`)} title="Open checks on GitHub">↗</button></div>
-      {!k && <div className="cinote">{error ? "Beam can't read this PR's checks right now. They're on GitHub." : "Checking GitHub…"}</div>}
+      {!k && <div className="cinote">{error || c.syncError ? `Beam can't read this PR's checks right now${c.syncError ? ` (${c.syncError})` : ""}. They're on GitHub.` : "Checking GitHub…"}</div>}
       {k?.state === "none" && <div className="cinote">No checks reported on the latest commit.</div>}
+      {k?.state === "failing" && !k.failed && <div className="cinote">GitHub reports a failing check among more than Beam lists here.</div>}
       {counts.map(([state, label, n]) => <div key={state} className={`cicount ${state}`}><span className={`ci-mark ${state}`} aria-hidden="true" /><span>{label}</span><span className="n">{n}</span></div>)}
       {worth.length > 0 && <div className="ciitems">{worth.map((i, n) => (
         <button key={`${i.name}-${n}`} className={`ciitem ${i.state}`} disabled={!i.url} onClick={() => i.url && openHref(i.url)} title={i.url ? "Open the log" : undefined}>
@@ -131,7 +133,7 @@ export function CiPopover({ change: c, href, error = null, askHandle, onAsk }: {
         </button>
       ))}</div>}
       <div className="cift">
-        {!!k?.failed && askHandle && <button className="ciask" onClick={() => onAsk(fixPrompt(askHandle, c))}>Ask @{askHandle} to fix</button>}
+        {k?.state === "failing" && askHandle && <button className="ciask" onClick={() => onAsk(fixPrompt(askHandle, c))}>Ask @{askHandle} to fix</button>}
         <button onClick={() => openHref(href)}>View PR</button>
         {k && <span className="ciago">updated {ago(k.checkedAt, Date.now())}</span>}
       </div>

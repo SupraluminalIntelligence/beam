@@ -74,8 +74,7 @@ export const changeForSync = internalQuery({
   handler: async (ctx, { changeId, gen }) => {
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open" || !c.prNumber || (c.syncGen ?? 0) !== gen) return null;
-    const token = await tokenFor(ctx, c);
-    return token ? { repo: c.repo, prNumber: c.prNumber, token } : null;
+    return { repo: c.repo, prNumber: c.prNumber, token: await tokenFor(ctx, c) };
   },
 });
 
@@ -107,13 +106,23 @@ export const applyPr = internalMutation({
     if (!c || c.state !== "open") return null;
     if ((c.syncGen ?? 0) !== gen) return null;
     const { resolved, patch } = prPatch(pr, Date.now());
-    await ctx.db.patch(changeId, { ...patch, ...(resolved ? { state: resolved, resolvedAt: Date.now() } : {}) });
+    await ctx.db.patch(changeId, { ...patch, syncError: undefined, ...(resolved ? { state: resolved, resolvedAt: Date.now() } : {}) });
     return resolved ? null : patch.checks.state;
   },
 });
 
-/** The PR, its head commit and its checks, a page of checks per request. Null on any GitHub error. */
-async function fetchPr(repo: string, prNumber: number, token: string): Promise<PrSnapshot | null> {
+/** Records why GitHub couldn't be read, so the checks popover says so instead of checking forever. */
+export const markSyncError = internalMutation({
+  args: { changeId: v.id("changes"), gen: v.number(), error: v.string() },
+  handler: async (ctx, { changeId, gen, error }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c || c.state !== "open" || (c.syncGen ?? 0) !== gen) return;
+    await ctx.db.patch(changeId, { syncError: error.slice(0, 200) });
+  },
+});
+
+/** The PR, its head commit and its checks, a page of checks per request. A later page failing keeps what the first ones read. */
+async function fetchPr(repo: string, prNumber: number, token: string): Promise<PrSnapshot | { error: string }> {
   const [owner, name] = repo.split("/");
   let first: PrSnapshot | null = null;
   const items: PrSnapshot["items"] = [];
@@ -124,15 +133,15 @@ async function fetchPr(repo: string, prNumber: number, token: string): Promise<P
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "beam" },
       body: JSON.stringify({ query: PR_QUERY, variables: { owner, name, number: prNumber, after } }),
     });
-    if (!res.ok) break;
+    if (!res.ok) { if (first) break; return { error: res.status === 401 || res.status === 403 ? "GitHub refused Beam's access to this PR" : `GitHub answered ${res.status}` }; }
     const parsed = parsePrPage(await res.json());
-    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); break; }
+    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); if (first) break; return { error: parsed.error }; }
     first ??= parsed.pr;
     items.push(...parsed.pr.items);
     after = parsed.next;
     if (!after) break;
   }
-  return first && { ...first, items };
+  return first ? { ...first, items } : { error: "no reply from GitHub" };
 }
 
 /** Every few minutes: state, diff size and CI for every open PR. Keeps the change chips honest without anyone running anything. */
@@ -143,7 +152,9 @@ export const syncChanges = internalAction({
     for (const r of rows) {
       try {
         const pr = await fetchPr(r.repo, r.prNumber, r.token);
-        if (pr) await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr, gen: r.gen }); // a landing mid-fetch means this is an older head
+        // Both carry the generation read: a landing mid-fetch means this is about an older head.
+        if ("error" in pr) await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: pr.error });
+        else await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr, gen: r.gen });
       } catch (e) { console.error("syncChanges", r.repo, r.prNumber, (e as Error).message); }
     }
   },
@@ -155,12 +166,23 @@ export const syncChange = internalAction({
   handler: async (ctx, { changeId, gen, attempt }) => {
     const r = await ctx.runQuery(internal.github.changeForSync, { changeId, gen });
     if (!r) return;
-    let checks: string | null = "pending";
+    if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: "No one in this workspace has given Beam GitHub access" }); return; }
+    let next: boolean;
     try {
       const pr = await fetchPr(r.repo, r.prNumber, r.token);
-      checks = pr ? await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen }) : "pending";
-    } catch (e) { console.error("syncChange", r.repo, r.prNumber, (e as Error).message); }
-    if (checks && keepPolling(checks as ChecksSummary["state"], attempt)) await ctx.scheduler.runAfter(POLL_MS, internal.github.syncChange, { changeId, gen, attempt: attempt + 1 });
+      if ("error" in pr) {
+        await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: pr.error });
+        next = attempt < 3; // a blip gets a few retries; a lasting refusal shouldn't poll for half an hour
+      } else {
+        const checks = await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen });
+        next = !!checks && keepPolling(checks as ChecksSummary["state"], attempt);
+      }
+    } catch (e) {
+      console.error("syncChange", r.repo, r.prNumber, (e as Error).message);
+      await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: "couldn't reach GitHub" });
+      next = attempt < 3;
+    }
+    if (next) await ctx.scheduler.runAfter(POLL_MS, internal.github.syncChange, { changeId, gen, attempt: attempt + 1 });
   },
 });
 

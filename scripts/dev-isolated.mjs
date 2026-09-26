@@ -40,7 +40,7 @@ if (portArg !== null && !(await free(portArg))) { console.error(`port ${portArg}
 // Two worktrees can share a folder name (…/a/beam, …/b/beam); the path hash keeps their runner profiles apart.
 const runnerHome = join(homedir(), `.beam-dev-${basename(root)}-${createHash("sha256").update(root).digest("hex").slice(0, 8)}`);
 const childEnv = { ...process.env };
-if (flag("--runner")) childEnv.BEAM_HOME = runnerHome; // never an inherited one: two worktrees would share it
+if (flag("--runner")) { childEnv.BEAM_HOME = runnerHome; delete childEnv.BEAM_NO_RUNNER; } // never inherited: two worktrees would share a runner, or get none
 else childEnv.BEAM_NO_RUNNER = "1";
 
 // A local VITE_SITE_URL (the contributor setup) is where the app sends the browser for GitHub access; follow the port.

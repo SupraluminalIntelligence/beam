@@ -114,6 +114,7 @@ export default defineSchema({
       items: v.array(v.object({ name: v.string(), state: v.union(v.literal("passed"), v.literal("failed"), v.literal("pending"), v.literal("skipped")), url: v.union(v.string(), v.null()) })),
       checkedAt: v.number(),
     })),
+    syncError: v.optional(v.string()),     // why the last GitHub read failed; cleared by the next good one
     syncGen: v.optional(v.number()),         // bumped to start a fresh poll; an older poll sees the new number and stops
   }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),

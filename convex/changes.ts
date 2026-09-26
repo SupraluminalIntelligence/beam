@@ -58,7 +58,7 @@ export const land = mutation({
     const existing = await openChange(ctx, chat._id, a.repo, run.workScope);
     if (existing && existing.branch === a.branch) {
       // A new head: the previous commit's CI no longer describes the branch. The poll below fills it back in.
-      await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now(), checks: undefined, headSha: undefined });
+      await ctx.db.patch(existing._id, { add: a.add, del: a.del, files: a.files, prUrl: a.prUrl ?? existing.prUrl, prNumber: a.prNumber ?? existing.prNumber, updatedAt: Date.now(), checks: undefined, headSha: undefined, syncError: undefined });
       await startSync(ctx, existing._id, 10_000);
       return existing._id;
     }
