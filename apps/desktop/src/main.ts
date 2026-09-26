@@ -16,6 +16,19 @@ import { basename, join } from "node:path";
 let runner: ChildProcess | null = null;
 
 /**
+ * Development only: several checkouts can run side by side (see CONTRIBUTING.md, "Several checkouts at once").
+ * BEAM_WEB_PORT picks which dev server this window loads, BEAM_NO_RUNNER leaves the runner to another instance,
+ * and a window with its own runner profile (BEAM_HOME) or its own port gets its own Electron profile. A window without
+ * a runner ignores an inherited BEAM_HOME here, so runner-less windows on different ports never share storage.
+ */
+const devPort = Number(process.env["BEAM_WEB_PORT"] ?? 5173);
+const noRunner = !app.isPackaged && process.env["BEAM_NO_RUNNER"] === "1";
+if (!app.isPackaged) {
+  const profile = process.env["BEAM_HOME"] && !noRunner ? join(process.env["BEAM_HOME"], "electron") : devPort !== 5173 ? `${app.getPath("userData")}-${devPort}` : null;
+  if (profile) app.setPath("userData", profile);
+}
+
+/**
  * Updates: electron-updater against the public releases repo (SupraluminalIntelligence/beam-releases). The renderer shows a
  * pill when a version is available; downloading and installing are the person's clicks, never automatic.
  */
@@ -48,13 +61,14 @@ let quitting = false;
 let pendingPair: string | null = null;
 let localRunnerId: string | null = null;
 const runnerLog: string[] = [];
+if (noRunner) runnerLog.push("BEAM_NO_RUNNER=1: this window starts no runner; runs go to your other runner");
 // The runner is this Mac's connection to Beam. If it dies on its own, bring it back, backing off while it keeps dying.
 let runnerStopping: ChildProcess | null = null;
 let runnerFailures = 0;
 let runnerRetry: ReturnType<typeof setTimeout> | null = null;
 
 function startRunner() {
-  if (quitting) return;
+  if (quitting || noRunner) return;
   if (runnerRetry) { clearTimeout(runnerRetry); runnerRetry = null; }
   localRunnerId = null;
   const startedAt = Date.now();
@@ -99,7 +113,7 @@ function createWindow() {
   installPreviewHost(win.webContents);
   if (process.env["BEAM_DEV"]) { win.webContents.on("console-message", (_e, level, msg) => { if (level >= 2 || /convex|auth|beam/i.test(msg)) console.log(`[renderer] ${msg}`); }); }
   win.webContents.on("did-fail-load", (_e, code, desc, url) => console.log(`[renderer] failed to load ${url}: ${code} ${desc}`));
-  if (process.env["BEAM_DEV"]) void win.loadURL("http://localhost:5173");
+  if (process.env["BEAM_DEV"]) void win.loadURL(`http://localhost:${devPort}`);
   else void win.loadFile(join(__dirname, "web", "index.html"));
   win.on("close", (event) => { if (!quitting) { event.preventDefault(); win?.hide(); } });
   win.on("closed", () => { win = null; });
