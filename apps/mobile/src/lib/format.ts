@@ -17,3 +17,9 @@ export function dayLabel(t: number, now = new Date()): string {
   if (diff === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
+/** A thrown error as one short line: the server's own message when Convex wrapped it, else the first line of the error. */
+export function errorText(e: unknown, max = 160): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const line = raw.match(/Uncaught Error: (.*)/)?.[1] ?? raw.split("\n")[0] ?? "";
+  return line.trim().slice(0, max) || "Something went wrong. Try again.";
+}

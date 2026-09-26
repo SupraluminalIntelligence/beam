@@ -1,10 +1,12 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvex } from "convex/react";
 import * as WebBrowser from "expo-web-browser";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, SITE_URL } from "../lib/convex";
+import { waitForApproval } from "../lib/deviceCode";
+import { errorText } from "../lib/format";
 import { useTheme } from "../lib/theme";
 import { Button, Icon, T } from "../ui";
 
@@ -12,6 +14,9 @@ import { Button, Icon, T } from "../ui";
  * The desktop app's sign-in, reused: the phone asks for a code, you approve it on Beam's website where
  * your GitHub session lives, and the phone signs in with the "device" provider. No new auth surface.
  */
+/** The in-app browser only exists on iOS, and dismissing it rejects when there is nothing to dismiss. */
+const closeBrowser = () => { if (Platform.OS === "ios") void WebBrowser.dismissBrowser().catch(() => {}); };
+
 export default function SignIn() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -19,30 +24,40 @@ export default function SignIn() {
   const convex = useConvex();
   const [waiting, setWaiting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Each tap of Sign in is one attempt. Cancel, a newer attempt, or leaving the screen bumps this, and the old attempt stops at its next await.
+  const attempt = useRef(0);
+  useEffect(() => () => { attempt.current++; }, []);
+
+  function cancel() {
+    attempt.current++;
+    setWaiting(null);
+    closeBrowser();
+  }
 
   async function start() {
+    const mine = ++attempt.current;
+    const cancelled = () => attempt.current !== mine;
     setError(null);
     try {
       const r = await fetch(`${SITE_URL}/runner/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "desktop", name: Platform.OS === "web" ? "Beam for the web" : "Beam for iPhone", hostname: Platform.OS }) });
+      if (!r.ok) throw new Error(`Beam could not start sign-in (${r.status}). Try again.`);
       const d = (await r.json()) as { deviceCode: string; userCode: string; verifyUrl: string };
+      if (cancelled()) return;
       setWaiting(d.userCode);
       if (Platform.OS === "web") window.open(d.verifyUrl, "_blank", "noopener");
       else void WebBrowser.openBrowserAsync(d.verifyUrl, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET });
-      const started = Date.now();
-      while (Date.now() - started < 15 * 60_000) {
-        await new Promise((res) => setTimeout(res, 2000));
-        const st = await convex.query(api.runnerAuth.pending, { userCode: d.userCode }).catch(() => null);
-        if (!st) { setError("That code expired. Try again."); break; }
-        if (st.status !== "approved") continue;
-        if (Platform.OS !== "web") WebBrowser.dismissBrowser();
+      const result = await waitForApproval({ status: () => convex.query(api.runnerAuth.pending, { userCode: d.userCode }), cancelled });
+      if (result === "cancelled") return;
+      if (result === "approved") {
+        closeBrowser();
         const res = await signIn("device", { deviceCode: d.deviceCode });
         if (res.signingIn) return;
-        setError("Sign-in did not complete. Try again."); break;
-      }
+        if (!cancelled()) setError("Sign-in did not complete. Try again.");
+      } else setError(result === "expired" ? "That code expired. Try again." : "That took too long. Try again.");
     } catch (e) {
-      setError(String((e as Error).message ?? e).slice(0, 140));
+      if (!cancelled()) setError(errorText(e, 140));
     }
-    setWaiting(null);
+    if (!cancelled()) setWaiting(null);
   }
 
   return (
@@ -58,7 +73,7 @@ export default function SignIn() {
           <T weight="medium">Approve this code on Beam's website</T>
           <T mono weight="semi" size={28} style={{ letterSpacing: 3 }}>{waiting}</T>
           <T size={14} tone="ink3">A browser opened on Beam. Sign in with GitHub there if asked, then tap Approve. This screen continues by itself.</T>
-          <Button label="Cancel" onPress={() => setWaiting(null)} />
+          <Button label="Cancel" onPress={cancel} />
         </View>
       ) : (
         <View style={{ gap: 10 }}>
