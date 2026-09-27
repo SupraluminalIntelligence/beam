@@ -140,13 +140,14 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-type IconName = "back" | "search" | "plus" | "down" | "right" | "more" | "chats" | "inbox" | "you" | "lock" | "send" | "branch" | "pr" | "laptop" | "mini" | "desktop" | "github" | "external";
+type IconName = "back" | "search" | "plus" | "down" | "right" | "more" | "chats" | "inbox" | "you" | "lock" | "send" | "branch" | "pr" | "laptop" | "mini" | "desktop" | "github" | "external" | "files";
 /** Line icons at 1.6 stroke, drawn on a 24 grid. */
 export function Icon({ name, size = 21, color }: { name: IconName; size?: number; color?: string }) {
   const t = useTheme();
   const c = color ?? t.ink2;
   const s = { stroke: c, strokeWidth: 1.6, fill: "none", strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   const paths: Record<IconName, ReactNode> = {
+    files: <Path d="M5 3h9l5 5v13H5zM14 3v6h5M8 13h8M8 17h6" {...s} />,
     back: <Path d="M15 5l-7 7 7 7" {...s} strokeWidth={1.8} />,
     search: <><Circle cx={10.5} cy={10.5} r={6.5} {...s} /><Path d="m16 16 5 5" {...s} /></>,
     plus: <Path d="M12 5v14M5 12h14" {...s} />,

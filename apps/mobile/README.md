@@ -9,7 +9,7 @@ Design: `design/beam-mobile-app.html` is the approved clickable prototype; `desi
 | path | role |
 |---|---|
 | `src/app/` | screens (Expo Router). `(tabs)/` holds Chats, Inbox and You; `chat/[id]/` holds the chat, its details page and the "In this chat" sheet. |
-| `src/chat/` | the chat model (`useChat` folds runs with `@beam/reducer`), timeline rows, the markdown renderer, the hold menu |
+| `src/chat/` | the chat model (`useChat` folds runs with `@beam/reducer`), timeline rows, attachments and previews, the markdown renderer, the hold menu |
 | `src/lib/` | Convex client, theme tokens (from `apps/web/src/tokens.css`), agent naming, formatting |
 | `src/ui/` | text, status squares, avatars (Chladni plates), agent marks, icons |
 
@@ -24,6 +24,21 @@ pnpm exec tsc --noEmit && npx vitest run
 ```
 
 Sign-in reuses the desktop device-code flow: the phone gets a code, you approve it on Beam's website, the phone signs in with the `device` provider.
+
+## Files and screenshots
+
+Shared images appear as thumbnails in human and agent messages, including messages
+that contain only an attachment. Tap to open the full-screen viewer; on iOS, pinch
+to zoom. The file button in the chat header opens **Context**, also available in
+chat details. Search files, links and notes in this chat or the shared workspace.
+Text documents preview in the app; PDFs and other formats offer **Open original**.
+
+These screens use the existing `files.preview`, `files.context` and
+`files.sourcePreview` queries and their access checks. A path in a tool log is
+still a file on the runner, not an attachment: agents must use Beam's `share_file`
+tool to upload it. The phone does not access a runner's filesystem directly.
+
+See [mobile parity](../../docs/mobile-parity.md) for the remaining desktop gaps.
 
 ## Share a build
 
