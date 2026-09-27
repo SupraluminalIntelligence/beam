@@ -103,7 +103,8 @@ if (flag("--takeover")) {
     if (!(await ask("Beam is open. Quit it so this window can run this checkout's runner? [y/N] "))) process.exit(1);
     busy(); // a run may have started while the question was open
     osascript(`quit app id "${BEAM_APP}"`);
-    if (!(await waitFor(() => !beamOpen() && sharedRunners().length === 0, 20_000))) fail("Beam did not quit");
+    // A run that started after the check above is landed before Beam's runner exits (RUNNER_GRACE_MS in apps/desktop).
+    if (!(await waitFor(() => !beamOpen() && sharedRunners().length === 0, 65_000))) fail("Beam did not quit");
     reopenBeam = true;
   } else if (sharedRunners().length) fail(`a runner is using ${sharedHome} (pid ${sharedRunners().map((r) => r.pid).join(", ")}). Stop it first.`);
 }

@@ -44,9 +44,11 @@ export function watchRuns(client: ConvexClient, token: string) {
     if (closing) return;
     for (const r of runs) {
       if (active.has(r._id)) continue;
-      const progress: Progress = { title: "", harness: "beam", slots: new Map(), landing: null, shuttingDown: false, stop: null };
+      const progress: Progress = { title: "", harness: "beam", slots: new Map(), landing: null, claimed: false, shuttingDown: false, stop: null };
       const p = hostRun(client, token, r._id, progress).catch(async (e) => {
         console.error(`[run ${r._id.slice(-6)}] crashed`, e);
+        // Not claimed and the runner is going away: it stays queued for the next runner, as it would without the crash.
+        if (!progress.claimed && progress.shuttingDown) return;
         // Still end it, or it waits in the chat as queued or working until someone notices. Edits made so far are
         // pushed the normal way; a landing that already happened is reported again rather than replaced.
         try {
@@ -88,7 +90,7 @@ interface RepoSlot { repo: string; dir: string; branch: string; base: string; ch
  * What a run has set up so far, so a crash can still land it, and how a shutting-down runner reaches it:
  * `shuttingDown` for a run still setting up, `stop` once its agent is running.
  */
-interface Progress { title: string; harness: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null; shuttingDown: boolean; stop: (() => void) | null }
+interface Progress { title: string; harness: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null; claimed: boolean; shuttingDown: boolean; stop: (() => void) | null }
 
 async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, progress: Progress) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
@@ -126,7 +128,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   }
   // Not claimed yet, so not this process's: it stays queued for the next runner on this machine.
   if (progress.shuttingDown) { log(runId, "not hosting: the runner is shutting down"); return; }
-  try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); }
+  try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); progress.claimed = true; }
   catch (error) {
     // Another runner process with this machine's token (the desktop app's and a standalone one) may have won the claim,
     // or the run ended before it started: either way it is not this process's to end.
@@ -350,6 +352,8 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   // The runner is going away (Beam quit or is updating): stop the agent as a stop from the chat would, and land its work.
   const stopForShutdown = () => {
     if (ended || interrupting) return;
+    // On the server too, as a stop from the chat is, so leases held for this run end with it. Deployments without it still land the run.
+    void client.mutation(api.runs.stopping, { token, runId }).catch((e) => log(runId, "could not record the stop", (e as Error).message));
     queue({ type: "error", runId: runId as never, message: "This machine's runner is shutting down, so the run was stopped. The work so far is being pushed.", fatal: false });
     interrupt("runner shutting down, interrupting");
   };
