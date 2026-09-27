@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultBranch, ensureMirror, ensureRepoWorktree, landRepo, mirrorPath, repoDirName, threadBranch } from "./index.ts";
+import { branchFrom, defaultBranch, ensureMirror, ensureRepoWorktree, landRepo, mirrorPath, repoDirName, threadBranch } from "./index.ts";
 
 const run = promisify(execFile);
 const identity = { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" };
@@ -59,6 +59,14 @@ describe("names", () => {
     expect(threadBranch("Fix the Login Bug!", "k57abcDEF123", 0)).toBe("beam/fix-the-login-bug-def123");
     expect(threadBranch("Fix the Login Bug!", "k57abcDEF123", 2)).toBe("beam/fix-the-login-bug-def123-3");
     expect(threadBranch("日本語", "k57abcDEF123", 0)).toBe("beam/chat-def123");
+  });
+
+  it("makes branch names under the harness from an agent's name or a PR title", () => {
+    expect(branchFrom("claude", "chat-square-status")).toBe("claude/chat-square-status");
+    expect(branchFrom("codex", "codex/Chat Square Status")).toBe("codex/chat-square-status");
+    expect(branchFrom("claude", "beam/chat-square-status")).toBe("claude/chat-square-status");
+    expect(branchFrom("omp", "Read STEP bodies from chat attachments in the mesher")).toBe("omp/read-step-bodies-from-chat-attachments");
+    expect(branchFrom("claude", "日本語")).toBe("claude/chat");
   });
 
   it("uses owner-name folders only when two repos share a name", () => {
@@ -245,5 +253,54 @@ describe("worktree and landing", () => {
 
     wt = await ensureRepoWorktree(repo, path, branch, "main");
     expect(await git(["log", "-1", "--format=%s"], wt)).toBe("Run 1");
+  });
+});
+
+describe("naming a branch on its first push", () => {
+  const repo = "acme/app";
+  const placeholder = "beam/fix-it-def123-0123456789ab";
+
+  it("pushes under the new name and leaves the placeholder behind", async () => {
+    await remote(repo);
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), placeholder, "main");
+    await write(join(wt, "a.txt"), "one\n");
+    const r = await landRepo(wt, placeholder, "main", "Run 1", { to: "claude/chat-status" });
+    expect(r).toMatchObject({ pushed: true, branch: "claude/chat-status" });
+    expect(await remoteHead(repo, "claude/chat-status")).not.toBe("");
+    expect(await remoteHead(repo, placeholder)).toBe("");
+    expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], wt)).toBe("claude/chat-status");
+  });
+
+  it("does not rename when there is nothing to push", async () => {
+    await remote(repo);
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), placeholder, "main");
+    const r = await landRepo(wt, placeholder, "main", "nothing", { to: "claude/chat-status" });
+    expect(r).toMatchObject({ pushed: false, branch: placeholder });
+    expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], wt)).toBe(placeholder);
+  });
+
+  it("steps past a name that is on the remote, checked out here, or ruled out by an earlier PR", async () => {
+    await remote(repo);
+    const other = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "other"), "claude/chat-status-2", "main"); // another thread, not pushed
+    await write(join(other, "b.txt"), "b\n");
+    const first = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "first"), "beam/first", "main");
+    await write(join(first, "c.txt"), "c\n");
+    await landRepo(first, "beam/first", "main", "Taken", { to: "claude/chat-status" }); // now on the remote
+
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), placeholder, "main");
+    await write(join(wt, "a.txt"), "one\n");
+    const r = await landRepo(wt, placeholder, "main", "Run 1", { to: "claude/chat-status", taken: async (name) => name === "claude/chat-status-3" });
+    expect(r.branch).toBe("claude/chat-status-4");
+  });
+
+  it("keeps the name of a branch that is already on the remote", async () => {
+    await remote(repo);
+    const wt = await ensureRepoWorktree(repo, join(root, "machine-a", "t", "app"), placeholder, "main");
+    await write(join(wt, "a.txt"), "one\n");
+    await landRepo(wt, placeholder, "main", "Run 1");
+    await write(join(wt, "a.txt"), "two\n");
+    const r = await landRepo(wt, placeholder, "main", "Run 2", { to: "claude/chat-status" });
+    expect(r).toMatchObject({ pushed: true, branch: placeholder });
+    expect(await remoteHead(repo, "claude/chat-status")).toBe("");
   });
 });

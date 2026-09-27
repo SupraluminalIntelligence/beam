@@ -65,7 +65,11 @@ export async function defaultBranch(repo: string): Promise<string> {
   return name;
 }
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "chat";
+/** Lowercase kebab-case, at most 40 characters, cut at a word boundary when there is one. */
+const slug = (s: string) => {
+  const kebab = s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return (kebab.length > 40 ? kebab.slice(0, 41).replace(/-[^-]*$/, "").slice(0, 40) : kebab) || "chat";
+};
 /** beam/<chat-title>-<6 chars of the run id>. Fixed for the chat until it rotates on merge. */
 export const branchName = (title: string, runId: string) => `beam/${slug(title)}-${runId.slice(-6).toLowerCase()}`;
 
@@ -128,7 +132,10 @@ export function repoDirName(repo: string, all: readonly string[]): string {
   const name = repo.split("/")[1] ?? repo;
   return all.filter((r) => (r.split("/")[1] ?? r) === name).length > 1 ? repo.replace("/", "-") : name;
 }
-/** beam/<thread-slug>-<6 chars of the thread id>, then -2, -3 as changes on that repo resolve. */
+/**
+ * The working name of a thread branch until its first push, when it takes a readable one (see nameBranch):
+ * beam/<thread-slug>-<6 chars of the thread id>, then -2, -3 as changes on that repo resolve.
+ */
 export const threadBranch = (title: string, chatId: string, n: number) => `beam/${slug(title)}-${chatId.slice(-6).toLowerCase()}${n > 0 ? `-${n + 1}` : ""}`;
 
 /**
@@ -177,17 +184,49 @@ async function catchUp(wt: string, branch: string): Promise<void> {
   await git([...(await identity(wt)), "merge", "--no-ff", "--no-edit", remote], wt).catch(() => git(["merge", "--abort"], wt).catch(() => {}));
 }
 
-export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number }
+/**
+ * <harness>/<kebab-case name>, like claude/login-redirect or codex/login-redirect, the way those tools name their own
+ * branches. The name is the agent's (any prefix it added is dropped) or a PR title.
+ */
+export const branchFrom = (harness: string, name: string) => `${slug(harness)}/${slug(name.replace(/^[\w.-]+\//, ""))}`;
+
+/** The name a branch takes on its first push, and any check beyond git (an earlier PR on that name) that rules one out. */
+export interface Rename { to: string; taken?: (name: string) => Promise<boolean> }
+const onRemote = async (wt: string, name: string) => !!(await git(["ls-remote", "--heads", "origin", `refs/heads/${name}`], wt));
+const isLocal = (wt: string, name: string) => git(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`], wt).then((r) => !!r, () => false);
+/**
+ * Give a branch that has never been pushed its final name: `to`, or to-2, to-3 when that is on the remote, used by
+ * another worktree on this machine, or ruled out by `taken`. A branch already on the remote keeps its name, and so does
+ * one whose remote cannot be read (the push that follows reports why).
+ */
+export async function nameBranch(wt: string, current: string, to: string, taken?: (name: string) => Promise<boolean>): Promise<string> {
+  if (current === to) return current;
+  try {
+    if (await onRemote(wt, current)) return current;
+    for (let n = 1; ; n++) {
+      const name = n === 1 ? to : `${to}-${n}`;
+      if (name === current) return current;
+      if (await isLocal(wt, name) || await onRemote(wt, name) || await taken?.(name)) continue;
+      await git(["branch", "-m", current, name], wt);
+      return name;
+    }
+  } catch {
+    return current;
+  }
+}
+
+export interface RepoLandResult { dirty: boolean; committed: boolean; pushed: boolean; add: number; del: number; files: number; branch: string }
 /**
  * Land one repo's worktree: commit whatever changed, push if there is anything beyond the base, report the diff.
  * A worktree with no commits beyond base and nothing dirty is left alone: no branch is pushed for nothing.
  */
-export async function landRepo(wt: string, branch: string, base: string, message: string): Promise<RepoLandResult> {
+export async function landRepo(wt: string, branch: string, base: string, message: string, rename?: Rename): Promise<RepoLandResult> {
   await git(["add", "-A"], wt);
   const dirty = !!(await git(["status", "--porcelain"], wt));
   if (dirty) await git([...(await identity(wt)), "commit", "-m", message], wt);
   const ahead = await git(["rev-list", "--count", `origin/${base}..HEAD`], wt).catch(() => "0");
-  if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0 };
+  if (Number(ahead) === 0) return { dirty, committed: dirty, pushed: false, add: 0, del: 0, files: 0, branch };
+  if (rename) branch = await nameBranch(wt, branch, rename.to, rename.taken);
   await git(["push", "-u", "origin", branch], wt).catch(async (pushError: unknown) => {
     // Someone pushed to the branch while the run worked: take their commits and push once more. When the branch is
     // not on the remote, the push failed for another reason (access, a hook, the network), and that error is the one to report.
@@ -197,7 +236,7 @@ export async function landRepo(wt: string, branch: string, base: string, message
     await git(["push", "-u", "origin", branch], wt);
   });
   const stat = await diffStat(wt, `origin/${base}`);
-  return { dirty, committed: dirty, pushed: true, ...stat };
+  return { dirty, committed: dirty, pushed: true, ...stat, branch };
 }
 
 export interface PrInfo { number: number; url: string; title: string; headRefName: string; baseRefName: string; state: string }

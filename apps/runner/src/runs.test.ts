@@ -24,6 +24,7 @@ const turnDone = { type: "turn.completed", runId: "run1", turnId: "t1" } as unkn
 
 class FakeSession implements Session {
   cwd: string;
+  tools: StartSession["tools"] = [];
   private queue: RunEvent[] = [];
   private wake: (() => void) | null = null;
   private closed = false;
@@ -51,7 +52,7 @@ class FakeSession implements Session {
 const fakeAdapter: HarnessAdapter = {
   kind: "claude",
   probe: async () => ({ harness: "claude", installed: true, version: "1", auth: "authenticated", plan: null, email: null, probedAt: 0, message: null }) as never,
-  start: async (input: StartSession) => new FakeSession(input.cwd),
+  start: async (input: StartSession) => Object.assign(new FakeSession(input.cwd), { tools: input.tools }),
 };
 vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import("@beam/harness")>()), adapters: { claude: fakeAdapter } }));
 
@@ -149,14 +150,27 @@ async function host(opts: Parameters<typeof fakeClient>[0] = {}) {
 
 /** The agent edits the repo folder, the way a real harness would during a turn. */
 const edit = (s: FakeSession, file = "fix.txt") => writeFile(join(s.cwd, "app", file), "fixed\n");
-const pushedBranches = async () => (await git(["branch", "--list", "beam/*"], join(root, "remote", "acme", "app.git"))).split("\n").filter(Boolean);
+const pushedBranches = async () => (await git(["branch", "--list", "beam/*", "claude/*"], join(root, "remote", "acme", "app.git"))).split("\n").filter(Boolean);
 
 it("lands a finished turn: commits, pushes and reports the run as landed", async () => {
   script.send = async (s) => { await edit(s); s.emit(turnDone); };
   const fake = await host();
   expect(fake.landed()?.state).toBe("landed");
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true, error: null });
-  expect(await pushedBranches()).toHaveLength(1);
+  expect(await pushedBranches()).toEqual(["claude/fix-it"]);
+}, 30_000);
+
+it("pushes a new branch under the name the agent gave it", async () => {
+  script.send = async (s) => {
+    await edit(s);
+    const describe = s.tools.find((t) => t.name === "describe_change")!;
+    await describe.run({ repo: "acme/app", title: "Fix the login redirect", body: "Sends people back where they started.", branch: "login-redirect" });
+    s.emit(turnDone);
+  };
+  const fake = await host();
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true, error: null });
+  expect(await pushedBranches()).toEqual(["claude/login-redirect"]);
+  expect(fake.mutations.find((m) => m.name === "changes:land")?.args).toMatchObject({ branch: "claude/login-redirect", title: "Fix the login redirect" });
 }, 30_000);
 
 it("still lands when the harness rejects the first message", async () => {
