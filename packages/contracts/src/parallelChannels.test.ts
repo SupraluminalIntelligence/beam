@@ -45,18 +45,21 @@ it("flags buoyancy-driven cells, boiling walls and a run too short to reach stea
   expect(boil?.status).toBe("fail");
   expect(boil?.detail).toContain("61 °C");
   expect(check(mana, "run-length")?.status).toBe("warn");
-  expect(check(mana, "laminar")?.status).toBe("ok");
+  // Buoyancy can shift this device's split, so the even-split Re is information, not a bound.
+  expect(check(mana, "laminar")?.status).toBe("info");
   expect(check(mana, "viscosity")?.status).toBe("ok");
 });
 
-it("warns when buoyancy could push one channel's flow past laminar, even with an even split well inside it", () => {
-  // Four channels at an even-split Re of 1,380: one carrying more than 36 % of the inflow would pass 2,000.
-  const four = { ...mana, channels: [0, 0, 0, 0].map(heatFlux => ({ heatFlux })), cellsAcross: 8, cellsAlong: 40, velocity: 0.03 };
+it("warns when buoyancy could push one channel's flow past laminar, and only when something can shift the split", () => {
+  // Four channels at an even-split Re of 1,380, one heated with gravity on: one carrying more than 36 % of the inflow would pass 2,000.
+  const four = { ...mana, channels: [7500, 0, 0, 0].map(heatFlux => ({ heatFlux })), cellsAcross: 8, cellsAlong: 40, velocity: 0.03 };
   expect(ParallelChannelsCase.safeParse(four).success).toBe(true);
   expect(check(four, "laminar")).toMatchObject({ status: "warn", value: "Re 1380" });
   expect(check(four, "laminar")?.detail).toContain("more than 36.2 % of the inflow");
-  // The paper's device stays laminar even with all of its inflow through one channel.
-  expect(check(mana, "laminar")?.detail).toContain("Re would be 789");
+  // Without heating, gravity or thermal expansion, identical channels split evenly and the even-split Re holds.
+  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }]) expect(check(even, "laminar")?.status).toBe("ok");
+  // The paper's device: all of its inflow through one channel would still be laminar, but a reversed neighbour can push more through it.
+  expect(check(mana, "laminar")?.detail).toContain("would give Re 789");
 });
 
 it("warns when only an even split keeps a heated wall below boiling and buoyancy could starve it", () => {
@@ -64,8 +67,9 @@ it("warns when only an even split keeps a heated wall below boiling and buoyancy
   const slow = { ...mana, channels: [{ heatFlux: 2000 }, { heatFlux: 0 }], duration: 120 };
   expect(check(slow, "single-phase")).toMatchObject({ status: "warn", value: "3.7 K below Tsat if even" });
   expect(check(slow, "single-phase")?.detail).toContain("buoyancy can starve a heated channel");
-  // With gravity off identical channels split evenly, so the steady estimate holds.
+  // With gravity off, or no thermal expansion, buoyancy cannot shift the flow, so the steady estimate holds.
   expect(check({ ...slow, gravity: "off" }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
+  expect(check({ ...slow, beta: 0 }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
 });
 
 it("fails the Boussinesq approximation once the density would change by 10 % or more", () => {
