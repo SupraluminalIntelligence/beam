@@ -58,7 +58,7 @@ pnpm dev:isolated --port 5180  # a fixed port
 pnpm dev:isolated --web-only   # dev server only, for a browser
 ```
 
-`--takeover` is the closest thing to a release build without notarizing one: this Mac, your accounts, this branch's runner. It asks before quitting Beam, since that interrupts runs in progress, and refuses while another checkout's runner is on `~/.beam`. Only one checkout can take over at a time.
+`--takeover` is the closest thing to a release build without notarizing one: this Mac, your accounts, this branch's runner. It asks before quitting Beam, and refuses while Beam's runner is in the middle of a run or a compute job, since quitting would stop that work before it lands. Only one checkout can take over at a time: a lock in `~/.beam` and a check for other checkouts' runners enforce that.
 
 If the checkout has no `apps/web/.env.local`, the script copies the main worktree's copy. Ctrl-C stops the server and the window. Keep `pnpm dev:web` and `pnpm dev:desktop` on 5173 for the checkout you use day to day.
 

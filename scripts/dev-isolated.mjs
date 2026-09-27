@@ -5,14 +5,14 @@
 //   pnpm dev:isolated              first free port from 5174, no runner of its own (borrows Beam's)
 //   pnpm dev:isolated --port 5180  a fixed port
 //   pnpm dev:isolated --runner     also start a runner, under its own BEAM_HOME (pair it once)
-//   pnpm dev:isolated --takeover   quit Beam and run this checkout's runner on the usual profile; reopen Beam after
+//   pnpm dev:isolated --takeover   quit Beam (when idle) and run this checkout's runner on the usual profile; reopen Beam after
 //   pnpm dev:isolated --web-only   just the dev server, for a browser
 //
 // Everything still talks to the one Convex deployment in apps/web/.env.local. Backend changes
 // in this checkout are not live until someone deploys them.
 import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
@@ -55,6 +55,32 @@ function sharedRunners() {
     .filter((l) => { const home = l.match(/ BEAM_HOME=(\S+)/)?.[1]; return !home || home === sharedHome; })
     .map((l) => ({ pid: Number(l.trim().split(/\s+/)[0]), packaged: /runner\.mjs start\b/.test(l) }));
 }
+/**
+ * What Beam's runner is running right now: the agent CLIs of runs in progress and any compute job, all its children.
+ * Quitting Beam would stop them before they land (the runner exits on SIGTERM without waiting), so takeover waits for none.
+ */
+function runnerWork() {
+  const runners = new Set(sharedRunners().filter((r) => r.packaged).map((r) => r.pid));
+  const ps = spawnSync("ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" }).stdout ?? "";
+  return [...new Set(ps.split("\n").map((l) => l.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/)).filter((m) => m && runners.has(Number(m[2]))).map((m) => basename(m[3])))];
+}
+/**
+ * One takeover at a time. Two checkouts that both checked before either quit Beam would otherwise both start a runner on
+ * the profile. Creating the lock file is atomic; a lock left by a process that is gone is taken over.
+ */
+const lockFile = join(sharedHome, "dev-takeover.lock");
+let lockHeld = false;
+function takeLock() {
+  mkdirSync(sharedHome, { recursive: true });
+  for (let tries = 0; tries < 2; tries++) {
+    try { writeFileSync(lockFile, String(process.pid), { flag: "wx" }); lockHeld = true; return null; }
+    catch (e) { if (e.code !== "EEXIST") throw e; }
+    const holder = Number(readFileSync(lockFile, "utf8"));
+    try { process.kill(holder, 0); return holder; } catch { try { unlinkSync(lockFile); } catch {} }
+  }
+  return -1;
+}
+process.on("exit", () => { if (lockHeld) try { unlinkSync(lockFile); } catch {} });
 const waitFor = async (ok, ms) => { for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 250))) if (ok()) return true; return ok(); };
 const ask = (question) => new Promise((resolve) => {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -66,11 +92,16 @@ let reopenBeam = false;
 if (flag("--takeover")) {
   if (process.platform !== "darwin") fail("--takeover is macOS only for now");
   if (flag("--runner") || flag("--web-only")) fail("--takeover starts the desktop window with its own runner; drop --runner and --web-only");
+  const holder = takeLock();
+  if (holder) fail(`another checkout is taking over ${sharedHome}${holder > 0 ? ` (pid ${holder})` : ""}. Stop it first.`);
   const others = sharedRunners().filter((r) => !r.packaged);
   if (others.length) fail(`another checkout's runner is using ${sharedHome} (pid ${others.map((r) => r.pid).join(", ")}). Stop it first.`);
+  const busy = () => { const work = runnerWork(); if (work.length) fail(`Beam is running something right now (${work.join(", ")}). Quitting it would stop that before it lands. Let it finish or stop it in Beam, then try again.`); };
   if (beamOpen()) {
+    busy();
     if (!process.stdin.isTTY) fail("Beam is open. --takeover asks before quitting it, so run it in a terminal.");
-    if (!(await ask("Beam is open. Quit it so this window can run this checkout's runner? Runs in progress are interrupted. [y/N] "))) process.exit(1);
+    if (!(await ask("Beam is open. Quit it so this window can run this checkout's runner? [y/N] "))) process.exit(1);
+    busy(); // a run may have started while the question was open
     osascript(`quit app id "${BEAM_APP}"`);
     if (!(await waitFor(() => !beamOpen() && sharedRunners().length === 0, 20_000))) fail("Beam did not quit");
     reopenBeam = true;
