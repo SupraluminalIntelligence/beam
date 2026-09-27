@@ -1,9 +1,9 @@
-import type { Author, ChatSnapshot, Message, Run, RunEvent } from "@beam/contracts/layer";
+import type { Author, ChatSnapshot, Message, Run, RunEvent } from "@beam/contracts/worlds";
 import { fold, timeline as mergeTimeline, type ActivityLine, type OpenRequest, type RunView, type TurnView } from "@beam/reducer";
 
 /**
  * The meaning the plain apps derive, ready for any interface: a run's turns and tool steps, and a chat as
- * one ordered list. The same reducer the desktop and phone apps use, so every layer agrees with them.
+ * one ordered list. The same reducer the desktop and phone apps use, so every world agrees with them.
  */
 
 export type { ActivityLine, OpenRequest, RunView, TurnView };

@@ -1,25 +1,41 @@
-import { v } from "convex/values";
+import { ConvexError, v, type ObjectType, type PropertyValidators } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { me } from "./lib";
 import { sha256 } from "./runnerAuth";
-import { Scope } from "../packages/contracts/src/layer";
+import { Scope } from "../packages/contracts/src/worlds";
 
 /**
- * Tokens for interaction layers: interfaces built on Beam outside this codebase. A layer signs in with a
+ * Tokens for worlds: interfaces built on Beam outside this codebase. A world signs in with a
  * device code like a runner does, shows it to the person, and gets a token once they approve the scopes it
- * asked for. Only the v1 functions accept these tokens, so a layer can never reach the rest of the API.
+ * asked for. Only the v1 functions accept these tokens, so a world can never reach the rest of the API.
  */
+
+/**
+ * Production Convex tells clients only "Server Error" for a thrown Error; a ConvexError keeps its message.
+ * Worlds are built by other people, so every refusal they can meet says why: "this token may not chat:write".
+ */
+export function plainErrors<C, A, R>(handler: (ctx: C, args: A) => Promise<R>): (ctx: C, args: A) => Promise<R> {
+  return async (ctx, args) => {
+    try { return await handler(ctx, args); }
+    catch (e) { throw e instanceof ConvexError ? e : new ConvexError(e instanceof Error ? e.message : String(e)); }
+  };
+}
+/** A public query or mutation whose errors reach clients as written. */
+export const v1Query = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: QueryCtx, args: ObjectType<A>) => Promise<R> }) =>
+  query({ args: def.args, handler: plainErrors(def.handler) });
+export const v1Mutation = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: MutationCtx, args: ObjectType<A>) => Promise<R> }) =>
+  mutation({ args: def.args, handler: plainErrors(def.handler) });
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const random = (len: number, map: (b: number) => string) => Array.from(crypto.getRandomValues(new Uint8Array(len)), map).join("");
 const randomCode = (len: number) => random(len, (b) => ALPHABET[b % ALPHABET.length]!);
 const TTL = 15 * 60_000;
 
-/** Scopes as asked for, deduplicated. Unknown ones refuse the request rather than silently narrowing it. */
+/** Scopes as asked for, deduplicated, always with read. Unknown ones refuse the request rather than silently narrowing it. */
 export function parseScopes(input: unknown): Scope[] {
-  const list = Array.isArray(input) && input.length ? input : ["read"];
-  const scopes = [...new Set(list.map(String))];
+  const list = Array.isArray(input) ? input : [];
+  const scopes = [...new Set(["read", ...list.map(String)])];
   for (const s of scopes) if (!Scope.safeParse(s).success) throw new Error(`unknown scope "${s}"`);
   return scopes as Scope[];
 }
@@ -54,8 +70,8 @@ async function waiting(ctx: QueryCtx | MutationCtx, userCode: string) {
   return row && row.kind === "layer" && row.expiresAt > Date.now() ? row : null;
 }
 
-/** What a layer is asking for, shown before anyone approves it. */
-export const pending = query({
+/** What a world is asking for, shown before anyone approves it. */
+export const pending = v1Query({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     await me(ctx);
@@ -64,7 +80,7 @@ export const pending = query({
   },
 });
 
-export const approve = mutation({
+export const approve = v1Mutation({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     const u = await me(ctx);
@@ -78,7 +94,7 @@ export const approve = mutation({
   },
 });
 
-export const deny = mutation({
+export const deny = v1Mutation({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     await me(ctx);
@@ -87,8 +103,8 @@ export const deny = mutation({
   },
 });
 
-/** Your connected layers, newest first. Revoked ones stay listed for a week so a revoke is visible. */
-export const mine = query({
+/** Your connected worlds, newest first. Revoked ones stay listed for a week so a revoke is visible. */
+export const mine = v1Query({
   args: {},
   handler: async (ctx) => {
     const u = await me(ctx);
@@ -99,7 +115,7 @@ export const mine = query({
   },
 });
 
-export const revoke = mutation({
+export const revoke = v1Mutation({
   args: { id: v.id("layerTokens") },
   handler: async (ctx, { id }) => {
     const u = await me(ctx);
@@ -110,10 +126,10 @@ export const revoke = mutation({
 });
 
 /** Every v1 call starts here: a live token with the scope, and the person it acts for. */
-export async function requireLayer(ctx: QueryCtx | MutationCtx, token: string, scope: Scope = "read") {
+export async function requireApp(ctx: QueryCtx | MutationCtx, token: string, scope: Scope = "read") {
   const hash = await sha256(token);
   const t = await ctx.db.query("layerTokens").withIndex("by_hash", (q) => q.eq("tokenHash", hash)).first();
-  if (!t || t.revokedAt) throw new Error("layer token invalid or revoked");
+  if (!t || t.revokedAt) throw new Error("app token invalid or revoked");
   if (!t.scopes.includes(scope)) throw new Error(`this token may not ${scope}`);
   return { token: t, login: t.githubLogin };
 }

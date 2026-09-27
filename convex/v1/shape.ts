@@ -2,11 +2,11 @@ import type { QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { requireChatLogin } from "../lib";
 import { threadRepos } from "../changes";
-import type * as L from "../../packages/contracts/src/layer";
-import { PRIVATE_EVENT_TYPES } from "../../packages/contracts/src/layer";
+import type * as L from "../../packages/contracts/src/worlds";
+import { PRIVATE_EVENT_TYPES } from "../../packages/contracts/src/worlds";
 
 /**
- * Database rows to the layer API's shapes (packages/contracts/src/layer.ts). This is where the contract is
+ * Database rows to the Beam Worlds API's shapes (packages/contracts/src/world.ts). This is where the contract is
  * kept: internal fields change freely, these outputs only grow. Anything private stops here: machine paths,
  * resume cursors, provider accounts, tokens.
  */

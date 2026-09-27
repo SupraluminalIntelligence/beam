@@ -1,12 +1,11 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
-import { requireLayer } from "../layers";
+import { requireApp, v1Mutation, v1Query } from "../layers";
 import { change, readableChat } from "./shape";
 
-export const list = query({
+export const list = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await readableChat(ctx, chatId, login);
     return (await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect()).map(change);
   },

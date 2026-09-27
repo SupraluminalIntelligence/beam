@@ -3,7 +3,7 @@ import { convexUrl, readConfig, siteUrl, writeConfig } from "./config.ts";
 
 /**
  * Device-code login, the same flow a runner uses. Nothing is typed here: the person approves the code in
- * Beam, where they see this layer's name and what it asks to do.
+ * Beam, where they see this world's name and what it asks to do.
  */
 export async function login(opts: { name: string; scopes: string[]; log: (line: string) => void }): Promise<{ login: string }> {
   const cloud = convexUrl(await readConfig());

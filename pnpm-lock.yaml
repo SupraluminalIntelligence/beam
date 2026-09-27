@@ -42,9 +42,9 @@ importers:
       '@beam/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@beam/sdk':
+      '@beam/worlds':
         specifier: workspace:*
-        version: link:../../packages/sdk
+        version: link:../../packages/worlds
 
   apps/desktop:
     dependencies:
@@ -306,7 +306,7 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
-  packages/sdk:
+  packages/worlds:
     dependencies:
       '@beam/contracts':
         specifier: workspace:*

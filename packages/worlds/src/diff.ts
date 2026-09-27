@@ -1,9 +1,9 @@
-import type { Change, ChatActivity, ChatSnapshot, LayerEvent, Message, Presence, Run, WorkspaceState } from "@beam/contracts/layer";
-import { LIVE_RUN_STATES } from "@beam/contracts/layer";
+import type { Change, ChatActivity, ChatSnapshot, WorldEvent, WorldState, Message, Presence, Run, WorkspaceState } from "@beam/contracts/worlds";
+import { LIVE_RUN_STATES } from "@beam/contracts/worlds";
 
 /**
  * Snapshots in, events out. Convex sends a query's whole value again whenever it changes; these pure
- * functions say what changed between two values, so a layer can animate an arrival instead of re-rendering
+ * functions say what changed between two values, so a world can animate an arrival instead of re-rendering
  * a list. The snapshot stays the truth: after a reconnect, start again from the next one.
  */
 
@@ -12,9 +12,9 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const isLive = (r: Run) => LIVE_RUN_STATES.includes(r.state);
 
 /** How one run moved between two readings of it. */
-function runEvents(prev: Run | undefined, next: Run): LayerEvent[] {
+function runEvents(prev: Run | undefined, next: Run): WorldEvent[] {
   if (!prev) return [isLive(next) ? { type: "run.started", run: next } : { type: "run.ended", run: next }];
-  const out: LayerEvent[] = [];
+  const out: WorldEvent[] = [];
   const asked = next.openRequests.filter((id) => !prev.openRequests.includes(id));
   const answered = prev.openRequests.filter((id) => !next.openRequests.includes(id));
   if (asked.length) out.push({ type: "run.asking", run: next, requestIds: asked });
@@ -23,8 +23,8 @@ function runEvents(prev: Run | undefined, next: Run): LayerEvent[] {
   return out;
 }
 
-export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): LayerEvent[] {
-  const out: LayerEvent[] = [];
+export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): WorldEvent[] {
+  const out: WorldEvent[] = [];
   const before = byId(prev.chats), after = byId(next.chats);
   for (const chat of next.chats) {
     const was = before.get(chat.id);
@@ -37,13 +37,15 @@ export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): Layer
     if (from !== to) out.push({ type: "chat.status", chatId: id, status: to, previous: from });
   }
 
-  const where = (xs: readonly Presence[]) => new Map(xs.map((p) => [p.login, p.chatId]));
+  const where = (xs: readonly Presence[]) => new Map(xs.map((p) => [p.login, p]));
   const was = where(prev.presence), is = where(next.presence);
-  for (const [login, chatId] of is) {
-    if (!was.has(login)) out.push({ type: "person.arrived", login, chatId });
-    else if (was.get(login) !== chatId) out.push({ type: "person.moved", login, chatId, previous: was.get(login) ?? null });
+  for (const [login, p] of is) {
+    const world = p.world ?? null, before = was.get(login);
+    if (!before) out.push({ type: "person.arrived", login, chatId: p.chatId, world });
+    else if (before.chatId !== p.chatId || (before.world ?? null) !== world) out.push({ type: "person.moved", login, chatId: p.chatId, previous: before.chatId, world });
   }
-  for (const [login, previous] of was) if (!is.has(login)) out.push({ type: "person.left", login, previous });
+  for (const [login, p] of was) if (!is.has(login)) out.push({ type: "person.left", login, previous: p.chatId });
+  out.push(...diffWorldState(prev.worldState, next.worldState));
 
   const prevRuns = byId([...prev.runs.ended, ...prev.runs.live]);
   const seen = new Set<string>();
@@ -62,8 +64,24 @@ export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): Layer
   return out;
 }
 
-export function diffChat(prev: ChatSnapshot, next: ChatSnapshot): LayerEvent[] {
-  const out: LayerEvent[] = [];
+/** A world's own state, entry by entry. A removed entry reports data null. */
+function diffWorldState(prev: WorldState | undefined, next: WorldState | undefined): WorldEvent[] {
+  if (!next) return [];
+  const out: WorldEvent[] = [];
+  const world = next.world;
+  const people = new Map((prev?.people ?? []).map((p) => [p.login, p.data]));
+  for (const p of next.people) if (!same(people.get(p.login), p.data)) out.push({ type: "world.person", world, login: p.login, data: p.data, previous: people.get(p.login) ?? null });
+  for (const [login, previous] of people) if (!next.people.some((p) => p.login === login)) out.push({ type: "world.person", world, login, data: null, previous });
+  const chats = new Map((prev?.chats ?? []).map((c) => [c.chatId, c.data]));
+  for (const c of next.chats) if (!same(chats.get(c.chatId), c.data)) out.push({ type: "world.chat", world, chatId: c.chatId, data: c.data, previous: chats.get(c.chatId) ?? null });
+  for (const [chatId, previous] of chats) if (!next.chats.some((c) => c.chatId === chatId)) out.push({ type: "world.chat", world, chatId, data: null, previous });
+  const ws = prev?.workspace?.data ?? null, now = next.workspace?.data ?? null;
+  if (!same(ws, now)) out.push({ type: "world.workspace", world, data: now, previous: ws });
+  return out;
+}
+
+export function diffChat(prev: ChatSnapshot, next: ChatSnapshot): WorldEvent[] {
+  const out: WorldEvent[] = [];
   const messages = byId<Message>(prev.messages);
   for (const message of next.messages) {
     const was = messages.get(message.id);

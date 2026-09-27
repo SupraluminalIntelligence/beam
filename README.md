@@ -20,8 +20,8 @@ A Supraluminal Intelligence desktop app where a team and their coding agents sha
 | `packages/harness` | Adapter interface plus Claude Code, Codex, and omp adapters and probes. |
 | `packages/git` | Mirrors, worktrees, checkpoints, commit → push → PR. |
 | `packages/reducer` | Pure fold of run events into a chat view. |
-| `packages/sdk` | Build your own interface on Beam: live resources, events and view models over the layer API. |
-| `apps/cli` | `beam` CLI: sign in a layer, read and follow resources, or serve the API as JSON lines. |
+| `packages/worlds` | `@beam/worlds`, the Beam Worlds SDK: live resources, events, actions and view models for interfaces built on Beam. |
+| `apps/cli` | `beam` CLI: connect an app, read and follow resources, act, or serve the API as JSON lines. |
 | `convex/` | Shared plane: schema, auth, queries, mutations. |
 
 ## Run
@@ -83,9 +83,9 @@ segments, human messages, and tool rows chronologically; tool completions update
 existing rows. Earlier runs retain their stored text because their original paragraph
 timing was not recorded. Restart the runner to enable segmentation for new runs.
 
-## Building your own interface
+## Beam Worlds
 
-Beam's engine is readable by interfaces built outside this repo: games, dashboards, terminal feeds, anything. See [the layer API](docs/layers.md). Start with `pnpm --filter @beam/cli beam login`.
+Build your own world on Beam's engine: a 2D or 3D space, a dashboard, a terminal feed, or just sound. It sees what you see and does the few things you approve. See [Beam Worlds](docs/worlds.md). Start with `pnpm --filter @beam/cli beam login`.
 
 ## Personal agent settings and routing experiments
 

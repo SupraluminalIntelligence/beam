@@ -1,17 +1,16 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
-import { requireLayer } from "../layers";
+import { requireApp, v1Mutation, v1Query } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { visibleChats } from "../chats";
-import { LIVE } from "../runs";
+import { LIVE, respondAs } from "../runs";
 import { events as publicEvents, readableChat, run } from "./shape";
 
 const ENDED = ["landed", "failed", "interrupted"] as const;
 
-export const list = query({
+export const list = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await readableChat(ctx, chatId, login);
     const rows = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
     return Promise.all(rows.map((r) => run(ctx, r)));
@@ -20,12 +19,12 @@ export const list = query({
 
 /**
  * What every agent in a workspace is doing: its live runs, plus each chat's latest run per outcome, so a
- * layer sees a run end and how. Indexed by state; reading whole chat histories would rerun on every old run.
+ * world sees a run end and how. Indexed by state; reading whole chat histories would rerun on every old run.
  */
-export const active = query({
+export const active = v1Query({
   args: { token: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, { token, workspaceId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await requireMemberLogin(ctx, workspaceId, login);
     const live = [], ended = [];
     for (const c of await visibleChats(ctx, workspaceId, login)) {
@@ -40,10 +39,10 @@ export const active = query({
 });
 
 /** One run's events in order. Fold them with the SDK's runView, the same reducer the plain apps use. */
-export const events = query({
+export const events = v1Query({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     const r = await ctx.db.get(runId);
     if (!r) throw new Error("no such run");
     await readableChat(ctx, r.chatId, login);
@@ -51,14 +50,42 @@ export const events = query({
   },
 });
 
-export const eventsForChat = query({
+export const eventsForChat = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await readableChat(ctx, chatId, login);
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
     const out: Record<string, ReturnType<typeof publicEvents>> = {};
     for (const r of runs) out[r._id] = publicEvents(await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", r._id)).collect());
     return out;
+  },
+});
+
+/** Answer an open question or approval. Anyone who can read the chat may, as in the plain apps. */
+export const respond = v1Mutation({
+  args: { token: v.string(), runId: v.id("runs"), requestId: v.string(), decision: v.string() },
+  handler: async (ctx, { token, runId, requestId, decision }) => {
+    const { login } = await requireApp(ctx, token, "run:respond");
+    const r = await ctx.db.get(runId);
+    if (!r) throw new Error("no such run");
+    await readableChat(ctx, r.chatId, login);
+    if (!(r.openRequests ?? []).includes(requestId)) throw new Error("that question is not open");
+    if (decision.length > 20_000) throw new Error("answer too long");
+    await respondAs(ctx, r, login, requestId, decision);
+    return null;
+  },
+});
+
+/** Ask a live run to stop. The runner still commits and pushes what it has, as always. */
+export const interrupt = v1Mutation({
+  args: { token: v.string(), runId: v.id("runs") },
+  handler: async (ctx, { token, runId }) => {
+    const { login } = await requireApp(ctx, token, "run:interrupt");
+    const r = await ctx.db.get(runId);
+    if (!r) throw new Error("no such run");
+    await readableChat(ctx, r.chatId, login);
+    if (LIVE.has(r.state) && !r.interruptRequestedAt) await ctx.db.patch(runId, { interruptRequestedAt: Date.now() });
+    return null;
   },
 });

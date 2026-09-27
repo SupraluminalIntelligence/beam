@@ -1,6 +1,6 @@
 # Idea: one engine, any interface
 
-Parked 26 Sep 2026. Exploratory; not designed. The read-only first slice is built: see [the layer API](../layers.md).
+Parked 26 Sep 2026. Exploratory; not designed. Built as **Beam Worlds**: reads, then scoped actions and world state. See [Beam Worlds](../worlds.md).
 
 ## The idea
 
