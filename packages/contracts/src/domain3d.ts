@@ -1,10 +1,12 @@
 import { z } from "zod";
 // Homogeneous arrays keep agent tool schemas transport-compatible; TS retains the tuple.
 const vec3=z.array(z.number().finite().min(-10).max(10)).length(3).transform(p=>p as [number,number,number]);
+// Up to 100 m/s (about Mach 0.3), where the incompressible solver still applies to air.
+const velocity3=z.array(z.number().finite().min(-100).max(100)).length(3).transform(p=>p as [number,number,number]);
 const name=z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,39}$/, "Use a short OpenFOAM identifier: letters, digits and underscores").refine(n=>!n.startsWith("body_")&&!n.startsWith("slice_"),"body_ and slice_ prefixes are reserved");
 export type Point3=[number,number,number];
 export const FlowBoundary3D=z.discriminatedUnion("type",[
- z.object({name,type:z.literal("velocity-inlet"),velocity:vec3}).strict(),
+ z.object({name,type:z.literal("velocity-inlet"),velocity:velocity3}).strict(),
  z.object({name,type:z.literal("pressure-outlet"),pressure:z.number().finite().min(-1e6).max(1e6)}).strict(),
  z.object({name,type:z.literal("wall")}).strict(),
  z.object({name,type:z.literal("symmetry")}).strict(),
@@ -13,8 +15,51 @@ export const Body3D=z.discriminatedUnion("shape",[
  z.object({name,shape:z.literal("sphere"),centre:vec3,radius:z.number().min(.0001).max(5),boundary:name}).strict(),
  z.object({name,shape:z.literal("box"),min:vec3,max:vec3,boundary:name}).strict(),
  z.object({name,shape:z.literal("cylinder"),start:vec3,end:vec3,radius:z.number().min(.0001).max(5),boundary:name}).strict(),
+ // Ahmed body (Ahmed, Ramm & Faltin 1984): nose is the front face at the underside, on the centreline; it points -x.
+ z.object({name,shape:z.literal("ahmed"),nose:vec3,scale:z.number().min(.02).max(3),slantDegrees:z.number().min(0).max(40),boundary:name}).strict(),
 ]);
 export type Body3D=z.infer<typeof Body3D>;
+type Ahmed=Extract<Body3D,{shape:"ahmed"}>;
+/** Full-scale Ahmed body in metres: length, width, height, front edge radius and rear slant length. Stilts are not modelled. */
+export const AHMED={length:1.044,width:.389,height:.288,radius:.1,slant:.222,groundClearance:.05} as const;
+/** Cross-section at x metres behind the nose, in full-scale units: the front edges are rounded, the long edges sharp. */
+function ahmedSection(slantDegrees:number,x:number){
+ const {length:L,width:W,height:H,radius:R,slant}=AHMED,phi=slantDegrees*Math.PI/180,start=L-slant*Math.cos(phi);
+ const d=x<R?R-Math.sqrt(Math.max(0,R*R-(R-x)**2)):0;
+ return{half:W/2-d,low:d,high:(x>start?H-(x-start)*Math.tan(phi):H)-d};
+}
+/** Closed, outward-facing triangulated Ahmed body surface in world coordinates. */
+export function ahmedSurface(b:Ahmed){
+ const {length:L,radius:R,slant}=AHMED,phi=b.slantDegrees*Math.PI/180;
+ const stations=[...Array.from({length:17},(_,k)=>R-R*Math.cos(k/16*Math.PI/2)),...(b.slantDegrees>0?[L-slant*Math.cos(phi)]:[]),L];
+ const points:number[]=[],triangles:number[]=[];
+ for(const x of stations){
+  const s=ahmedSection(b.slantDegrees,x);
+  // Corners counterclockwise in (y, z): bottom-left, bottom-right, top-right, top-left.
+  for(const [y,z] of [[-s.half,s.low],[s.half,s.low],[s.half,s.high],[-s.half,s.high]] as const)points.push(b.nose[0]+x*b.scale,b.nose[1]+y*b.scale,b.nose[2]+z*b.scale);
+ }
+ for(let k=0;k+1<stations.length;k++)for(let i=0;i<4;i++){const a=4*k+i,a1=4*k+(i+1)%4,c=a+4,c1=a1+4;triangles.push(a,a1,c1,a,c1,c);}
+ const last=4*(stations.length-1);
+ triangles.push(0,2,1,0,3,2,last,last+1,last+2,last,last+2,last+3);
+ return{points,triangles};
+}
+function surfaceMeasures(s:{points:number[];triangles:number[]}){
+ let area=0,volume=0;const p=(i:number)=>[s.points[3*i]!,s.points[3*i+1]!,s.points[3*i+2]!] as const;
+ for(let t=0;t<s.triangles.length;t+=3){
+  const a=p(s.triangles[t]!),b=p(s.triangles[t+1]!),c=p(s.triangles[t+2]!),u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],w=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+  const n=[u[1]!*w[2]!-u[2]!*w[1]!,u[2]!*w[0]!-u[0]!*w[2]!,u[0]!*w[1]!-u[1]!*w[0]!];
+  area+=Math.hypot(n[0]!,n[1]!,n[2]!)/2;volume+=(a[0]*n[0]!+a[1]*n[1]!+a[2]*n[2]!)/6;
+ }
+ return{area,volume};
+}
+/** Projected area facing a flow along +x, the reference area for Cd and Cl. */
+export function frontalArea(b:Body3D){
+ if(b.shape==="sphere")return Math.PI*b.radius**2;
+ if(b.shape==="box")return(b.max[1]-b.min[1])*(b.max[2]-b.min[2]);
+ if(b.shape==="ahmed")return AHMED.width*AHMED.height*b.scale**2;
+ const d=[b.end[0]-b.start[0],b.end[1]-b.start[1],b.end[2]-b.start[2]],l=Math.hypot(d[0]!,d[1]!,d[2]!),cos=Math.abs(d[0]!)/l;
+ return 2*b.radius*l*Math.sqrt(1-cos*cos)+Math.PI*b.radius**2*cos;
+}
 const level=z.number().int().min(1).max(4);
 export const Refinement3D=z.discriminatedUnion("kind",[
  z.object({name,kind:z.literal("body"),body:name,level,distance:z.number().finite().min(0).max(10)}).strict(),
@@ -35,19 +80,26 @@ const axes=[0,1,2] as const;
 export function bodyBounds(b:Body3D):{min:Point3;max:Point3}{
  if(b.shape==="sphere")return{min:b.centre.map(v=>v-b.radius) as Point3,max:b.centre.map(v=>v+b.radius) as Point3};
  if(b.shape==="box")return{min:b.min,max:b.max};
+ if(b.shape==="ahmed"){const s=b.scale;return{min:[b.nose[0],b.nose[1]-AHMED.width/2*s,b.nose[2]],max:[b.nose[0]+AHMED.length*s,b.nose[1]+AHMED.width/2*s,b.nose[2]+AHMED.height*s]};}
  // Exact axis-aligned extent of a capped cylinder.
  const d=axes.map(i=>b.end[i]-b.start[i]),length=Math.hypot(...d)||1,r=axes.map(i=>b.radius*Math.sqrt(Math.max(0,1-(d[i]!/length)**2)));
  return{min:axes.map(i=>Math.min(b.start[i],b.end[i])-r[i]!) as Point3,max:axes.map(i=>Math.max(b.start[i],b.end[i])+r[i]!) as Point3};
 }
-export function bodyVolume(b:Body3D){return b.shape==="sphere"?4/3*Math.PI*b.radius**3:b.shape==="box"?axes.reduce<number>((v,i)=>v*(b.max[i]-b.min[i]),1):Math.PI*b.radius**2*Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));}
-export function bodyArea(b:Body3D){if(b.shape==="sphere")return 4*Math.PI*b.radius**2;if(b.shape==="box"){const [x,y,z]=axes.map(i=>b.max[i]-b.min[i]) as Point3;return 2*(x*y+y*z+x*z);}const l=Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));return 2*Math.PI*b.radius*(b.radius+l);}
+export function bodyVolume(b:Body3D){if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).volume;return b.shape==="sphere"?4/3*Math.PI*b.radius**3:b.shape==="box"?axes.reduce<number>((v,i)=>v*(b.max[i]-b.min[i]),1):Math.PI*b.radius**2*Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));}
+export function bodyArea(b:Body3D){if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).area;if(b.shape==="sphere")return 4*Math.PI*b.radius**2;if(b.shape==="box"){const [x,y,z]=axes.map(i=>b.max[i]-b.min[i]) as Point3;return 2*(x*y+y*z+x*z);}const l=Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));return 2*Math.PI*b.radius*(b.radius+l);}
 /** Smallest body dimension that the snapped surface must resolve. */
-export function bodyThickness(b:Body3D){return b.shape==="sphere"?2*b.radius:b.shape==="box"?Math.min(...axes.map(i=>b.max[i]-b.min[i])):Math.min(2*b.radius,Math.hypot(...axes.map(i=>b.end[i]-b.start[i])));}
+export function bodyThickness(b:Body3D){if(b.shape==="ahmed")return Math.min(AHMED.width,AHMED.height)*b.scale;return b.shape==="sphere"?2*b.radius:b.shape==="box"?Math.min(...axes.map(i=>b.max[i]-b.min[i])):Math.min(2*b.radius,Math.hypot(...axes.map(i=>b.end[i]-b.start[i])));}
 export function bodyLevel(c:{refinements?:Refinement3D[]|undefined},b:Body3D){return Math.max(0,...(c.refinements??[]).filter(r=>r.kind==="body"&&r.body===b.name).map(r=>r.level));}
 export function backgroundCells(c:{domain:{min:Point3;max:Point3};meshSize:number}){return axes.map(i=>Math.max(1,Math.round((c.domain.max[i]-c.domain.min[i])/c.meshSize))) as Point3;}
 export function insideBody(b:Body3D,p:Point3,pad=0){
  if(b.shape==="sphere")return Math.hypot(...axes.map(i=>p[i]-b.centre[i]))<b.radius+pad;
  if(b.shape==="box")return axes.every(i=>p[i]>b.min[i]-pad&&p[i]<b.max[i]+pad);
+ if(b.shape==="ahmed"){
+  const x=(p[0]-b.nose[0])/b.scale,y=(p[1]-b.nose[1])/b.scale,z=(p[2]-b.nose[2])/b.scale,q=pad/b.scale;
+  if(x<=-q||x>=AHMED.length+q)return false;
+  const s=ahmedSection(b.slantDegrees,Math.min(AHMED.length,Math.max(0,x)));
+  return Math.abs(y)<s.half+q&&z>s.low-q&&z<s.high+q;
+ }
  const d=axes.map(i=>b.end[i]-b.start[i]),l2=d.reduce((s,v)=>s+v*v,0),t=axes.reduce<number>((s,i)=>s+(p[i]-b.start[i])*d[i]!,0)/l2;
  if(t<-pad/Math.sqrt(l2)||t>1+pad/Math.sqrt(l2))return false;
  return Math.hypot(...axes.map(i=>p[i]-b.start[i]-t*d[i]!))<b.radius+pad;
@@ -62,9 +114,14 @@ export function estimateDomain3dCells(c:Domain3DCase){
  let total=background-c.bodies.reduce((s,b)=>s+bodyVolume(b),0)/cell;
  for(const b of c.bodies){
   const L=bodyLevel(c,b);if(!L)continue;
-  // Surface refinement shell: requested distance plus snappy's buffer layers (3 cells per level).
-  const shell=bodyArea(b)*((c.refinements??[]).reduce((m,r)=>r.kind==="body"&&r.body===b.name?Math.max(m,r.distance):m,0)+3*h*(1-.5**L)*2);
-  total+=shell/cell*(8**L-1);
+  // Nested bands around the surface: the requested distance at the finest level, then snappy's
+  // three buffer cells per level (nCellsBetweenLevels). Each band splits its parent cells into 8.
+  const distance=(c.refinements??[]).reduce((m,r)=>r.kind==="body"&&r.body===b.name?Math.max(m,r.distance):m,0),area=bodyArea(b),r=bodyThickness(b)/2;
+  for(let l=1;l<=L;l++){
+   let t=distance;for(let k=l;k<=L;k++)t+=3*h/2**k;
+   // Outward shell of thickness t; the curvature term keeps it an upper bound for convex bodies.
+   total+=area*t*(1+t/r+t*t/(3*r*r))/cell*(8**l-8**(l-1));
+  }
  }
  for(const r of c.refinements??[])if(r.kind==="box")total+=clip(r.min,r.max)/cell*(8**r.level-1);
  return{background,estimated:Math.round(total)};
@@ -78,7 +135,7 @@ export const Domain3DCase=z.object({
  meshSize:z.number().min(.0001).max(1),
  refinements:z.array(Refinement3D).max(16).optional(),
  slices:z.array(Slice3D).min(1).max(3),
- initialVelocity:vec3,duration:z.number().min(.001).max(100),frames:z.number().int().min(2).max(60),
+ initialVelocity:velocity3,duration:z.number().min(.001).max(100),frames:z.number().int().min(2).max(60),
 }).strict().superRefine((c,ctx)=>{
  const errors=new Set<string>();
  const issue=(message:string)=>{if(!errors.has(message)){errors.add(message);ctx.addIssue({code:"custom",message});}};
@@ -94,8 +151,9 @@ export const Domain3DCase=z.object({
   const bb=bodyBounds(b);
   if(b.shape==="box"&&axes.some(i=>b.min[i]>=b.max[i]))issue(`Body ${b.name}: box min must be smaller than max on every axis`);
   if(b.shape==="cylinder"&&Math.hypot(...axes.map(i=>b.end[i]-b.start[i]))<1e-6)issue(`Body ${b.name}: cylinder start and end must differ`);
-  if(axes.some(i=>bb.min[i]<min[i]+2*h||bb.max[i]>max[i]-2*h))issue(`Body ${b.name} must lie inside the domain with two background cells of clearance`);
+  // Two cells at the body's surface level, so a car can sit close to a tunnel floor when refined.
   const size=h/2**bodyLevel(c,b);
+  if(axes.some(i=>bb.min[i]<min[i]+2*size||bb.max[i]>max[i]-2*size))issue(`Body ${b.name} must lie inside the domain with two cells of clearance at its surface level`);
   if(bodyThickness(b)<4*size)issue(`Body ${b.name} spans fewer than four cells at its surface; add a body refinement level or reduce meshSize`);
  }
  for(let i=0;i<c.bodies.length;i++)for(let j=0;j<i;j++){
@@ -141,3 +199,19 @@ export const defaultDomain3d:Domain3DCase={version:1,geometry:"domain3d",
  slices:[{name:"midZ",normal:"z",offset:0},{name:"midY",normal:"y",offset:0}],
  initialVelocity:[.5,0,0],duration:2,frames:40,
 };
+/** Ahmed body at 25° in a wind tunnel at 40 m/s, as in Lienhart and Becker (2003), without stilts. */
+export const defaultAhmedTunnel:Domain3DCase={version:1,geometry:"domain3d",
+ domain:{min:[-2,-1,0],max:[5.5,1,1.5],faces:{xMin:"inlet",xMax:"outlet",yMin:"tunnel",yMax:"tunnel",zMin:"ground",zMax:"tunnel"}},
+ bodies:[{name:"ahmed",shape:"ahmed",nose:[0,0,AHMED.groundClearance],scale:1,slantDegrees:25,boundary:"bodyWall"}],
+ boundaries:[{name:"inlet",type:"velocity-inlet",velocity:[40,0,0]},{name:"outlet",type:"pressure-outlet",pressure:0},{name:"ground",type:"wall"},{name:"tunnel",type:"symmetry"},{name:"bodyWall",type:"wall"}],
+ region:{name:"air",material:"Air at 20 °C",density:1.2,nu:1.5e-5},
+ turbulence:{model:"kOmegaSST",intensity:.01,lengthScale:.05},
+ meshSize:.1,
+ refinements:[{name:"bodySurface",kind:"body",body:"ahmed",level:3,distance:.02},{name:"near",kind:"box",min:[-.3,-.5,0],max:[3.5,.5,.7],level:1},{name:"wake",kind:"box",min:[.9,-.3,0],max:[2.2,.3,.45],level:2}],
+ slices:[{name:"centreline",normal:"y",offset:0},{name:"wake",normal:"x",offset:1.3},{name:"midHeight",normal:"z",offset:.2}],
+ initialVelocity:[40,0,0],duration:.3,frames:30,
+};
+/** Wind-tunnel drag coefficients of the Ahmed body measured by Ahmed, Ramm and Faltin (1984), by slant angle. */
+export const AHMED_MEASURED_CD:Readonly<Record<number,number>>={25:.285,35:.26};
+/** The measured Cd to compare against, when the study is a single Ahmed body at a measured slant. */
+export function ahmedMeasuredCd(c:Domain3DCase){const b=c.bodies.length===1?c.bodies[0]!:null;return b?.shape==="ahmed"?AHMED_MEASURED_CD[b.slantDegrees]??null:null;}
