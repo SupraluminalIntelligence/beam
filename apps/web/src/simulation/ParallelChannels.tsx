@@ -62,8 +62,10 @@ export function ParallelDrawing({ config: c, fields, field }: { config: Parallel
   const [hover, setHover] = useState<number | null>(null);
   const L = parallelLayout(c), total = 2 * c.manifoldLength + c.channelLength, x0 = 120, y0 = 150, w = 760, h = Math.max(150, Math.min(320, w * L.height / total));
   const X = (x: number) => x0 + x / total * w, Y = (y: number) => y0 + h - y / L.height * h, sx = w / total, sy = h / L.height, v = fields?.[field];
-  const lo = v ? Math.min(...v) : 0, hi = v ? Math.max(...v) : 1, unit = field === "velocity" ? "m/s" : field === "pressure" ? "Pa" : "K";
-  const color = (n: number) => `hsl(208 32% ${24 + 66 * (hi === lo ? .5 : (n - lo) / (hi - lo))}%)`;
+  // Heated walls leave a thin layer of cells far hotter than the rest; colours clip at the 98th percentile so the plume stays visible. Hover shows each cell's value.
+  const sorted = v ? Float64Array.from(v).sort() : null, lo = sorted ? sorted[0]! : 0, top = sorted ? sorted[sorted.length - 1]! : 1, hi = sorted ? sorted[Math.floor(0.98 * (sorted.length - 1))]! : 1, clipped = hi < top;
+  const unit = field === "velocity" ? "m/s" : field === "pressure" ? "Pa" : "K";
+  const color = (n: number) => `hsl(208 32% ${24 + 66 * (hi === lo ? .5 : Math.min(1, (n - lo) / (hi - lo)))}%)`;
   const a = c.manifoldLength, b = a + c.channelLength, [gx, gy] = c.gravity === "stacked" ? [0, 1] : c.gravity === "upflow" ? [-1, 0] : c.gravity === "downflow" ? [1, 0] : [0, 0];
   return <div className="sim-drawing"><svg viewBox={`0 0 1000 ${y0 + h + 110}`} role="img" aria-label={fields ? `${field} computed on ${fields.centres.length} cells` : `${c.channels.length} channels ${number(c.channelHeight * 1000)} mm high and ${number(c.channelLength * 1000)} mm long between manifolds`}>
     {fields ? fields.centres.map((p, i) => { const box = cellBox(c, p[0], p[1]); return <rect key={i} x={X(p[0] - box.w / 2)} y={Y(p[1] + box.h / 2)} width={box.w * sx + .3} height={box.h * sy + .3} fill={color(v![i]!)} shapeRendering="crispEdges" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)}><title>{`${number(v![i]!)} ${unit} · x ${number(p[0] * 1000)} mm · y ${number(p[1] * 1000)} mm`}</title></rect>; })
@@ -75,7 +77,7 @@ export function ParallelDrawing({ config: c, fields, field }: { config: Parallel
     {(gx || gy) ? <g className="sim-dimensions"><path d={`M${x0 + w / 2 - 40 * gx} ${y0 - 60 - 20 * gy}l${40 * gx} ${40 * gy}m${-6 * gy - 4 * gx} ${-6 * gx - 4 * gy}l${6 * gy + 4 * gx} ${6 * gx + 4 * gy}l${4 * gx - 6 * gy} ${4 * gy - 6 * gx}`} /><text x={x0 + w / 2 + 16} y={y0 - 50}>g</text></g> : <text className="sim-scale-note" x={x0 + w / 2} y={y0 - 50} textAnchor="middle">gravity off</text>}
     <g className="sim-dimensions"><path d={`M${X(a)} ${y0 + h + 20}v30m0 -10H${X(b)}m0 -20v30`} /><text x={(X(a) + X(b)) / 2} y={y0 + h + 42} textAnchor="middle">{number(c.channelLength * 1000)} mm</text></g>
     <text className="sim-scale-note" x={x0} y={y0 + h + 80}>Vertical scale enlarged {Number((h / (w * L.height / total)).toPrecision(2))}× · planar section · channel 1 at the bottom</text>
-  </svg>{v && <div className="sim-legend"><span>{number(lo)} {unit}</span><i style={{ background: `linear-gradient(90deg,${color(lo)},${color(hi)})` }} /><span>{number(hi)} {unit}</span><span>{hover !== null ? `cell ${hover + 1} · ${number(v[hover]!)} ${unit}` : "Cell-centred field"}</span></div>}</div>;
+  </svg>{v && <div className="sim-legend"><span>{number(lo)} {unit}</span><i style={{ background: `linear-gradient(90deg,${color(lo)},${color(hi)})` }} /><span>{number(hi)}{clipped ? "+" : ""} {unit}</span><span>{hover !== null ? `cell ${hover + 1} · ${number(v[hover]!)} ${unit}` : clipped ? `Cell-centred field · top 2 % of cells, up to ${number(top)} ${unit}, drawn at the top colour` : "Cell-centred field"}</span></div>}</div>;
 }
 
 /** Each channel's flow over the run, against an even split. A flow below zero runs backwards. */
