@@ -3,12 +3,10 @@ import { useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
+import { SCOPES } from "@beam/contracts/layer";
 
-/** What each scope lets an app do, in the words shown before anyone approves it. */
-const SCOPE_TEXT: Record<string, string> = {
-  read: "See everything you can see in Beam: workspaces, chats (including private chats you are in), messages, agent runs, pull requests, who is where, and your notifications.",
-};
-const scopeText = (s: string) => SCOPE_TEXT[s] ?? `Unknown permission "${s}"`;
+/** What each scope lets an app do, in the contract's own words, shown before anyone approves it. */
+const scopeText = (s: string) => (SCOPES as Record<string, string>)[s] ?? `Unknown permission "${s}"`;
 const plain = (e: unknown) => String((e as Error).message ?? e).replace(/^.*Uncaught Error: /s, "").split("\n")[0] ?? "";
 
 /**
@@ -34,7 +32,7 @@ export function ApproveLayer({ code, onDone }: { code: string; onDone: () => voi
           : <>
             <div style={{ color: "var(--ink-2)" }}><b>{pending.name}</b>{pending.hostname ? <> on {pending.hostname}</> : null} is waiting with code <span className="mono">{code}</span>. Approving lets it, as <b>{me?.name}</b>:</div>
             <ul style={{ margin: 0, paddingLeft: 18, textAlign: "left", color: "var(--ink-2)" }}>{pending.scopes.map((s) => <li key={s}>{scopeText(s)}</li>)}</ul>
-            <div className="k">It cannot change settings, invite people or approve machines. Revoke it any time in Settings → Connected apps.</div>
+            <div className="k">It can never change settings, agents or workspaces, invite people, or approve machines. Revoke it any time in Settings → Connected apps.</div>
           </>}
         {state === "approved" ? <div style={{ color: "var(--ok)" }}>Connected. You can go back to {pending?.name ?? "the app"}.</div>
           : state === "denied" ? <div style={{ color: "var(--ink-2)" }}>Declined. Nothing was shared.</div>

@@ -1,6 +1,6 @@
 # Idea: one engine, any interface
 
-Parked 26 Sep 2026. Exploratory; not designed. The read-only first slice is built: see [the layer API](../layers.md).
+Parked 26 Sep 2026. Exploratory; not designed. The first two slices are built, reads then scoped actions and layer state: see [the layer API](../layers.md).
 
 ## The idea
 

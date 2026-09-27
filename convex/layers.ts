@@ -16,10 +16,10 @@ const random = (len: number, map: (b: number) => string) => Array.from(crypto.ge
 const randomCode = (len: number) => random(len, (b) => ALPHABET[b % ALPHABET.length]!);
 const TTL = 15 * 60_000;
 
-/** Scopes as asked for, deduplicated. Unknown ones refuse the request rather than silently narrowing it. */
+/** Scopes as asked for, deduplicated, always with read. Unknown ones refuse the request rather than silently narrowing it. */
 export function parseScopes(input: unknown): Scope[] {
-  const list = Array.isArray(input) && input.length ? input : ["read"];
-  const scopes = [...new Set(list.map(String))];
+  const list = Array.isArray(input) ? input : [];
+  const scopes = [...new Set(["read", ...list.map(String)])];
   for (const s of scopes) if (!Scope.safeParse(s).success) throw new Error(`unknown scope "${s}"`);
   return scopes as Scope[];
 }

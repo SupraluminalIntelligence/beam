@@ -1,5 +1,5 @@
 import { internalMutation, mutation, query } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { me, requireMember, requireChat } from "./lib";
@@ -9,11 +9,16 @@ export const focus = mutation({
   args: { workspaceId: v.id("workspaces"), chatId: v.union(v.id("chats"), v.null()) },
   handler: async (ctx, { workspaceId, chatId }) => {
     const u = await requireMember(ctx, workspaceId);
-    const row = await ctx.db.query("presence").withIndex("by_login", (q) => q.eq("githubLogin", u.githubLogin!)).first();
-    if (row) await ctx.db.patch(row._id, { workspaceId, focusedChat: chatId, updatedAt: Date.now() });
-    else await ctx.db.insert("presence", { workspaceId, githubLogin: u.githubLogin!, focusedChat: chatId, updatedAt: Date.now() });
+    await focusAs(ctx, workspaceId, u.githubLogin!, chatId);
   },
 });
+
+/** One focused chat per person, whichever interface set it last. `layer` names that interface; the plain apps clear it. */
+export async function focusAs(ctx: MutationCtx, workspaceId: Id<"workspaces">, login: string, chatId: Id<"chats"> | null, layer?: string) {
+  const row = await ctx.db.query("presence").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+  if (row) await ctx.db.patch(row._id, { workspaceId, focusedChat: chatId, updatedAt: Date.now(), layer });
+  else await ctx.db.insert("presence", { workspaceId, githubLogin: login, focusedChat: chatId, updatedAt: Date.now(), ...(layer ? { layer } : {}) });
+}
 
 export const inWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
@@ -27,7 +32,7 @@ export const inWorkspace = query({
 export async function presenceIn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
   const cutoff = Date.now() - 2 * 60_000;
   const rows = await ctx.db.query("presence").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-  return rows.filter((r) => r.updatedAt > cutoff).map((r) => ({ login: r.githubLogin, chatId: r.focusedChat }));
+  return rows.filter((r) => r.updatedAt > cutoff).map((r) => ({ login: r.githubLogin, chatId: r.focusedChat, layer: r.layer ?? null }));
 }
 
 export const leave = mutation({

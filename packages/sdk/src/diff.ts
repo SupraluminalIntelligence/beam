@@ -1,4 +1,4 @@
-import type { Change, ChatActivity, ChatSnapshot, LayerEvent, Message, Presence, Run, WorkspaceState } from "@beam/contracts/layer";
+import type { Change, ChatActivity, ChatSnapshot, LayerEvent, LayerState, Message, Presence, Run, WorkspaceState } from "@beam/contracts/layer";
 import { LIVE_RUN_STATES } from "@beam/contracts/layer";
 
 /**
@@ -37,13 +37,15 @@ export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): Layer
     if (from !== to) out.push({ type: "chat.status", chatId: id, status: to, previous: from });
   }
 
-  const where = (xs: readonly Presence[]) => new Map(xs.map((p) => [p.login, p.chatId]));
+  const where = (xs: readonly Presence[]) => new Map(xs.map((p) => [p.login, p]));
   const was = where(prev.presence), is = where(next.presence);
-  for (const [login, chatId] of is) {
-    if (!was.has(login)) out.push({ type: "person.arrived", login, chatId });
-    else if (was.get(login) !== chatId) out.push({ type: "person.moved", login, chatId, previous: was.get(login) ?? null });
+  for (const [login, p] of is) {
+    const layer = p.layer ?? null, before = was.get(login);
+    if (!before) out.push({ type: "person.arrived", login, chatId: p.chatId, layer });
+    else if (before.chatId !== p.chatId || (before.layer ?? null) !== layer) out.push({ type: "person.moved", login, chatId: p.chatId, previous: before.chatId, layer });
   }
-  for (const [login, previous] of was) if (!is.has(login)) out.push({ type: "person.left", login, previous });
+  for (const [login, p] of was) if (!is.has(login)) out.push({ type: "person.left", login, previous: p.chatId });
+  out.push(...diffLayerState(prev.layerState, next.layerState));
 
   const prevRuns = byId([...prev.runs.ended, ...prev.runs.live]);
   const seen = new Set<string>();
@@ -59,6 +61,22 @@ export function diffWorkspace(prev: WorkspaceState, next: WorkspaceState): Layer
   for (const run of prev.runs.live) if (!seen.has(run.id) && after.has(run.chatId)) out.push({ type: "run.ended", run });
 
   for (const id of before.keys()) if (!after.has(id)) out.push({ type: "chat.removed", chatId: id });
+  return out;
+}
+
+/** A layer's own state, entry by entry. A removed entry reports data null. */
+function diffLayerState(prev: LayerState | undefined, next: LayerState | undefined): LayerEvent[] {
+  if (!next) return [];
+  const out: LayerEvent[] = [];
+  const layer = next.layer;
+  const people = new Map((prev?.people ?? []).map((p) => [p.login, p.data]));
+  for (const p of next.people) if (!same(people.get(p.login), p.data)) out.push({ type: "layer.person", layer, login: p.login, data: p.data, previous: people.get(p.login) ?? null });
+  for (const [login, previous] of people) if (!next.people.some((p) => p.login === login)) out.push({ type: "layer.person", layer, login, data: null, previous });
+  const chats = new Map((prev?.chats ?? []).map((c) => [c.chatId, c.data]));
+  for (const c of next.chats) if (!same(chats.get(c.chatId), c.data)) out.push({ type: "layer.chat", layer, chatId: c.chatId, data: c.data, previous: chats.get(c.chatId) ?? null });
+  for (const [chatId, previous] of chats) if (!next.chats.some((c) => c.chatId === chatId)) out.push({ type: "layer.chat", layer, chatId, data: null, previous });
+  const ws = prev?.workspace?.data ?? null, now = next.workspace?.data ?? null;
+  if (!same(ws, now)) out.push({ type: "layer.workspace", layer, data: now, previous: ws });
   return out;
 }
 

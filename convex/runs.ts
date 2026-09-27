@@ -238,12 +238,17 @@ export const respond = mutation({
     const run = await ctx.db.get(runId);
     if (!run) throw new Error("no such run");
     const { u } = await requireChat(ctx, run.chatId);
-    const events = await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", runId)).collect();
-    const already = events.some((e) => { const ev = e.event as { type: string; requestId?: string }; return ev.type === "request.resolved" && ev.requestId === requestId; });
-    if (already) return;
-    await insertEvents(ctx, runId, [{ type: "request.resolved", runId, requestId, by: u.githubLogin!, decision }]);
+    await respondAs(ctx, run, u.githubLogin!, requestId, decision);
   },
 });
+
+/** Record one person's answer. The first answer wins; later ones are ignored. Access is the caller's to check. */
+export async function respondAs(ctx: MutationCtx, run: Doc<"runs">, login: string, requestId: string, decision: string) {
+  const events = await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", run._id)).collect();
+  const already = events.some((e) => { const ev = e.event as { type: string; requestId?: string }; return ev.type === "request.resolved" && ev.requestId === requestId; });
+  if (already) return;
+  await insertEvents(ctx, run._id, [{ type: "request.resolved", runId: run._id, requestId, by: login, decision }]);
+}
 
 /** Stop did not land within a reasonable time, or the runner is gone: end the run from the chat side. */
 export const abandon = mutation({

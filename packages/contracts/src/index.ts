@@ -163,3 +163,4 @@ export const Capabilities = z.object({ contracts: z.literal(1), runners: z.liter
 export const CONTRACTS_VERSION = 1 as const;
 
 export { ContextSourceInput } from "./context.ts";
+export { MENTION, firstMention } from "./mentions.ts";

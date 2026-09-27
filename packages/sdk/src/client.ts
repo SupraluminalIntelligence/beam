@@ -1,6 +1,6 @@
 import { ConvexClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
-import { RESOURCES, type ChatSnapshot, type LayerEvent, type ResourceArgs, type ResourceName, type ResourceValue, type WorkspaceState } from "@beam/contracts/layer";
+import { ACTIONS, RESOURCES, type ActionArgs, type ActionName, type ActionResult, type ChatSnapshot, type LayerEvent, type ResourceArgs, type ResourceName, type ResourceValue, type StateScope, type WorkspaceState } from "@beam/contracts/layer";
 import { diffChat, diffWorkspace } from "./diff.ts";
 
 /** What the SDK needs from a Convex connection. Tests and other runtimes can supply their own. */
@@ -46,16 +46,59 @@ export class Beam {
   }
 
   /**
-   * Everything happening in a workspace as events: a `workspace.snapshot` once chats, status, presence and
-   * runs have all arrived, then what changed each time any of them does.
+   * Do something as the person. Each action needs its scope on the token (see `ACTIONS`); a missing one
+   * fails with "this token may not …". Optional arguments may be left out or null.
    */
-  watchWorkspace(workspaceId: string, onEvent: (event: LayerEvent) => void, onError: OnError = reportError): Unsubscribe {
+  act<N extends ActionName>(action: N, args: ActionArgs<N>): Promise<ActionResult<N>> {
+    const clean = Object.fromEntries(Object.entries(args as Record<string, unknown>).filter(([, v]) => v !== undefined));
+    return this.transport.mutation(ACTIONS[action].fn, { ...clean, token: this.token }) as Promise<ActionResult<N>>;
+  }
+
+  /** Post as the person. The first `@handle` of an agent in the chat starts it, or steers its live run. */
+  send(chatId: string, text: string, opts: { mention?: string; runId?: string } = {}) { return this.act("messages.send", { chatId, text, ...opts }); }
+  react(messageId: string, emoji: string) { return this.act("messages.react", { messageId, emoji }); }
+  /** Answer an agent's open question or approval (`request.opened` in its events; `openRequests` in the SDK). */
+  respond(runId: string, requestId: string, decision: string) { return this.act("runs.respond", { runId, requestId, decision }); }
+  interrupt(runId: string) { return this.act("runs.interrupt", { runId }); }
+  /** Say which chat the person is in (null for none), and which layer they are in it from. */
+  focus(workspaceId: string, chatId: string | null, layer?: string) { return this.act("people.focus", { workspaceId, chatId, ...(layer ? { layer } : {}) }); }
+  /** Save this layer's state for the person, a chat or the workspace. null removes it. */
+  setState(workspaceId: string, layer: string, scope: StateScope, data: unknown, chatId?: string) { return this.act("layers.set", { workspaceId, layer, scope, data, ...(chatId ? { chatId } : {}) }); }
+
+  /**
+   * For state that changes every frame, like a position: call the returned function as often as you like and
+   * it sends at most one write per `interval` ms, always ending on the latest value.
+   */
+  placer(workspaceId: string, layer: string, opts: { interval?: number; onError?: OnError } = {}): (data: unknown) => void {
+    const interval = Math.max(opts.interval ?? 250, 150);
+    let pending: { data: unknown } | null = null, timer: ReturnType<typeof setTimeout> | null = null, lastSent = 0;
+    const flush = () => {
+      timer = null;
+      if (!pending) return;
+      const { data } = pending;
+      pending = null;
+      lastSent = Date.now();
+      this.setState(workspaceId, layer, "person", data).catch(opts.onError ?? reportError);
+    };
+    return (data) => {
+      pending = { data };
+      if (timer) return;
+      timer = setTimeout(flush, Math.max(0, lastSent + interval - Date.now()));
+    };
+  }
+
+  /**
+   * Everything happening in a workspace as events: a `workspace.snapshot` once chats, status, presence and
+   * runs have all arrived, then what changed each time any of them does. Name a layer to also follow its
+   * state (`layer.person`, `layer.chat`, `layer.workspace`).
+   */
+  watchWorkspace(workspaceId: string, onEvent: (event: LayerEvent) => void, onError: OnError = reportError, opts: { layer?: string } = {}): Unsubscribe {
     const parts: Partial<Omit<WorkspaceState, "workspaceId">> = {};
     let last: WorkspaceState | null = null;
     const update = <K extends keyof typeof parts>(key: K) => (value: NonNullable<(typeof parts)[K]>) => {
       parts[key] = value;
-      if (!parts.chats || !parts.activity || !parts.presence || !parts.runs) return;
-      const next: WorkspaceState = { workspaceId, chats: parts.chats, activity: parts.activity, presence: parts.presence, runs: parts.runs };
+      if (!parts.chats || !parts.activity || !parts.presence || !parts.runs || (opts.layer && !parts.layerState)) return;
+      const next: WorkspaceState = { workspaceId, chats: parts.chats, activity: parts.activity, presence: parts.presence, runs: parts.runs, ...(parts.layerState ? { layerState: parts.layerState } : {}) };
       if (last) for (const e of diffWorkspace(last, next)) onEvent(e);
       else onEvent({ type: "workspace.snapshot", state: next });
       last = next;
@@ -65,6 +108,7 @@ export class Beam {
       this.subscribe("chats.activity", { workspaceId }, update("activity"), onError),
       this.subscribe("people.presence", { workspaceId }, update("presence"), onError),
       this.subscribe("runs.active", { workspaceId }, update("runs"), onError),
+      ...(opts.layer ? [this.subscribe("layers.state", { workspaceId, layer: opts.layer }, update("layerState"), onError)] : []),
     ];
     return () => stops.forEach((stop) => stop());
   }

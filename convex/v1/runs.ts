@@ -1,9 +1,9 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import { mutation, query } from "../_generated/server";
 import { requireLayer } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { visibleChats } from "../chats";
-import { LIVE } from "../runs";
+import { LIVE, respondAs } from "../runs";
 import { events as publicEvents, readableChat, run } from "./shape";
 
 const ENDED = ["landed", "failed", "interrupted"] as const;
@@ -60,5 +60,33 @@ export const eventsForChat = query({
     const out: Record<string, ReturnType<typeof publicEvents>> = {};
     for (const r of runs) out[r._id] = publicEvents(await ctx.db.query("runEvents").withIndex("by_run", (q) => q.eq("runId", r._id)).collect());
     return out;
+  },
+});
+
+/** Answer an open question or approval. Anyone who can read the chat may, as in the plain apps. */
+export const respond = mutation({
+  args: { token: v.string(), runId: v.id("runs"), requestId: v.string(), decision: v.string() },
+  handler: async (ctx, { token, runId, requestId, decision }) => {
+    const { login } = await requireLayer(ctx, token, "run:respond");
+    const r = await ctx.db.get(runId);
+    if (!r) throw new Error("no such run");
+    await readableChat(ctx, r.chatId, login);
+    if (!(r.openRequests ?? []).includes(requestId)) throw new Error("that question is not open");
+    if (decision.length > 20_000) throw new Error("answer too long");
+    await respondAs(ctx, r, login, requestId, decision);
+    return null;
+  },
+});
+
+/** Ask a live run to stop. The runner still commits and pushes what it has, as always. */
+export const interrupt = mutation({
+  args: { token: v.string(), runId: v.id("runs") },
+  handler: async (ctx, { token, runId }) => {
+    const { login } = await requireLayer(ctx, token, "run:interrupt");
+    const r = await ctx.db.get(runId);
+    if (!r) throw new Error("no such run");
+    await readableChat(ctx, r.chatId, login);
+    if (LIVE.has(r.state) && !r.interruptRequestedAt) await ctx.db.patch(runId, { interruptRequestedAt: Date.now() });
+    return null;
   },
 });

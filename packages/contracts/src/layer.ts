@@ -1,5 +1,5 @@
 /**
- * The layer API, version 1: what an interaction layer can read from Beam.
+ * The layer API, version 1: what an interaction layer can read from Beam, and the few things it can do.
  *
  * Every shape here is a promise to code outside this repo. Fields and enum values may be
  * added; nothing is renamed or removed. A breaking change is a new version beside this one.
@@ -11,9 +11,21 @@ import { Landing, type RunEvent as InternalRunEvent } from "./index.ts";
 
 export const API_VERSION = 1 as const;
 
-/** What a layer token may do. Only reads exist so far; writes arrive as their own scopes. */
-export const Scope = z.enum(["read"]);
+/**
+ * What a layer token may do. Reads are free, writes are few: each write is its own scope, and together they
+ * are never more than a person can do in the plain apps. Settings, invites, agents and machines stay app-only.
+ */
+export const Scope = z.enum(["read", "chat:write", "run:respond", "run:interrupt", "presence:write", "layer:state"]);
 export type Scope = z.infer<typeof Scope>;
+/** Shown to the person before they approve, so the words are the permission. */
+export const SCOPES: Record<Scope, string> = {
+  "read": "See everything you can see in Beam: workspaces, chats (including private chats you are in), messages, agent runs, pull requests, who is where, and your notifications.",
+  "chat:write": "Send messages and reactions as you, including @mentions that start agents on your machines and accounts.",
+  "run:respond": "Answer agents' questions and approve or deny what they ask to do, as you.",
+  "run:interrupt": "Stop agents that are running.",
+  "presence:write": "Set which chat you are in.",
+  "layer:state": "Save its own state in your workspaces, such as where you stand in its world. Beam itself never reads it.",
+};
 
 export const Person = z.object({ login: z.string(), name: z.string(), image: z.string().nullable() });
 export type Person = z.infer<typeof Person>;
@@ -106,7 +118,10 @@ export const Change = z.object({
 export type Change = z.infer<typeof Change>;
 
 /** The shared truth of where someone is: the one chat they have focused, or none. */
-export const Presence = z.object({ login: z.string(), chatId: z.string().nullable() });
+export const Presence = z.object({
+  login: z.string(), chatId: z.string().nullable(),
+  layer: z.string().nullable(),               // the interface they focused from; null for the plain apps
+});
 export type Presence = z.infer<typeof Presence>;
 export const Typing = z.object({ login: z.string(), until: z.number() });
 
@@ -115,6 +130,19 @@ export const Notification = z.object({
   kind: z.enum(["completed", "failed", "input", "mention"]), title: z.string(), body: z.string(), read: z.boolean(), createdAt: z.number(),
 });
 export type Notification = z.infer<typeof Notification>;
+
+/** A layer's own state in a workspace: one entry per person, per chat, and one for the workspace. Free-form, at most 4 KB each. */
+export const LAYER_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const LAYER_STATE_MAX_BYTES = 4096;
+export const StateScope = z.enum(["person", "chat", "workspace"]);
+export type StateScope = z.infer<typeof StateScope>;
+export const LayerState = z.object({
+  layer: z.string(),
+  people: z.array(z.object({ login: z.string(), data: z.unknown(), updatedAt: z.number() })),
+  chats: z.array(z.object({ chatId: z.string(), data: z.unknown(), updatedBy: z.string(), updatedAt: z.number() })),
+  workspace: z.object({ data: z.unknown(), updatedBy: z.string(), updatedAt: z.number() }).nullable(),
+});
+export type LayerState = z.infer<typeof LayerState>;
 
 /**
  * Every resource a layer can read. Each is a live query: fetch it once, or subscribe and get the whole
@@ -136,15 +164,37 @@ export const RESOURCES = {
   "people.presence":    { fn: "v1/people:presence",      args: ["workspaceId"], returns: z.array(Presence),               about: "Who is here in the last two minutes, and which chat each is in" },
   "people.typing":      { fn: "v1/people:typing",        args: ["chatId"],      returns: z.array(Typing),                 about: "Who is typing in a chat" },
   "inbox.list":         { fn: "v1/inbox:list",           args: [],              returns: z.array(Notification),           about: "Your latest notifications" },
+  "layers.state":       { fn: "v1/layers:state",         args: ["workspaceId", "layer"], returns: LayerState,             about: "A layer's own state in a workspace: per person, per chat, and shared" },
 } as const;
 export type ResourceName = keyof typeof RESOURCES;
 export type ResourceArgs<R extends ResourceName> = { [K in (typeof RESOURCES)[R]["args"][number]]: string };
 export type ResourceValue<R extends ResourceName> = R extends "runs.events" ? RunEvent[] : R extends "runs.eventsForChat" ? Record<string, RunEvent[]> : z.infer<(typeof RESOURCES)[R]["returns"]>;
 
+/**
+ * Everything a layer can do. Argument kinds: `id` and `text` are strings, `json` is any JSON value, and a
+ * trailing `?` makes it optional. Each needs its scope on the token.
+ */
+export const ACTIONS = {
+  "messages.send":  { fn: "v1/messages:send",   scope: "chat:write",     args: { chatId: "id", text: "text", mention: "text?", runId: "id?" }, about: "Post as you. The first @handle of an agent in the chat starts it (or joins its live run); `mention` picks one explicitly, `runId` steers that run" },
+  "messages.react": { fn: "v1/messages:react",  scope: "chat:write",     args: { messageId: "id", emoji: "text" },                       about: "Toggle your reaction on a message" },
+  "runs.respond":   { fn: "v1/runs:respond",    scope: "run:respond",    args: { runId: "id", requestId: "id", decision: "text" },        about: "Answer an agent's open question or approval; the first answer wins" },
+  "runs.interrupt": { fn: "v1/runs:interrupt",  scope: "run:interrupt",  args: { runId: "id" },                                          about: "Ask a live run to stop; its work is still pushed" },
+  "people.focus":   { fn: "v1/people:focus",    scope: "presence:write", args: { workspaceId: "id", chatId: "id?", layer: "text?" },       about: "Say which chat you are in (none without chatId), and from which layer" },
+  "layers.set":     { fn: "v1/layers:set",      scope: "layer:state",    args: { workspaceId: "id", layer: "text", scope: "text", chatId: "id?", data: "json" }, about: "Save this layer's state for you (scope person), a chat, or the workspace; data null removes it" },
+} as const;
+export type ActionName = keyof typeof ACTIONS;
+type ArgKind<K> = K extends "json" | "json?" ? unknown : string;
+type Required<A> = { [K in keyof A as A[K] extends `${string}?` ? never : K]: ArgKind<A[K]> };
+type Optional<A> = { [K in keyof A as A[K] extends `${string}?` ? K : never]?: ArgKind<A[K]> | null };
+export type ActionArgs<N extends ActionName> = Required<(typeof ACTIONS)[N]["args"]> & Optional<(typeof ACTIONS)[N]["args"]>;
+export const SendResult = z.object({ id: z.string(), kind: MessageKind, runner: z.string().nullable() });
+export type ActionResult<N extends ActionName> = N extends "messages.send" ? z.infer<typeof SendResult> : null;
+
 // ---- events a layer can react to, derived by diffing live resources ----
 
 export const WorkspaceState = z.object({
   workspaceId: z.string(), chats: z.array(Chat), activity: Activity, presence: z.array(Presence), runs: ActiveRuns,
+  layerState: LayerState.optional(),          // present when the watch names a layer
 });
 export type WorkspaceState = z.infer<typeof WorkspaceState>;
 export const ChatSnapshot = z.object({
@@ -162,9 +212,12 @@ export type LayerEvent =
   | { type: "chat.updated"; chat: Chat; previous: Chat }
   | { type: "chat.removed"; chatId: string }
   | { type: "chat.status"; chatId: string; status: ChatActivity | "idle"; previous: ChatActivity | "idle" }
-  | { type: "person.arrived"; login: string; chatId: string | null }
-  | { type: "person.moved"; login: string; chatId: string | null; previous: string | null }
+  | { type: "person.arrived"; login: string; chatId: string | null; layer: string | null }
+  | { type: "person.moved"; login: string; chatId: string | null; previous: string | null; layer: string | null }
   | { type: "person.left"; login: string; previous: string | null }
+  | { type: "layer.person"; layer: string; login: string; data: unknown; previous: unknown }
+  | { type: "layer.chat"; layer: string; chatId: string; data: unknown; previous: unknown }
+  | { type: "layer.workspace"; layer: string; data: unknown; previous: unknown }
   | { type: "run.started"; run: Run }
   | { type: "run.changed"; run: Run; previous: RunState }
   | { type: "run.asking"; run: Run; requestIds: string[] }

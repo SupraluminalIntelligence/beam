@@ -148,8 +148,16 @@ export default defineSchema({
   chatFollowers: defineTable({ chatId: v.id("chats"), login: v.string(), muted: v.optional(v.boolean()) }).index("by_chat", ["chatId"]),
   notifications: defineTable({ recipient: v.string(), key: v.string(), chatId: v.id("chats"), workspaceId: v.id("workspaces"), runId: v.optional(v.id("runs")), messageId: v.optional(v.id("messages")), deliveryToken: v.optional(v.string()), deliveryExpiresAt: v.optional(v.number()), kind: v.union(v.literal("completed"), v.literal("failed"), v.literal("input"), v.literal("mention")), title: v.string(), body: v.string(), readAt: v.union(v.number(), v.null()), deliveredAt: v.union(v.number(), v.null()) })
     .index("by_recipient", ["recipient"]).index("by_key", ["recipient", "key"]).index("by_run", ["runId"]),
-  presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number() })
+  presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number(), layer: v.optional(v.string()) }) // layer: the interface they focused from, absent for the plain apps
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),
+  /**
+   * Free-form state an interaction layer keeps: a position, a pose, a layout. Namespaced by layer id and never
+   * read by the engine. person: one per person (only they write it) · chat: one per chat · workspace: one per workspace.
+   */
+  layerState: defineTable({
+    workspaceId: v.id("workspaces"), layer: v.string(), scope: v.union(v.literal("person"), v.literal("chat"), v.literal("workspace")),
+    chatId: v.union(v.id("chats"), v.null()), login: v.union(v.string(), v.null()), data: v.any(), updatedBy: v.string(), updatedAt: v.number(),
+  }).index("by_layer", ["workspaceId", "layer"]).index("by_key", ["workspaceId", "layer", "scope", "chatId", "login"]),
   /** Phones that receive push. An Expo push token per install; a token moves to whoever signs in on that phone last. */
   pushTokens: defineTable({ login: v.string(), token: v.string(), platform: v.string(), deviceName: v.union(v.string(), v.null()), updatedAt: v.number() })
     .index("by_login", ["login"]).index("by_token", ["token"]),

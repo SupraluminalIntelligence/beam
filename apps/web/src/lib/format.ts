@@ -12,11 +12,8 @@ export function dayLabel(t: number): string {
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
-export const MENTION = /(^|\s)@([a-z0-9-]+)\b/gi;
-export function firstMention(text: string, handles: Set<string>): string | null {
-  for (const m of text.matchAll(MENTION)) { const h = m[2]!.toLowerCase(); if (handles.has(h)) return h; }
-  return null;
-}
+import { MENTION, firstMention } from "@beam/contracts";
+export { MENTION, firstMention };
 
 /** Render `code` and @mentions. No HTML, no markdown beyond that in M0. */
 export function renderText(text: string, agentHandles: Set<string>, people: Set<string>): ReactNode[] {
