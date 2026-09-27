@@ -141,7 +141,7 @@ export function LandingCard({ run, changes }: { run: Run; changes: Doc<"changes"
     const resolved = c && c.state !== "open" ? c.state : null;
     return (
       <button key={r.repo} className="landing" onClick={() => href && openHref(href)} title={href ?? r.branch}>
-        <PrIcon state={c ? prState(c) : prNumber ? "open" : "branch"} />
+        <PrIcon state={c ? prState(c) : prNumber ? "unsynced" : "branch"} />
         <span className="what">{what}</span>
         {resolved && <span className={`st ${resolved}`}>{resolved}</span>}
         {r.pushed && <><span className="add">+{r.add}</span><span className="del">−{r.del}</span><span>{r.files} file{r.files === 1 ? "" : "s"}</span></>}

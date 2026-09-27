@@ -35,7 +35,7 @@ const Pr = z.object({
 });
 const Response = z.object({
   data: z.object({ repository: z.object({ pullRequest: Pr.nullable() }).nullable() }).nullable().optional(),
-  errors: z.array(z.object({ message: z.string() })).optional(),
+  errors: z.array(z.object({ message: z.string(), type: z.string().optional() })).optional(),
 });
 
 /** What one sync learned, already checked. Crosses from the action into the mutation. */
@@ -46,12 +46,19 @@ export type PrSnapshot = {
 };
 export type PrPage = { pr: PrSnapshot; next: string | null };
 
-/** GitHub's response, validated. Anything malformed is an error here rather than a bad row later. */
-export function parsePrPage(json: unknown): PrPage | { error: string } {
+/**
+ * GitHub's response, validated. Anything malformed is an error here rather than a bad row later. GraphQL hides a private
+ * repo the token can't see as not found, so a missing repo or PR is forbidden: another member's token may read it.
+ */
+export function parsePrPage(json: unknown): PrPage | Refusal {
   const r = Response.safeParse(json);
-  if (!r.success) return { error: `unexpected GitHub response: ${r.error.issues[0]?.path.join(".")} ${r.error.issues[0]?.message}` };
+  if (!r.success) return { error: `unexpected GitHub response: ${r.error.issues[0]?.path.join(".")} ${r.error.issues[0]?.message}`, kind: "other" };
   const pr = r.data.data?.repository?.pullRequest;
-  if (!pr) return { error: r.data.errors?.[0]?.message ?? "pull request not found" };
+  if (!pr) {
+    const errors = r.data.errors ?? [];
+    const kind = errors.some((e) => e.type === "RATE_LIMITED") ? "rate-limited" : errors.every((e) => !e.type || e.type === "NOT_FOUND" || e.type === "FORBIDDEN") ? "forbidden" : "other";
+    return { error: errors[0]?.message ?? "pull request not found", kind };
+  }
   const rollup = pr.commits.nodes[0]?.commit.statusCheckRollup ?? null;
   // Other node types can appear as empty objects when no fragment matches; they carry no check.
   const items = (rollup?.contexts.nodes ?? []).flatMap((n) => { const c = Context.safeParse(n); return c.success ? [checkItem(c.data)] : []; });
@@ -97,6 +104,24 @@ export function prPatch(pr: PrSnapshot, now: number) {
     resolved: pr.merged || pr.state === "MERGED" ? "merged" as const : pr.state === "CLOSED" ? "closed" as const : null,
     patch: { title: pr.title, prUrl: pr.url, draft: pr.isDraft, headSha: pr.headRefOid, add: pr.additions, del: pr.deletions, files: pr.changedFiles, checks: summarizeChecks(pr.items, pr.rollupState, now) },
   };
+}
+
+/**
+ * Why GitHub turned a read down. Expired means the token itself is dead (revoked, or pushed out by newer sign-ins);
+ * forbidden means this token can't see the repo, which another member's might; rate-limited clears on its own.
+ */
+export type Refusal = { error: string; kind: "expired" | "forbidden" | "rate-limited" | "other" };
+/** A one-way fingerprint of a token, so a rejected one can be recognized later without keeping a second copy of it. */
+export async function fingerprint(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+export const EXPIRED = "Beam's GitHub access has expired. Sign out of Beam and sign back in with GitHub to renew it.";
+export function refusal(status: number, headers: { get(name: string): string | null }): Refusal {
+  if (status === 401) return { error: EXPIRED, kind: "expired" };
+  if ((status === 403 || status === 429) && (headers.get("x-ratelimit-remaining") === "0" || headers.get("retry-after") !== null)) return { error: "GitHub is rate-limiting Beam. It will try again shortly.", kind: "rate-limited" };
+  if (status === 403 || status === 404) return { error: "GitHub refused Beam's access to this PR", kind: "forbidden" };
+  return { error: `GitHub answered ${status}`, kind: "other" };
 }
 
 const RestPr = z.object({ html_url: z.string().url(), number: z.number().int().positive() });

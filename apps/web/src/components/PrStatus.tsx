@@ -28,18 +28,18 @@ export function fixPrompt(handle: string, c: Pick<Change, "repo" | "prNumber" | 
 
 const ago = (t: number, now: number) => { const s = Math.max(0, Math.round((now - t) / 1000)); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`; };
 
-/** Open PRs in the thread, pinned above the composer: number, branch, size, and CI with its checks one click away. */
+/** Open PRs in the thread, pinned above the composer: number, title, size, and CI with its checks one click away. */
 export function PrBar({ changes, askHandle, onAsk }: { changes: Change[]; askHandle: string | null; onAsk: (text: string) => void }) {
   const open = changes.filter((c) => c.state === "open");
   if (!open.length) return null;
   return <div className="prbar" aria-label="Open pull requests">{open.map((c) => <PrRow key={c._id} change={c} askHandle={askHandle} onAsk={onAsk} />)}</div>;
 }
 
-/** Where a change stands on GitHub, for its icon. */
-export type PrState = "branch" | "draft" | "open" | "merged" | "closed";
+/** Where a change stands on GitHub, for its icon. Until a sync has read the PR, Beam doesn't know whether it is a draft. */
+export type PrState = "branch" | "unsynced" | "draft" | "open" | "merged" | "closed";
 export const prState = (c: Pick<Change, "state" | "prNumber" | "draft">): PrState =>
-  c.state === "merged" ? "merged" : c.state === "closed" ? "closed" : !c.prNumber ? "branch" : c.draft ? "draft" : "open";
-const PR_STATE_WORD: Record<PrState, string> = { branch: "Branch pushed, no PR yet", draft: "Draft PR", open: "Open PR", merged: "Merged", closed: "Closed" };
+  c.state === "merged" ? "merged" : c.state === "closed" ? "closed" : !c.prNumber ? "branch" : c.draft === undefined ? "unsynced" : c.draft ? "draft" : "open";
+const PR_STATE_WORD: Record<PrState, string> = { branch: "Branch pushed, no PR yet", unsynced: "PR not read from GitHub yet", draft: "Draft PR", open: "Open PR", merged: "Merged", closed: "Closed" };
 
 export function PrIcon({ state }: { state: PrState }) {
   const side = state === "draft" ? <><path d="M12 4.5v.01M12 8v.01" /><circle cx="12" cy="12.5" r="1.75" /></>
@@ -87,13 +87,16 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
   };
   const href = prHref(c);
   const branchUrl = `https://github.com/${c.repo}/tree/${c.branch.split("/").map(encodeURIComponent).join("/")}`;
+  // A PR is known by its title, which GitHub sync keeps current when an agent or a person renames it. A branch without
+  // a PR has only its name. Either way the branch stays one click away.
+  const label = c.prNumber ? c.title : c.branch;
   return (
     <div className="prrow">
       <PrIcon state={prState(c)} />
       {c.prNumber && href && <button className="prnum" onClick={() => openHref(href)} title={`Open ${c.title} on GitHub`}>#{c.prNumber}</button>}
       <span className="prrepo">{c.repo.split("/")[1]}</span>
       <div className="prbranchwrap" onClick={(e) => e.stopPropagation()}>
-        <button className="prbranch" aria-expanded={open === "branch"} aria-haspopup="menu" onClick={() => setOpen(open === "branch" ? null : "branch")} title={c.branch}>{c.branch}</button>
+        <button className="prbranch" aria-expanded={open === "branch"} aria-haspopup="menu" onClick={() => setOpen(open === "branch" ? null : "branch")} title={c.branch}>{label}</button>
         {open === "branch" && (
           <div className="prmenu" role="menu">
             <button role="menuitem" onClick={() => { setOpen(null); void navigator.clipboard.writeText(c.branch).then(() => toast("Branch name copied"), () => toast("Couldn't copy the branch name")); }}>Copy branch name</button>
@@ -101,6 +104,7 @@ function PrRow({ change: c, askHandle, onAsk }: { change: Change; askHandle: str
           </div>
         )}
       </div>
+      {c.prNumber && c.syncError && <span className="prstale" title={c.syncError}>out of date</span>}
       <span className="add">+{c.add}</span><span className="del">−{c.del}</span>
       {!c.prNumber || !href ? <button className="cichip create" disabled={creating} onClick={create}>{creating ? "Creating…" : "Create PR"}</button>
       : c.checks?.state === "none" ? null /* GitHub reports no CI on this PR: nothing to open */

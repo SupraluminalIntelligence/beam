@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkState, keepPolling, parsePrPage, parseRestPr, prPatch, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
+import { EXPIRED, checkState, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
 
 const run = (name: string, status: string, conclusion: string | null = null): RollupContext => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://ci/${name}` });
 const status = (context: string, state: string): RollupContext => ({ __typename: "StatusContext", context, state, targetUrl: null });
@@ -59,7 +59,10 @@ describe("parsePrPage", () => {
   it("rejects a malformed response at the boundary instead of passing it on", () => {
     const bad = page(); (bad.data.repository.pullRequest as Record<string, unknown>).additions = "137";
     expect(parsePrPage(bad)).toMatchObject({ error: expect.stringContaining("additions") });
-    expect(parsePrPage({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository" }] })).toEqual({ error: "Could not resolve to a Repository" });
+    expect(parsePrPage({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository", type: "NOT_FOUND" }] })).toEqual({ error: "Could not resolve to a Repository", kind: "forbidden" });
+    expect(parsePrPage({ data: { repository: { pullRequest: null } } })).toEqual({ error: "pull request not found", kind: "forbidden" });
+    expect(parsePrPage({ data: null, errors: [{ message: "API rate limit exceeded", type: "RATE_LIMITED" }] })).toMatchObject({ kind: "rate-limited" });
+    expect(parsePrPage({ data: null, errors: [{ message: "Something went wrong", type: "INTERNAL" }] })).toMatchObject({ kind: "other" });
     expect(parsePrPage("nope")).toMatchObject({ error: expect.any(String) });
   });
 });
@@ -94,5 +97,17 @@ describe("keepPolling", () => {
     expect(keepPolling("none", 4)).toBe(false);
     expect(keepPolling("passing", 0)).toBe(false);
     expect(keepPolling("failing", 0)).toBe(false);
+  });
+});
+
+describe("refusal", () => {
+  const headers = (h: Record<string, string> = {}) => ({ get: (k: string) => h[k.toLowerCase()] ?? null });
+  it("tells a dead token from a repo the token can't see, and from rate limiting", () => {
+    expect(refusal(401, headers())).toMatchObject({ kind: "expired", error: EXPIRED });
+    expect(refusal(403, headers()).kind).toBe("forbidden");
+    expect(refusal(404, headers()).kind).toBe("forbidden");
+    expect(refusal(403, headers({ "x-ratelimit-remaining": "0" })).kind).toBe("rate-limited");
+    expect(refusal(429, headers({ "retry-after": "60" })).kind).toBe("rate-limited");
+    expect(refusal(502, headers())).toEqual({ kind: "other", error: "GitHub answered 502" });
   });
 });

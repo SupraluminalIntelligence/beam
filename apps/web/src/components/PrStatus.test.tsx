@@ -8,7 +8,7 @@ import { LandingCard } from "./RunBlocks";
 const change = (over: Record<string, unknown> = {}) => ({
   _id: "c1", _creationTime: 0, chatId: "chat", workspaceId: "ws", repo: "acme/beam", branch: "beam/delete-workspace", base: "main", state: "open",
   title: "Add workspace deletion", prUrl: "https://github.com/acme/beam/pull/12", prNumber: 12, add: 137, del: 11, files: 6, adopted: false,
-  createdBy: "me", updatedAt: 0, resolvedAt: null,
+  createdBy: "me", updatedAt: 0, resolvedAt: null, draft: false,
   checks: { state: "failing", passed: 2, failed: 1, pending: 0, skipped: 1, checkedAt: Date.now(), items: [
     { name: "test", state: "failed", url: "https://ci/test" }, { name: "lint", state: "passed", url: null }, { name: "typecheck", state: "passed", url: null }, { name: "docs", state: "skipped", url: null },
   ] },
@@ -16,11 +16,12 @@ const change = (over: Record<string, unknown> = {}) => ({
 }) as Doc<"changes">;
 
 describe("PrBar", () => {
-  it("shows each open PR's number, branch, size and CI state, and nothing for resolved ones", () => {
+  it("shows each open PR's number, title, size and CI state, and nothing for resolved ones", () => {
     const html = renderToStaticMarkup(<PrBar changes={[change(), change({ _id: "c2" as never, state: "merged", prNumber: 9 })]} askHandle="claude" onAsk={() => {}} />);
     expect(html).toContain("#12");
     expect(html).not.toContain("#9");
-    expect(html).toContain("beam/delete-workspace");
+    expect(html).toContain(">Add workspace deletion</button>");
+    expect(html).toContain('title="beam/delete-workspace"');
     expect(html).toContain("+137");
     expect(html).toContain('class="cichip failing"');
   });
@@ -32,6 +33,12 @@ describe("PrBar", () => {
     expect(html).not.toContain("Create PR");
   });
 
+  it("says a PR is out of date when GitHub can't be read, with the reason on hover", () => {
+    const html = renderToStaticMarkup(<PrBar changes={[change({ syncError: "Beam's GitHub access has expired." })]} askHandle={null} onAsk={() => {}} />);
+    expect(html).toContain('<span class="prstale" title="Beam&#x27;s GitHub access has expired.">out of date</span>');
+    expect(renderToStaticMarkup(<PrBar changes={[change()]} askHandle={null} onAsk={() => {}} />)).not.toContain("out of date");
+  });
+
   it("renders nothing when no PR is open", () => {
     expect(renderToStaticMarkup(<PrBar changes={[change({ state: "closed" })]} askHandle={null} onAsk={() => {}} />)).toBe("");
   });
@@ -41,6 +48,7 @@ describe("PrBar", () => {
     expect(html).toContain("Create PR");
     expect(html).toContain('class="pr-icon branch"');
     expect(html).not.toContain("cichip failing");
+    expect(html).toContain(">beam/delete-workspace</button>");
   });
 
   it("drops the CI chip when GitHub reports no checks, but keeps it until GitHub has been read", () => {
@@ -52,6 +60,7 @@ describe("PrBar", () => {
   it("colors the icon by where the PR stands", () => {
     expect(prState(change())).toBe("open");
     expect(prState(change({ draft: true }))).toBe("draft");
+    expect(prState(change({ draft: undefined }))).toBe("unsynced");
     expect(prState(change({ prNumber: null }))).toBe("branch");
     expect(prState(change({ state: "merged" }))).toBe("merged");
     expect(prState(change({ state: "closed" }))).toBe("closed");
