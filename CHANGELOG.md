@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Wind tunnel with your own model: New study › Wind tunnel · import a 3D model loads an STL or OBJ (up to 200,000 triangles), checks that it is watertight, and builds a tunnel, mesh and slices sized around it within the local cell budget. Set the file's units and quarter turns in the rail, then mesh and run as usual for drag, lift and streamlines. Agents can do the same from a file in the repo or one shared in chat.
 - When Beam refuses something an agent asked for, the agent now sees why (for example "Select this study explicitly before running it") instead of "Server Error", so it fixes the request rather than guessing that Beam is broken.
 - Wind tunnel: put an Ahmed body, the standard car-like test shape, in a 3D study and see streamlines flow over it, the drag and lift coefficients over time, and how the drag compares with the wind-tunnel measurement. New study › Wind tunnel · Ahmed body · 25° sets up the classic case at 40 m/s.
 - Settings › Models & accounts has a **From phone and apps** account per agent: the machine and account that run agents you start from your phone, the `beam` CLI or a Beam World, which have no machine of their own. With one signed-in account, Beam offers it. Approving an app that can start agents asks the same question.

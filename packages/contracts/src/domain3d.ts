@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { Model3D, QuarterTurns, placement } from "./model3d.ts";
 // Homogeneous arrays keep agent tool schemas transport-compatible; TS retains the tuple.
-const vec3=z.array(z.number().finite().min(-10).max(10)).length(3).transform(p=>p as [number,number,number]);
+// Up to 100 m, so a full-size car fits in a tunnel several body lengths long.
+const vec3=z.array(z.number().finite().min(-100).max(100)).length(3).transform(p=>p as [number,number,number]);
 // Up to 100 m/s (about Mach 0.3), where the incompressible solver still applies to air.
 const velocity3=z.array(z.number().finite().min(-100).max(100)).length(3).transform(p=>p as [number,number,number]);
 const name=z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,39}$/, "Use a short OpenFOAM identifier: letters, digits and underscores").refine(n=>!n.startsWith("body_")&&!n.startsWith("slice_"),"body_ and slice_ prefixes are reserved");
@@ -17,9 +19,17 @@ export const Body3D=z.discriminatedUnion("shape",[
  z.object({name,shape:z.literal("cylinder"),start:vec3,end:vec3,radius:z.number().min(.0001).max(5),boundary:name}).strict(),
  // Ahmed body (Ahmed, Ramm & Faltin 1984): nose is the front face at the underside, on the centreline; it points -x.
  z.object({name,shape:z.literal("ahmed"),nose:vec3,scale:z.number().min(.02).max(3),slantDegrees:z.number().min(0).max(40),boundary:name}).strict(),
+ // Imported closed surface: scale converts its units to metres, rotation is quarter turns about x, y then z,
+ // and position is the front-bottom-centre of the placed bounding box (min x, mid y, min z).
+ z.object({name,shape:z.literal("model"),model:Model3D,scale:z.number().min(1e-5).max(1000),rotation:QuarterTurns,position:vec3,boundary:name}).strict(),
 ]);
 export type Body3D=z.infer<typeof Body3D>;
 type Ahmed=Extract<Body3D,{shape:"ahmed"}>;
+export type ModelBody=Extract<Body3D,{shape:"model"}>;
+/** Where a mesh job finds an imported body's stored surface. */
+export const modelInputPath=(b:{name:string})=>`models/${b.name}.stl`;
+/** Mesh job inputs: one stored surface per imported body, in body order. */
+export const modelInputs=(c:{bodies:readonly Body3D[]})=>c.bodies.flatMap(b=>b.shape==="model"?[{assetId:b.model.assetId,path:modelInputPath(b)}]:[]);
 /** Full-scale Ahmed body in metres: length, width, height, front edge radius and rear slant length. Stilts are not modelled. */
 export const AHMED={length:1.044,width:.389,height:.288,radius:.1,slant:.222,groundClearance:.05} as const;
 /** Cross-section at x metres behind the nose, in full-scale units: the front edges are rounded, the long edges sharp. */
@@ -57,6 +67,7 @@ export function frontalArea(b:Body3D){
  if(b.shape==="sphere")return Math.PI*b.radius**2;
  if(b.shape==="box")return(b.max[1]-b.min[1])*(b.max[2]-b.min[2]);
  if(b.shape==="ahmed")return AHMED.width*AHMED.height*b.scale**2;
+ if(b.shape==="model")return b.model.projectedArea[placement(b).streamwiseAxis]!*b.scale**2;
  const d=[b.end[0]-b.start[0],b.end[1]-b.start[1],b.end[2]-b.start[2]],l=Math.hypot(d[0]!,d[1]!,d[2]!),cos=Math.abs(d[0]!)/l;
  return 2*b.radius*l*Math.sqrt(1-cos*cos)+Math.PI*b.radius**2*cos;
 }
@@ -66,7 +77,7 @@ export const Refinement3D=z.discriminatedUnion("kind",[
  z.object({name,kind:z.literal("box"),min:vec3,max:vec3,level}).strict(),
 ]);
 export type Refinement3D=z.infer<typeof Refinement3D>;
-export const Slice3D=z.object({name,normal:z.enum(["x","y","z"]),offset:z.number().finite().min(-10).max(10)}).strict();
+export const Slice3D=z.object({name,normal:z.enum(["x","y","z"]),offset:z.number().finite().min(-100).max(100)}).strict();
 export type Slice3D=z.infer<typeof Slice3D>;
 export const Turbulence3D=z.discriminatedUnion("model",[
  z.object({model:z.literal("laminar")}).strict(),
@@ -81,17 +92,20 @@ export function bodyBounds(b:Body3D):{min:Point3;max:Point3}{
  if(b.shape==="sphere")return{min:b.centre.map(v=>v-b.radius) as Point3,max:b.centre.map(v=>v+b.radius) as Point3};
  if(b.shape==="box")return{min:b.min,max:b.max};
  if(b.shape==="ahmed"){const s=b.scale;return{min:[b.nose[0],b.nose[1]-AHMED.width/2*s,b.nose[2]],max:[b.nose[0]+AHMED.length*s,b.nose[1]+AHMED.width/2*s,b.nose[2]+AHMED.height*s]};}
+ if(b.shape==="model"){const p=placement(b);return{min:p.min,max:p.max};}
  // Exact axis-aligned extent of a capped cylinder.
  const d=axes.map(i=>b.end[i]-b.start[i]),length=Math.hypot(...d)||1,r=axes.map(i=>b.radius*Math.sqrt(Math.max(0,1-(d[i]!/length)**2)));
  return{min:axes.map(i=>Math.min(b.start[i],b.end[i])-r[i]!) as Point3,max:axes.map(i=>Math.max(b.start[i],b.end[i])+r[i]!) as Point3};
 }
-export function bodyVolume(b:Body3D){if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).volume;return b.shape==="sphere"?4/3*Math.PI*b.radius**3:b.shape==="box"?axes.reduce<number>((v,i)=>v*(b.max[i]-b.min[i]),1):Math.PI*b.radius**2*Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));}
-export function bodyArea(b:Body3D){if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).area;if(b.shape==="sphere")return 4*Math.PI*b.radius**2;if(b.shape==="box"){const [x,y,z]=axes.map(i=>b.max[i]-b.min[i]) as Point3;return 2*(x*y+y*z+x*z);}const l=Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));return 2*Math.PI*b.radius*(b.radius+l);}
+export function bodyVolume(b:Body3D){if(b.shape==="model")return b.model.volume*b.scale**3;if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).volume;return b.shape==="sphere"?4/3*Math.PI*b.radius**3:b.shape==="box"?axes.reduce<number>((v,i)=>v*(b.max[i]-b.min[i]),1):Math.PI*b.radius**2*Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));}
+export function bodyArea(b:Body3D){if(b.shape==="model")return b.model.area*b.scale**2;if(b.shape==="ahmed")return surfaceMeasures(ahmedSurface(b)).area;if(b.shape==="sphere")return 4*Math.PI*b.radius**2;if(b.shape==="box"){const [x,y,z]=axes.map(i=>b.max[i]-b.min[i]) as Point3;return 2*(x*y+y*z+x*z);}const l=Math.hypot(...axes.map(i=>b.end[i]-b.start[i]));return 2*Math.PI*b.radius*(b.radius+l);}
 /** Smallest body dimension that the snapped surface must resolve. */
-export function bodyThickness(b:Body3D){if(b.shape==="ahmed")return Math.min(AHMED.width,AHMED.height)*b.scale;return b.shape==="sphere"?2*b.radius:b.shape==="box"?Math.min(...axes.map(i=>b.max[i]-b.min[i])):Math.min(2*b.radius,Math.hypot(...axes.map(i=>b.end[i]-b.start[i])));}
+export function bodyThickness(b:Body3D){if(b.shape==="model")return Math.min(...axes.map(i=>b.model.max[i]-b.model.min[i]))*b.scale;if(b.shape==="ahmed")return Math.min(AHMED.width,AHMED.height)*b.scale;return b.shape==="sphere"?2*b.radius:b.shape==="box"?Math.min(...axes.map(i=>b.max[i]-b.min[i])):Math.min(2*b.radius,Math.hypot(...axes.map(i=>b.end[i]-b.start[i])));}
 export function bodyLevel(c:{refinements?:Refinement3D[]|undefined},b:Body3D){return Math.max(0,...(c.refinements??[]).filter(r=>r.kind==="body"&&r.body===b.name).map(r=>r.level));}
 export function backgroundCells(c:{domain:{min:Point3;max:Point3};meshSize:number}){return axes.map(i=>Math.max(1,Math.round((c.domain.max[i]-c.domain.min[i])/c.meshSize))) as Point3;}
+/** Inside test; an imported model counts its whole bounding box as solid, which keeps fluid points and seeds safely outside it. */
 export function insideBody(b:Body3D,p:Point3,pad=0){
+ if(b.shape==="model"){const {min,max}=placement(b);return axes.every(i=>p[i]>min[i]-pad&&p[i]<max[i]+pad);}
  if(b.shape==="sphere")return Math.hypot(...axes.map(i=>p[i]-b.centre[i]))<b.radius+pad;
  if(b.shape==="box")return axes.every(i=>p[i]>b.min[i]-pad&&p[i]<b.max[i]+pad);
  if(b.shape==="ahmed"){
@@ -215,3 +229,47 @@ export const defaultAhmedTunnel:Domain3DCase={version:1,geometry:"domain3d",
 export const AHMED_MEASURED_CD:Readonly<Record<number,number>>={25:.285,35:.26};
 /** The measured Cd to compare against, when the study is a single Ahmed body at a measured slant. */
 export function ahmedMeasuredCd(c:Domain3DCase){const b=c.bodies.length===1?c.bodies[0]!:null;return b?.shape==="ahmed"?AHMED_MEASURED_CD[b.slantDegrees]??null:null;}
+/** Estimated cells a generated tunnel aims for: well inside the budget, so a solve takes minutes rather than hours. */
+export const MODEL_TUNNEL_CELL_TARGET=150_000;
+/**
+ * A wind tunnel sized around an imported model, with flow along +x. With a ground, the model sits
+ * 2.5 surface cells above a no-slip floor (touching surfaces cannot be meshed); without one, it is
+ * centred in free stream. Refinement levels and the background size are the finest that fit the target.
+ */
+export function modelWindTunnel(model:Model3D,{scale,rotation=[0,0,0],speed=40,ground=true,name="model"}:{scale:number;rotation?:readonly number[];speed?:number;ground?:boolean;name?:string}):Domain3DCase{
+ const probe:ModelBody={name,shape:"model",model:Model3D.parse(model),scale,rotation:[...rotation] as Point3,position:[0,0,0],boundary:"bodyWall"};
+ const {min,max}=bodyBounds(probe),[L,W,H]=axes.map(i=>max[i]-min[i]) as Point3,S=Math.max(W,H),D=Math.max(L,S);
+ const build=(h:number,surface:number,wake:number,near:number):Domain3DCase=>{
+  // Four significant digits keep the setup readable; clearance and margins are generous by comparison.
+  const r=(v:number)=>Number(v.toPrecision(4)),z0=ground?r(2.5*h/2**surface):r(-H/2),top=z0+H,floor=ground?0:z0;
+  const band=(margin:number)=>({y:r(W/2+margin*S),lo:ground?0:r(floor-margin*S),hi:r(top+margin*S)});
+  const n=band(.8),w=band(.25);
+  return Domain3DCase.parse({version:1,geometry:"domain3d",
+   domain:{min:[r(-2*D),r(-(W/2+2*S)),ground?0:r(floor-2*S)],max:[r(L+4*D),r(W/2+2*S),r(top+(ground?3:2)*S)],faces:{xMin:"inlet",xMax:"outlet",yMin:"tunnel",yMax:"tunnel",zMin:ground?"ground":"tunnel",zMax:"tunnel"}},
+   bodies:[{...probe,position:[0,0,z0]}],
+   boundaries:[{name:"inlet",type:"velocity-inlet",velocity:[speed,0,0]},{name:"outlet",type:"pressure-outlet",pressure:0},...(ground?[{name:"ground",type:"wall"}]:[]),{name:"tunnel",type:"symmetry"},{name:"bodyWall",type:"wall"}],
+   region:{name:"air",material:"Air at 20 °C",density:1.2,nu:1.5e-5},
+   turbulence:{model:"kOmegaSST",intensity:.01,lengthScale:Math.min(10,Math.max(1e-5,.15*Math.min(W,H)))},
+   meshSize:h,
+   refinements:[{name:"bodySurface",kind:"body",body:name,level:surface,distance:r(1.5*h/2**surface)},
+    ...(near?[{name:"near",kind:"box",min:[r(-.3*D),-n.y,n.lo],max:[r(L+2.3*D),n.y,n.hi],level:near}]:[]),
+    ...(wake?[{name:"wake",kind:"box",min:[r(.85*L),-w.y,w.lo],max:[r(L+1.2*D),w.y,w.hi],level:wake}]:[])],
+   slices:[{name:"centreline",normal:"y",offset:0},{name:"wake",normal:"x",offset:r(1.25*L)},{name:"midHeight",normal:"z",offset:r(z0+H/2)}],
+   initialVelocity:[speed,0,0],duration:Math.min(100,Math.max(.001,Number((10*L/speed).toPrecision(2)))),frames:30,
+  });
+ };
+ const span=[L+6*D,W+4*S,H+(ground?3:4)*S],start=Math.cbrt(span.reduce((v,x)=>v*x,1)/40_000);
+ let best:{config:Domain3DCase;cell:number}|null=null;
+ for(const [surface,wake,near] of [[3,2,1],[3,1,1],[2,1,1],[2,0,1],[2,0,0],[1,0,0]] as const){
+  for(let k=0;k<40;k++){
+   const h=Number((start*1.1**k).toPrecision(3));
+   let config:Domain3DCase;try{config=build(h,surface,wake,near);}catch{continue;}
+   if(estimateDomain3dCells(config).estimated>MODEL_TUNNEL_CELL_TARGET)continue;
+   if(!best||h/2**surface<best.cell)best={config,cell:h/2**surface};
+   break;
+  }
+ }
+ if(!best)throw new Error(`No tunnel around this ${fmtSize(L,W,H)} model fits the local 3D budget. Check its units: a very large or very thin model needs scaling, and a tunnel must stay within ±100 m`);
+ return best.config;
+}
+const fmtSize=(...d:number[])=>d.map(v=>Number(v.toPrecision(3))).join(" × ")+" m";

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, copyFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, copyFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultDomain3d, defaultAhmedTunnel, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
-import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses } from "./domain3d.ts";
+import { defaultDomain3d, defaultAhmedTunnel, ahmedSurface, encodeStl, normalizeModel, decodeModel, measureModel, modelWindTunnel, modelInputPath, bodyBounds, type Model3D, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
+import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses, writeModelSurfaces } from "./domain3d.ts";
 import { runOpenFoam } from "./openfoam.ts";
 
 it("generates snappyHexMesh geometry, merged wall patches and turbulence fields",()=>{
@@ -36,6 +36,23 @@ it("meshes an Ahmed body from an STL and measures its loads and streamlines",()=
  const side={...defaultAhmedTunnel,boundaries:defaultAhmedTunnel.boundaries.map(b=>b.type==="velocity-inlet"?{...b,velocity:[40,5,0] as [number,number,number]}:b)};
  expect(domain3dFiles(side)["system/controlDict"]).not.toContain("forceCoeffs");expect(streamlineSeeds(side)).toEqual([]);
  expect(domain3dFiles(defaultDomain3d)["system/controlDict"]).toContain("forceCoeffs");
+});
+// The Ahmed body exported in millimetres with y up, as a CAD tool might hand it over.
+const ahmedFile=()=>{const s=ahmedSurface({name:"a",shape:"ahmed",nose:[0,0,0],scale:1,slantDegrees:25,boundary:"w"});const p=s.points.slice();for(let i=0;i<p.length;i+=3){const y=p[i+1]!,z=p[i+2]!;p[i]=p[i]!*1000;p[i+1]=z*1000;p[i+2]=-y*1000;}return encodeStl({points:p,triangles:s.triangles});};
+const imported=(sha="q".repeat(44)):Model3D=>{const {measures:{shells,...m}}=normalizeModel(ahmedFile(),"ahmed.stl");return{assetId:"asset",file:"ahmed.stl",sha256:sha,...m};};
+it("places an imported surface for snappyHexMesh and refuses one that differs from the study",async()=>{
+ const config=modelWindTunnel(imported(),{scale:.001,rotation:[90,0,0]}),body=config.bodies[0]!,dir=await mkdtemp(join(tmpdir(),"beam-model-"));
+ try{
+  expect(domain3dFiles(config)["system/snappyHexMeshDict"]).toContain('body_model { type triSurfaceMesh; file "body_model.stl"; }');
+  await mkdir(join(dir,"models"));await writeFile(join(dir,modelInputPath(body)),ahmedFile());
+  await writeModelSurfaces(config,dir);
+  const placed=measureModel(decodeModel(await readFile(join(dir,"constant","triSurface","body_model.stl")))),b=bodyBounds(body);
+  placed.min.forEach((v,i)=>expect(v).toBeCloseTo(b.min[i]!,5));placed.max.forEach((v,i)=>expect(v).toBeCloseTo(b.max[i]!,5));
+  // Upright, 1,044 mm long, 288 mm tall and with the volume of the parametric body.
+  expect(b.max[0]-b.min[0]).toBeCloseTo(1.044,5);expect(b.max[2]-b.min[2]).toBeCloseTo(.288,5);expect(placed.volume).toBeGreaterThan(0);
+  await writeFile(join(dir,modelInputPath(body)),encodeStl(ahmedSurface({name:"a",shape:"ahmed",nose:[0,0,0],scale:1,slantDegrees:35,boundary:"w"})));
+  await expect(writeModelSurfaces(config,dir)).rejects.toThrow(/does not match/);
+ }finally{await rm(dir,{recursive:true,force:true});}
 });
 it("reads OpenFOAM force and coefficient histories by column name",()=>{
  const force="# Force\n# CofR : (0 0 0)\n#\n# Time            \ttotal_x total_y total_z\tpressure_x pressure_y pressure_z\tviscous_x viscous_y viscous_z\n0.01 1 2 3 4 5 6 7 8 9\n0.02 3 2 1 4 5 6 7 8 9\n";
@@ -108,5 +125,26 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real 3D OpenFOAM mesh and
    // Flow over the roof is faster than the 40 m/s free stream.
    expect(fields.streamlines?.range[1]).toBeGreaterThan(40);
   }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
- },600_000);
+ },600_000); it("meshes and solves an imported STL through the generated tunnel",async()=>{
+  // Coarse and short: this checks the import pipeline end to end, not the drag.
+  const tunnel=modelWindTunnel(imported(),{scale:.001,rotation:[90,0,0]});
+  const config={...tunnel,duration:.02,frames:4,refinements:tunnel.refinements!.filter(r=>r.kind==="body")} as Domain3DCase;
+  const root=await mkdtemp(join(tmpdir(),"beam-foam3d-")),cwd=process.cwd(),name="beam-foam-0123456789abcdefb0d1";
+  try{
+   await Promise.all([mkdir(join(root,"mesh","models"),{recursive:true}),mkdir(join(root,"solve"))]);
+   await writeFile(join(root,"mesh",modelInputPath(config.bodies[0]!)),ahmedFile());
+   process.chdir(join(root,"mesh"));await runOpenFoam({caseId:"c",revision:1,stage:"mesh",config},name);
+   const mesh=SimulationReport.parse(JSON.parse(await readFile("report.json","utf8")));
+   expect(mesh.meshOk).toBe(true);
+   const view=Domain3DMeshView.parse(JSON.parse(await readFile("mesh-view.json","utf8")));
+   expect(view.surfaces.map(s=>s.name)).toEqual(["centreline","wake","midHeight","bodyWall","ground"]);
+   // The snapped wall spans the placed body, not the file's millimetres.
+   const wall=view.surfaces.find(s=>s.name==="bodyWall")!,xs=wall.points.filter((_,i)=>i%3===0);
+   expect(Math.max(...xs)-Math.min(...xs)).toBeCloseTo(1.044,1);
+   await copyFile("mesh.tar.gz",join(root,"solve","mesh-input.tar.gz"));
+   process.chdir(join(root,"solve"));await runOpenFoam({caseId:"c",revision:1,stage:"solve",config,meshJobId:"m"},name);
+   const forces=SimulationReport.parse(JSON.parse(await readFile("report.json","utf8"))).domain3d?.forces;
+   expect(forces?.cd).toBeGreaterThan(.1);expect(forces?.referenceArea).toBeCloseTo(.112,2);
+  }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
+ },900_000);
 });
