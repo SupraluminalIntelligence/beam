@@ -17,7 +17,8 @@ let runner: ChildProcess | null = null;
 
 /**
  * Development only: several checkouts can run side by side (see CONTRIBUTING.md, "Several checkouts at once").
- * BEAM_WEB_PORT picks which dev server this window loads, BEAM_NO_RUNNER leaves the runner to another instance,
+ * BEAM_WEB_PORT picks which dev server this window loads, BEAM_NO_RUNNER leaves the runner to another instance
+ * (the window borrows that runner's identity, see borrowRunner),
  * and a window with its own runner profile (BEAM_HOME) or its own port gets its own Electron profile. A window without
  * a runner ignores an inherited BEAM_HOME here, so runner-less windows on different ports never share storage.
  */
@@ -62,13 +63,29 @@ let pendingPair: string | null = null;
 let localRunnerId: string | null = null;
 const runnerLog: string[] = [];
 if (noRunner) runnerLog.push("BEAM_NO_RUNNER=1: this window starts no runner; runs go to your other runner");
+/**
+ * A window without a runner reports the one paired in this Mac's profile (usually Beam's) as its own, so "My default"
+ * still means this Mac. Only the id is borrowed; whether that runner is online is the server's call.
+ */
+let borrowed: { runnerId: string; convexUrl: string } | null = null;
+let borrowRetry: ReturnType<typeof setTimeout> | null = null;
+function borrowRunner() {
+  if (borrowed || borrowRetry || quitting) return;
+  const entry = join(__dirname, "..", "..", "runner", "src", "cli.ts");
+  execFile(process.execPath, ["--experimental-strip-types", "--no-warnings", entry, "whoami"], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 20_000, maxBuffer: 65536 }, (error, stdout) => {
+    try { borrowed = error ? null : JSON.parse(stdout); } catch { borrowed = null; }
+    // Not paired yet, or offline: look again later.
+    if (!borrowed) borrowRetry = setTimeout(() => { borrowRetry = null; borrowRunner(); }, 30_000);
+  });
+}
 // The runner is this Mac's connection to Beam. If it dies on its own, bring it back, backing off while it keeps dying.
 let runnerStopping: ChildProcess | null = null;
 let runnerFailures = 0;
 let runnerRetry: ReturnType<typeof setTimeout> | null = null;
 
 function startRunner() {
-  if (quitting || noRunner) return;
+  if (quitting) return;
+  if (noRunner) { borrowRunner(); return; }
   if (runnerRetry) { clearTimeout(runnerRetry); runnerRetry = null; }
   localRunnerId = null;
   const startedAt = Date.now();
@@ -218,7 +235,7 @@ ipcMain.handle("beam:update:install", () => {
   });
 });
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
-ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId, running: !!runner, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40) }));
+ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId ?? borrowed?.runnerId ?? null, running: !!runner || !!borrowed, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40), borrowed: noRunner, convexUrl: borrowed?.convexUrl ?? null }));
 ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; if (runner) { runnerStopping = runner; runner.kill(); } setTimeout(startRunner, 500); });
 
 app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });

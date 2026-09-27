@@ -18,6 +18,7 @@ import { watchCompute } from "./compute/watch.ts";
  *   beam-runner login [--name X]   device-code sign-in, writes ~/.beam/runner.json
  *   beam-runner start [--app]      probe harnesses, heartbeat, host runs dispatched to this machine
  *   beam-runner probe              print harness status and exit
+ *   beam-runner whoami             print this profile's runner id and deployment as JSON, or null
  *   beam-runner logout
  * Launched by the desktop app at startup (--app) or by hand on any box. Nothing assumes an app is attached.
  */
@@ -36,6 +37,18 @@ const line = (s: { harness: string; installed: boolean; version: string | null; 
 if (cmd === "openfoam-job") {
   try { await runOpenFoam(JSON.parse(argv[1] ?? "null"), argv[2] ?? ""); process.exit(0); }
   catch (error) { console.error((error as Error).message); process.exit(1); }
+}
+
+// A dev window without a runner of its own reports this profile's runner (usually Beam's) as this machine.
+if (cmd === "whoami") {
+  const cfg = await readConfig();
+  let self: { runnerId: string; convexUrl: string } | null = null;
+  if (cfg) {
+    const client = new ConvexClient(cfg.convexUrl);
+    try { const row = await client.query(api.runners.self, { token: cfg.token }); if (row) self = { runnerId: row._id, convexUrl: cfg.convexUrl }; } catch { /* unpaired or revoked */ } finally { await client.close(); }
+  }
+  console.log(JSON.stringify(self));
+  process.exit(0);
 }
 
 if (cmd === "local-servers") { const { discoverLocalServers } = await import("./localServers.ts"); console.log(JSON.stringify(await discoverLocalServers())); process.exit(0); }
