@@ -1,0 +1,14 @@
+{
+  "name": "@beam/sdk",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "dependencies": {
+    "@beam/contracts": "workspace:*",
+    "@beam/reducer": "workspace:*",
+    "convex": "^1.43.0"
+  }
+}

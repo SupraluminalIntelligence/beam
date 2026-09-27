@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
+import { parseScopes } from "./layers";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -31,6 +32,30 @@ http.route({
     const b = (await req.json().catch(() => ({}))) as { deviceCode?: string };
     if (!b.deviceCode) return json({ status: "unknown" }, 400);
     return json(await ctx.runMutation(internal.runnerAuth.poll, { deviceCode: b.deviceCode }));
+  }),
+});
+
+http.route({ path: "/layer/device/start", method: "OPTIONS", handler: preflight });
+http.route({ path: "/layer/device/poll", method: "OPTIONS", handler: preflight });
+
+/** Interaction-layer device-code login, like the runner's. The person sees the scopes before approving. */
+http.route({
+  path: "/layer/device/start", method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const b = (await req.json().catch(() => ({}))) as { name?: string; hostname?: string; scopes?: unknown };
+    let scopes;
+    try { scopes = parseScopes(b.scopes); } catch (e) { return json({ error: (e as Error).message }, 400); }
+    const r = await ctx.runMutation(internal.layers.start, { name: String(b.name ?? "layer").slice(0, 60), hostname: String(b.hostname ?? "").slice(0, 60), scopes });
+    const site = process.env["SITE_URL"] ?? "";
+    return json({ ...r, scopes, verifyUrl: `${site}/?connect=${r.userCode}` });
+  }),
+});
+http.route({
+  path: "/layer/device/poll", method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const b = (await req.json().catch(() => ({}))) as { deviceCode?: string };
+    if (!b.deviceCode) return json({ status: "unknown" }, 400);
+    return json(await ctx.runMutation(internal.layers.poll, { deviceCode: b.deviceCode }));
   }),
 });
 

@@ -12,20 +12,32 @@ export async function me(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
 
 export async function requireMember(ctx: QueryCtx | MutationCtx, workspaceId: Id<"workspaces">) {
   const u = await me(ctx);
-  const rows = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-  if (!rows.some((r) => r.githubLogin === u.githubLogin)) throw new Error("not a member");
+  await requireMemberLogin(ctx, workspaceId, u.githubLogin!);
   return u;
 }
 
+/** Membership by login, for callers that are not signed in with Convex Auth (layer tokens). */
+export async function requireMemberLogin(ctx: QueryCtx | MutationCtx, workspaceId: Id<"workspaces">, login: string) {
+  const rows = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
+  if (!rows.some((r) => r.githubLogin === login)) throw new Error("not a member");
+}
+
 export async function requireChat(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">) {
+  const u = await me(ctx);
+  const chat = await requireChatLogin(ctx, chatId, u.githubLogin!);
+  return { chat, u };
+}
+
+/** What a person may see of a chat: workspace members see team chats, members of a private chat see it. */
+export async function requireChatLogin(ctx: QueryCtx | MutationCtx, chatId: Id<"chats">, login: string) {
   const chat = await ctx.db.get(chatId);
   if (!chat) throw new Error("no such chat");
-  const u = await requireMember(ctx, chat.workspaceId);
-  if (chat.private && !chat.members.includes(u.githubLogin!)) throw new Error("private chat");
+  await requireMemberLogin(ctx, chat.workspaceId, login);
+  if (chat.private && !chat.members.includes(login)) throw new Error("private chat");
   // Existing query subscriptions can finish while clients remove a deleted chat.
   // Mutations must never revive it (including messages, routing, and settings).
   if (chat.state === "deleted" && "scheduler" in ctx) throw new Error("This chat has been deleted.");
-  return { chat, u };
+  return chat;
 }
 
 export function autoTitle(text: string): string {

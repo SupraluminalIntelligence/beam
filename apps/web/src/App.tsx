@@ -6,6 +6,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { bridge } from "./bridge";
 import { Shell } from "./components/Shell";
 import { Toast, toast } from "./components/Toast";
+import { ApproveLayer } from "./components/ConnectedApps";
 
 /** Where the hosted web app lives. The desktop app sends browser-side flows (sign-in, GitHub connect) here. */
 export const HOSTED_URL = (import.meta.env["VITE_SITE_URL"] as string | undefined) ?? "https://beam-nine-ruby.vercel.app";
@@ -55,6 +56,9 @@ function SignIn() {
   const [waiting, setWaiting] = useState<{ userCode: string; url: string } | null>(null);
   const b = bridge();
   const approveParam = new URLSearchParams(location.search).get("approve");
+  const connectParam = new URLSearchParams(location.search).get("connect");
+  // An approval link survives the GitHub round trip, so signing in lands on the approval.
+  const redirectTo = approveParam ? `/?approve=${approveParam}` : connectParam ? `/?connect=${connectParam}` : null;
 
   /** Desktop: never sign in inside the Electron window. Start a device code, open the system browser, poll the "device" provider. */
   async function desktopSignIn() {
@@ -94,7 +98,7 @@ function SignIn() {
         ) : b ? (
           <button className="btn" disabled={busy} onClick={() => void desktopSignIn()}>Continue with GitHub in your browser</button>
         ) : (
-          <button className="btn" disabled={busy} onClick={() => { setBusy(true); void signIn("github", approveParam ? { redirectTo: `/?approve=${approveParam}` } : {}); }}>Continue with GitHub</button>
+          <button className="btn" disabled={busy} onClick={() => { setBusy(true); void signIn("github", redirectTo ? { redirectTo } : {}); }}>Continue with GitHub</button>
         )}
         {!waiting && <button className="btn ghost" disabled={busy} onClick={() => { setBusy(true); void signIn("anonymous"); }}>Continue as a guest</button>}
         {!waiting && <div className="k">{b ? "Your browser already has your GitHub session. The app never sees the password." : "Guests can do everything except own a runner."}</div>}
@@ -128,7 +132,9 @@ function Gate() {
   const me = useQuery(api.users.me);
   const workspaces = useQuery(api.workspaces.mine);
   const [approveCode, setApproveCode] = useState<string | null>(() => new URLSearchParams(location.search).get("approve"));
+  const [connectCode, setConnectCode] = useState<string | null>(() => new URLSearchParams(location.search).get("connect"));
   if (approveCode) return <ApproveDesktop code={approveCode.toUpperCase()} onDone={() => { setApproveCode(null); history.replaceState(null, "", location.pathname); }} />;
+  if (connectCode) return <ApproveLayer code={connectCode.toUpperCase()} onDone={() => { setConnectCode(null); history.replaceState(null, "", location.pathname); }} />;
   if (me === undefined || workspaces === undefined) return <div className="signin"><div className="k">…</div></div>;
   if (!me) return <div className="signin"><div className="k">no user</div></div>;
   if (workspaces.length === 0) return <AutoWorkspace login={me.githubLogin} />;

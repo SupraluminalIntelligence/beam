@@ -37,6 +37,15 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1)
 
+  apps/cli:
+    dependencies:
+      '@beam/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@beam/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+
   apps/desktop:
     dependencies:
       electron-updater:
@@ -296,6 +305,18 @@ importers:
       '@beam/contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/sdk:
+    dependencies:
+      '@beam/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@beam/reducer':
+        specifier: workspace:*
+        version: link:../reducer
+      convex:
+        specifier: ^1.43.0
+        version: 1.45.0(react@19.2.8)
 
 packages:
 
