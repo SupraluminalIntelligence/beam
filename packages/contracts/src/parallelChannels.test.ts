@@ -56,8 +56,11 @@ it("warns when buoyancy could push one channel's flow past laminar, and only whe
   expect(ParallelChannelsCase.safeParse(four).success).toBe(true);
   expect(check(four, "laminar")).toMatchObject({ status: "warn", value: "Re 1380" });
   expect(check(four, "laminar")?.detail).toContain("more than 36.2 % of the inflow");
-  // Without heating, gravity or thermal expansion, identical channels split evenly and the even-split Re holds.
-  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }]) expect(check(even, "laminar")?.status).toBe("ok");
+  // Without buoyancy strong enough to shift the split, identical channels split evenly and the even-split Re holds: no heating, gravity off, no thermal expansion,
+  // or heating so slight that Ri is far below 0.1.
+  const faint = { ...four, channels: [1, 0, 0, 0].map(heatFlux => ({ heatFlux })) };
+  expect(check(faint, "buoyancy")?.value).toBe("Ri 4.6e-4");
+  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }, faint]) expect(check(even, "laminar")?.status).toBe("ok");
   // The paper's device: all of its inflow through one channel would still be laminar, but a reversed neighbour can push more through it.
   expect(check(mana, "laminar")?.detail).toContain("would give Re 789");
 });

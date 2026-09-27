@@ -112,17 +112,18 @@ const seconds = (t: number) => t >= 120 ? `${num(t / 60)} min` : `${num(t)} s`;
 export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   const u = parallelLayout(c).channelVelocity, dh = 2 * c.channelHeight, re = u * dh / c.nu, alpha = c.nu / c.pr;
   const estimate = parallelWallEstimate(c), dT = estimate ? estimate.wall - c.inletTemperature : 0, heated = c.channels.some(ch => ch.heatFlux > 0);
-  // Identical channels split the flow about evenly unless buoyancy shifts it, which takes gravity, heating and thermal expansion. Buoyancy can then push most of the flow
-  // through one channel, or reverse a neighbour and push more than the inflow through it, so nothing known before the solve bounds any channel's Re.
-  const imbalance = heated && c.gravity !== "off" && c.beta > 0, oneChannel = re * c.channels.length;
+  const ri = G * c.beta * dT * dh / (u * u), where = estimate && estimate.transient < estimate.steady ? `by the end of the ${seconds(c.duration)} run` : "once steady";
+  // Identical channels split the flow about evenly unless buoyancy is strong enough to shift it: gravity on and Ri of 0.1 or more, the bound below which the gravity-off check
+  // calls forced convection dominant. Buoyancy can then push most of the flow through one channel, or reverse a neighbour and push more than the inflow through it,
+  // so nothing known before the solve bounds any channel's Re.
+  const imbalance = c.gravity !== "off" && ri >= 0.1, oneChannel = re * c.channels.length;
   const solved = "Results show each channel's Re, 2·Q/ν from its flow per metre of depth, and flag any above 2,000.";
   const checks: SetupCheck[] = [{ id: "laminar", label: "laminar flow", status: re > 2000 ? "fail" : !imbalance ? "ok" : oneChannel > 2000 ? "warn" : "info", value: `Re ${num(re)}`,
     detail: `Re = U·2h/ν in each channel with the flow split evenly (U ${num(u)} m/s). Flow between parallel plates stays laminar below about 2,000. ` + (!imbalance
-      ? "Without buoyancy, identical channels split the flow about evenly, so each runs near this Re."
+      ? "Without buoyancy strong enough to shift it (gravity on and Ri of 0.1 or more), identical channels split the flow about evenly, so each runs near this Re."
       : oneChannel > 2000 ? `Buoyancy can shift the split, and a channel carrying more than ${num(100 * 2000 / oneChannel)} % of the inflow would pass 2,000. ${solved}`
       : `Buoyancy can shift the split: all of the inflow through one channel would give Re ${num(oneChannel)}, and a reversed neighbour can push more than the inflow through it. ${solved}`) }];
 
-  const ri = G * c.beta * dT * dh / (u * u), where = estimate && estimate.transient < estimate.steady ? `by the end of the ${seconds(c.duration)} run` : "once steady";
   if (!heated) checks.push({ id: "buoyancy", label: c.gravity === "off" ? "gravity off" : "buoyancy", status: "ok", value: "no heating", detail: "No channel is heated, so there is no buoyancy to model or neglect." });
   else if (c.gravity === "off") checks.push({ id: "buoyancy", label: "gravity off", status: ri < 0.1 ? "ok" : ri < 1 ? "warn" : "fail", value: `Ri ${num(ri)}`,
     detail: `Ri = gβΔT·2h/U² with ΔT ${num(dT)} K, the estimated hottest wall ${where} minus the inlet. ` + (ri < 0.1 ? "Forced convection dominates, so leaving gravity out is reasonable."
