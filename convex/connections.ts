@@ -18,14 +18,16 @@ export async function resolveForChat(ctx: QueryCtx | MutationCtx, chat: Doc<"cha
   const global = user?.accountPreferences?.find(p => p.harness === harness);
   const legacy = user?.agentPreferences?.find(p => p.harness === harness);
   const pref = override ?? global ?? legacy;
-  const choice = pref?.runnerId ? { runnerId: pref.runnerId, connectionId: pref.connectionId ?? "default" } : undefined;
+  // Nothing chosen and no machine of its own (the phone, the CLI, a Beam World): the person's away default.
+  const away = !pref?.runnerId && !localRunnerId ? user?.awayPreferences?.find(p => p.harness === harness) : undefined;
+  const choice = pref?.runnerId ? { runnerId: pref.runnerId, connectionId: pref.connectionId ?? "default" } : away ? { runnerId: away.runnerId, connectionId: away.connectionId } : undefined;
   const selected = resolveConnection(available.runners, { login, harness, localRunnerId, choice, members: available.members, now: Date.now() });
   // Legacy runners ignore workScope and would put concurrent agents in the same checkout.
   // Profile-aware reports are emitted by the runner release that implements isolated workspaces.
   if (!Array.isArray(selected.runner.harnesses) || !selected.runner.harnesses.some(s => s && s.harness === harness && s.connectionId === selected.status.connectionId)) {
     throw new Error(`Update and restart Beam on ${selected.runner.displayName ?? selected.runner.name} to use account connections and isolated agent workspaces.`);
   }
-  return { ...selected, source: override ? "chat" : global?.runnerId || (!global && legacy?.runnerId) ? "global" : "local" };
+  return { ...selected, source: override ? "chat" : global?.runnerId || (!global && legacy?.runnerId) ? "global" : away ? "away" : "local" };
 }
 
 export function selectionKey(runnerId: string, status: { connectionId: string; email?: string | null | undefined; plan?: string | null | undefined; accountIdentity?: string | undefined }) {
@@ -55,9 +57,13 @@ export const preferences = query({ args: {}, handler: async ctx => {
   const preferences = user.accountPreferences ?? [];
   return [...preferences, ...(user.agentPreferences ?? []).filter(p => !preferences.some(a => a.harness === p.harness)).map(({ harness, runnerId, connectionId }) => ({ harness, runnerId, connectionId }))];
 } });
+/** Where agents run when a run starts somewhere with no runner of its own: the phone, the CLI, a Beam World. */
+export const away = query({ args: {}, handler: async ctx => (await me(ctx)).awayPreferences ?? [] });
+
+/** away: set the phone-and-apps default instead of the everywhere one. Without a runner, the choice is cleared. */
 export const setPreference = mutation({
-  args: { harness: v.string(), chatId: v.optional(v.id("chats")), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) },
-  handler: async (ctx, { harness, chatId, runnerId, connectionId }) => {
+  args: { harness: v.string(), chatId: v.optional(v.id("chats")), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()), away: v.optional(v.boolean()) },
+  handler: async (ctx, { harness, chatId, runnerId, connectionId, away }) => {
     if (!["codex", "claude", "omp"].includes(harness)) throw new Error("Unknown harness");
     const user = await me(ctx);
     if (chatId) await requireChat(ctx, chatId);
@@ -72,7 +78,11 @@ export const setPreference = mutation({
       if (!connectionStatuses(runner.harnesses).some(s => s.harness === harness && s.connectionId === (connectionId ?? "default"))) throw new Error("Unknown account connection");
     }
     const value = { harness, ...(runnerId ? { runnerId, connectionId: connectionId ?? "default" } : {}) };
-    if (chatId) {
+    if (away) {
+      if (chatId) throw new Error("A chat's account applies everywhere; set the phone-and-apps default without a chat.");
+      const rest = (user.awayPreferences ?? []).filter(p => p.harness !== harness);
+      await ctx.db.patch(user._id, { awayPreferences: runnerId ? [...rest, { harness, runnerId, connectionId: connectionId ?? "default" }] : rest });
+    } else if (chatId) {
       const rest = (user.chatConnections ?? []).filter(p => !(p.chatId === chatId && p.harness === harness));
       await ctx.db.patch(user._id, { chatConnections: runnerId ? [...rest, { ...value, chatId }] : rest });
     } else await ctx.db.patch(user._id, { accountPreferences: [...(user.accountPreferences ?? []).filter(p => p.harness !== harness), value] });

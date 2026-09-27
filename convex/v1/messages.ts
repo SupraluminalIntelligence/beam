@@ -30,7 +30,7 @@ export const send = v1Mutation({
       return await sendAs(ctx, chat, login, { chatId, text, mentionHandle, ...(runId ? { targetRunId: runId } : {}) });
     } catch (e) {
       // A world has no local runner, like the phone: a dispatch goes to the person's chosen default account.
-      if (/^Choose a connection/.test((e as Error).message)) throw new Error(`Choose a default account for @${mentionHandle} in Beam (Settings → Models & accounts); apps use it to start agents.`);
+      if (/^Choose a connection/.test((e as Error).message)) throw new Error(`Choose where @${mentionHandle} runs when started from your phone and apps: Beam → Settings → Models & accounts → From phone and apps.`);
       throw e;
     }
   },

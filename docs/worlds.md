@@ -142,7 +142,7 @@ Each action needs its scope. A token without it gets `this token may not <scope>
 | `people.focus` | `presence:write` | `workspaceId`, `chatId?`, `world?` | Say which chat you are in (none without `chatId`), and from which world |
 | `worlds.set` | `world:state` | `workspaceId`, `world`, `scope`, `chatId?`, `data` | Save this world's state for you (`person`), a chat, or the workspace. `null` removes it |
 
-Agents started from a world run where they would from your phone: on your default account for that agent, set in **Settings → Models & accounts**. Without one, `messages.send` says so.
+Agents started from a world run where they would from your phone. Neither has a machine of its own, so each person picks, per agent, **From phone and apps** in **Settings → Models & accounts**: which machine and account. The approval screen offers the same choice when an app asks for `chat:write`. Until it is set, `messages.send` with an `@mention` says so rather than guessing. A chat's own account choice, or an account chosen for everywhere, still wins.
 
 The shapes are zod schemas in [`packages/contracts/src/worlds.ts`](../packages/contracts/src/worlds.ts). Ids are opaque strings. Times are milliseconds since the epoch.
 

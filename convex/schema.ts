@@ -20,6 +20,8 @@ export default defineSchema({
     notificationPreferences: v.optional(v.object({ enabled: v.boolean(), completed: v.boolean(), failed: v.boolean(), input: v.boolean(), mention: v.optional(v.boolean()), sound: v.boolean(), pausedUntil: v.optional(v.number()) })),
     resourceSharing: v.optional(v.union(v.literal("auto"), v.literal("ask"))),
     accountPreferences: v.optional(v.array(v.object({ harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
+    // Where agents run when a run starts somewhere with no runner of its own: the phone, the CLI, a Beam World.
+    awayPreferences: v.optional(v.array(v.object({ harness: v.string(), runnerId: v.id("runners"), connectionId: v.string() }))),
     chatConnections: v.optional(v.array(v.object({ chatId: v.id("chats"), harness: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
     agentPreferences: v.optional(v.array(v.object({ harness: v.string(), model: v.string(), effort: v.string(), runnerId: v.optional(v.id("runners")), connectionId: v.optional(v.string()) }))),
   }).index("email", ["email"]).index("by_login", ["githubLogin"]).index("by_username", ["username"]),

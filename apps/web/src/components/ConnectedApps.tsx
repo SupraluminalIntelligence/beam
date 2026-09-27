@@ -4,6 +4,9 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
 import { SCOPES } from "@beam/contracts/worlds";
+import { AwayAccount } from "./AgentDefaults";
+
+const HARNESSES = [["claude", "Claude Code"], ["codex", "Codex"]] as const;
 
 /** What each scope lets an app do, in the contract's own words, shown before anyone approves it. */
 const scopeText = (s: string) => (SCOPES as Record<string, string>)[s] ?? `Unknown permission "${s}"`;
@@ -39,6 +42,7 @@ export function ApproveLayer({ code, onDone }: { code: string; onDone: () => voi
             <ul style={{ margin: 0, paddingLeft: 18, textAlign: "left", color: "var(--ink-2)" }}>{pending.scopes.map((s) => <li key={s}>{scopeText(s)}</li>)}</ul>
             <div className="k">It can never change settings, agents or workspaces, invite people, or approve machines. Revoke it any time in Settings → Connected apps.</div>
           </>}
+        {pending && pending.scopes.includes("chat:write") && state !== "denied" && <AgentsRunOn />}
         {state === "approved" ? <div style={{ color: "var(--ok)" }}>Connected. You can go back to {pending?.name ?? "the app"}.</div>
           : state === "denied" ? <div style={{ color: "var(--ink-2)" }}>Declined. Nothing was shared.</div>
           : pending && pending.status === "pending" && <>
@@ -49,6 +53,16 @@ export function ApproveLayer({ code, onDone }: { code: string; onDone: () => voi
       </div>
     </div>
   );
+}
+
+/** An app that can @mention agents starts them where your phone would. Show where, and let it be set here. */
+function AgentsRunOn() {
+  const mine = useQuery(api.runners.mine);
+  if (!mine) return null;
+  return <div style={{ textAlign: "left" }}>
+    <div style={{ color: "var(--ink-2)", marginBottom: 4 }}>Agents it starts with an @mention run on:</div>
+    {HARNESSES.map(([harness, name]) => <AwayAccount key={harness} harness={harness} name={name} runners={mine} label={name} />)}
+  </div>;
 }
 
 /** Settings → Connected apps: every app holding a token for you, and the switch to cut it off. */

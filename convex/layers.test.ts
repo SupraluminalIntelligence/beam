@@ -208,8 +208,15 @@ it("posts as the person, and an @mention of an agent in the chat dispatches it l
   expect(f.tables.messages!.at(-1)).toMatchObject({ kind: "steer", runId: "r1" });
   // ...and with no live run it dispatches a new one, which needs a machine to host it.
   f.tables.runs![1].state = "landed";
-  await expect(call(messages.send, f.ctx, { token, chatId: "team", text: "@claude again" })).rejects.toThrow("Settings → Models & accounts");
+  await expect(call(messages.send, f.ctx, { token, chatId: "team", text: "@claude again" })).rejects.toThrow("From phone and apps");
   expect(f.tables.messages!.at(-1)).toMatchObject({ kind: "steer" });
+  // With a phone-and-apps default, the same message starts a run there.
+  Object.assign(f.tables.runners![0], { ownerLogin: "alice", online: true, lastSeen: Date.now(), harnesses: [{ harness: "claude", auth: "authenticated", connectionId: "default", connectionName: "Default account", isDefault: true }] });
+  const { setPreference } = await import("./connections");
+  await call(setPreference, f.ctx, { harness: "claude", runnerId: "rn", connectionId: "default", away: true });
+  expect(f.tables.users![0].awayPreferences).toEqual([{ harness: "claude", runnerId: "rn", connectionId: "default" }]);
+  expect(await call(messages.send, f.ctx, { token, chatId: "team", text: "@claude again" })).toMatchObject({ kind: "dispatch", runner: "Mac mini" });
+  expect(f.tables.runs!.at(-1)).toMatchObject({ runnerId: "rn", dispatchedBy: "alice", state: "queued" });
   await expect(call(messages.send, f.ctx, { token, chatId: "team", text: "x", mention: "nobody" })).rejects.toThrow("no agent @nobody");
   await expect(call(messages.send, f.ctx, { token, chatId: "secret", text: "hi" })).rejects.toThrow("private chat");
 });
