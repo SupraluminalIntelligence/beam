@@ -112,8 +112,12 @@ const seconds = (t: number) => t >= 120 ? `${num(t / 60)} min` : `${num(t)} s`;
 export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   const u = parallelLayout(c).channelVelocity, dh = 2 * c.channelHeight, re = u * dh / c.nu, alpha = c.nu / c.pr;
   const estimate = parallelWallEstimate(c), dT = estimate ? estimate.wall - c.inletTemperature : 0, heated = c.channels.some(ch => ch.heatFlux > 0);
-  const checks: SetupCheck[] = [{ id: "laminar", label: "laminar flow", status: re <= 2000 ? "ok" : "fail", value: `Re ${num(re)}`,
-    detail: `Re = U·2h/ν in each channel with the flow split evenly (U ${num(u)} m/s). Flow between parallel plates stays laminar below about 2,000; a channel that takes more of the flow runs at a higher Re.` }];
+  // Buoyancy can push most of the flow through one channel, so the even split alone does not bound any channel's Re; all of the inflow through one channel does, short of a reversed neighbour.
+  const oneChannel = re * c.channels.length;
+  const checks: SetupCheck[] = [{ id: "laminar", label: "laminar flow", status: re > 2000 ? "fail" : oneChannel > 2000 ? "warn" : "ok", value: `Re ${num(re)}`,
+    detail: `Re = U·2h/ν in each channel with the flow split evenly (U ${num(u)} m/s). Flow between parallel plates stays laminar below about 2,000. ` + (oneChannel > 2000
+      ? `A channel carrying more than ${num(100 * 2000 / oneChannel)} % of the inflow would pass it, and buoyancy or a reversed neighbour can push that much through one channel. Each channel's Re after the solve is 2·Q/ν, from its flow per metre of depth; check none passed 2,000.`
+      : `Even with all of the inflow through one channel, Re would be ${num(oneChannel)}. Only a reversed neighbour, feeding a channel more than the inflow, could take it higher; each channel's Re after the solve is 2·Q/ν, from its flow per metre of depth.`) }];
 
   const ri = G * c.beta * dT * dh / (u * u), where = estimate && estimate.transient < estimate.steady ? `by the end of the ${seconds(c.duration)} run` : "once steady";
   if (!heated) checks.push({ id: "buoyancy", label: c.gravity === "off" ? "gravity off" : "buoyancy", status: "ok", value: "no heating", detail: "No channel is heated, so there is no buoyancy to model or neglect." });
@@ -141,9 +145,12 @@ export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   else if (c.boilingPoint === undefined) checks.push({ id: "single-phase", label: "single phase", status: "unknown", value: "boiling point not set", detail: "Set the saturation temperature at the operating pressure to check that no heated wall reaches it." });
   else {
     const margin = c.boilingPoint - estimate!.wall, reach = estimate!.reachesAt(c.boilingPoint - c.inletTemperature);
-    checks.push({ id: "single-phase", label: "single phase", status: margin > 0 ? "ok" : "fail", value: margin > 0 ? `${num(margin)} K below Tsat` : `${num(-margin)} K above Tsat`,
-      detail: `The hottest heated wall is estimated at ${kelvin(estimate!.wall)} ${where}, against a stated boiling point of ${kelvin(c.boilingPoint)}. The estimate is the lesser of a wall heated with no flow, 2q''·√(α·t/π)/k, and the developed steady value. `
-        + (margin > 0 ? "" : `A wall heated with no flow reaches the boiling point after about ${seconds(reach)}. Liquid there can boil, which this single-phase model cannot represent, and the solver will still run because it has no phase change. The solve reports the actual maximum.`) });
+    // The steady value assumes an even split. With gravity on, buoyancy can starve a heated channel, so it only caps the no-flow rise when gravity is off.
+    const starved = margin > 0 && c.gravity !== "off" && c.inletTemperature + estimate!.transient >= c.boilingPoint;
+    checks.push({ id: "single-phase", label: "single phase", status: margin <= 0 ? "fail" : starved ? "warn" : "ok", value: margin > 0 ? `${num(margin)} K below Tsat${starved ? " if even" : ""}` : `${num(-margin)} K above Tsat`,
+      detail: `The hottest heated wall is estimated at ${kelvin(estimate!.wall)} ${where}, against a stated boiling point of ${kelvin(c.boilingPoint)}. The estimate is the lesser of a wall heated with no flow, 2q''·√(α·t/π)/k, and the developed steady value with the flow split evenly. `
+        + (margin <= 0 ? `A wall heated with no flow reaches the boiling point after about ${seconds(reach)}. Liquid there can boil, which this single-phase model cannot represent, and the solver will still run because it has no phase change. The solve reports the actual maximum.`
+          : starved ? `Only the even split keeps it below: buoyancy can starve a heated channel of flow, and a wall heated with no flow reaches the boiling point after about ${seconds(reach)}. Check the hottest wall the solve reports against the boiling point.` : "") });
   }
 
   const flowThrough = 2 * c.manifoldLength / c.velocity + c.channelLength / u;

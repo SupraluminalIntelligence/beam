@@ -99,14 +99,17 @@ export function FlowHistoryPlot({ config: c, results: r }: { config: ParallelCha
 export function ParallelMeasurements({ config: c, report }: { config: ParallelChannelsCase; report: SimulationReport | null }) {
   const r = report?.parallel, fact = (label: string, value: string, tone?: string) => <div className={`sim-value${tone ? ` sim-measure ${tone}` : ""}`} key={label}><span>{label}</span><span>{value}</span></div>;
   if (!r) return <>{fact("physical time", report?.physicalTime == null ? "—" : `${number(report.physicalTime)} s`)}<p>Flows, temperatures and the energy balance appear after a solve is exported.</p></>;
-  const carried = r.heatInputW > 0 ? r.heatCarriedOutW / r.heatInputW : null, wall = r.maxHeatedWallTemperatureK;
+  // Heat leaving more than 10 % away from the input either way means the device is still storing heat or giving it back.
+  const carried = r.heatInputW > 0 ? r.heatCarriedOutW / r.heatInputW : null, wall = r.maxHeatedWallTemperatureK, unbalanced = carried !== null && Math.abs(carried - 1) > .1;
+  // Each channel's Reynolds number on twice its height, from its flow per metre of depth: U·2h/ν = 2Q/ν.
+  const reynolds = (q: number) => 2 * Math.abs(q) / c.nu;
   return <>
     {fact("physical time", `${number(report!.physicalTime ?? 0)} s`)}{fact("inflow", flow(r.inflow))}
-    {r.flows.map((q, k) => fact(channelName(c, k), `${percent(q / r.inflow)} · ${flow(q)}`, q < 0 ? "fail" : undefined))}
+    {r.flows.map((q, k) => fact(channelName(c, k), `${percent(q / r.inflow)} · ${flow(q)} · Re ${Math.round(reynolds(q))}`, q < 0 || reynolds(q) > 2000 ? "fail" : undefined))}
     {r.exitBulkTemperaturesK.map((t, k) => fact(`exit bulk T · ${k + 1}`, t == null ? "no net flow" : celsius(t)))}
     {wall != null && fact("hottest heated wall", celsius(wall), c.boilingPoint !== undefined && wall >= c.boilingPoint ? "fail" : undefined)}
     {wall != null && c.boilingPoint !== undefined && fact(wall < c.boilingPoint ? "below Tsat" : "above Tsat", `${number(Math.abs(c.boilingPoint - wall))} K`, wall >= c.boilingPoint ? "fail" : undefined)}
-    {carried !== null && fact("heat leaving", `${percent(carried)} of ${number(r.heatInputW)} W/m`, carried < .9 ? "warn" : undefined)}
-    <p>Flows are the solver's face fluxes through each channel's mid-length, per metre of depth.{c.gravity === "off" ? " Pressure is gauge, 0 Pa at the outlet." : " Pressure is static: p_rgh, which the outlet holds at 0 Pa, minus ρ·g times the height above the inlet's lower corner, so it includes the hydrostatic head."} Exit bulk temperatures weight each face where fluid leaves a channel by its flux; a channel running backwards leaves through its upstream end. {carried !== null && carried < .9 ? "Most of the heat is still warming the fluid, so the device has not reached a thermal steady state and the flow split can still change." : carried !== null ? "Heat leaving, by the outlet flow and by conduction back through the inlet, matches what the walls put in, as at a steady state." : ""}</p>
+    {carried !== null && fact("heat leaving", `${percent(carried)} of ${number(r.heatInputW)} W/m`, unbalanced ? "warn" : undefined)}
+    <p>Flows are the solver's face fluxes through each channel's mid-length, per metre of depth.{c.gravity === "off" ? " Pressure is gauge, 0 Pa at the outlet." : " Pressure is static: p_rgh, which the outlet holds at 0 Pa, minus ρ·g times the height above the inlet's lower corner, so it includes the hydrostatic head."} Exit bulk temperatures weight each face where fluid leaves a channel by its flux; a channel running backwards leaves through its upstream end. Re above about 2,000 in any channel is outside this laminar model. {carried === null ? "" : carried < .9 ? "Less heat is leaving than the walls put in, so the fluid is still warming: the device has not reached a thermal steady state and the flow split can still change." : carried > 1.1 ? "More heat is leaving than the walls put in, so the device is giving back heat it stored earlier: it has not reached a thermal steady state and the flow split can still change." : "Heat leaving, carried out by the flow or conducted out through the inlet and outlet, matches what the walls put in, as at a steady state."}</p>
   </>;
 }
