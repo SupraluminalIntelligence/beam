@@ -1,7 +1,7 @@
-import { ConvexError, v, type ObjectType, type PropertyValidators } from "convex/values";
+import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { me } from "./lib";
+import { me, readableMutation, readableQuery } from "./lib";
 import { sha256 } from "./runnerAuth";
 import { Scope } from "../packages/contracts/src/worlds";
 
@@ -11,21 +11,9 @@ import { Scope } from "../packages/contracts/src/worlds";
  * asked for. Only the v1 functions accept these tokens, so a world can never reach the rest of the API.
  */
 
-/**
- * Production Convex tells clients only "Server Error" for a thrown Error; a ConvexError keeps its message.
- * Worlds are built by other people, so every refusal they can meet says why: "this token may not chat:write".
- */
-export function plainErrors<C, A, R>(handler: (ctx: C, args: A) => Promise<R>): (ctx: C, args: A) => Promise<R> {
-  return async (ctx, args) => {
-    try { return await handler(ctx, args); }
-    catch (e) { throw e instanceof ConvexError ? e : new ConvexError(e instanceof Error ? e.message : String(e)); }
-  };
-}
-/** A public query or mutation whose errors reach clients as written. */
-export const v1Query = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: QueryCtx, args: ObjectType<A>) => Promise<R> }) =>
-  query({ args: def.args, handler: plainErrors(def.handler) });
-export const v1Mutation = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: MutationCtx, args: ObjectType<A>) => Promise<R> }) =>
-  mutation({ args: def.args, handler: plainErrors(def.handler) });
+/** The Beam Worlds API's functions: errors reach the app that called them as written (see readableQuery). */
+export const v1Query = readableQuery;
+export const v1Mutation = readableMutation;
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const random = (len: number, map: (b: number) => string) => Array.from(crypto.getRandomValues(new Uint8Array(len)), map).join("");

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireChat } from "./lib";
+import { requireChat, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { JobPath, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
@@ -156,7 +156,7 @@ async function enqueueSimulation(ctx:MutationCtx,chatId:Id<"chats">,runnerId:Id<
 }
 export const saveSimulation=mutation({args:{chatId:v.id("chats"),...saveCaseArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);if(!a.id){const runs=await ctx.db.query("runs").withIndex("by_chat",q=>q.eq("chatId",a.chatId)).collect();if(runs.some(r=>["queued","starting","working","landing"].includes(r.state)))throw new Error("Ask the working agent to create the new study, or wait for its turn to finish.");}return saveCase(ctx,a.chatId,u.githubLogin!,a);}});
 export const submitSimulation=mutation({args:{chatId:v.id("chats"),runnerId:v.id("runners"),...simulationArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);return enqueueSimulation(ctx,a.chatId,a.runnerId,u.githubLogin!,a,false);}});
-export const simulationForRun=query({args:{token:v.string(),runId:v.id("runs"),messageId:v.optional(v.id("messages"))},handler:async(ctx,a)=>{
+export const simulationForRun=readableQuery({args:{token:v.string(),runId:v.id("runs"),messageId:v.optional(v.id("messages"))},handler:async(ctx,a)=>{
  const {run}=await runAccess(ctx,a.token,a.runId);const runner=await ctx.db.get(run.runnerId),chat=await ctx.db.get(run.chatId);
  const cases=await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",run.chatId)).collect();
  const activeStudyId=run.studyId===undefined?chat?.activeStudyId??null:run.studyId;
@@ -165,10 +165,10 @@ export const simulationForRun=query({args:{token:v.string(),runId:v.id("runs"),m
  return{activeStudyId,messageStudyContext:dispatch?.studyContext??null,cases,jobs,runtime:runner?.openfoam??null};
 }});
 async function simulationRunAccess(ctx:MutationCtx,token:string,runId:Id<"runs">){const{run}=await runAccess(ctx,token,runId);if(!["working","starting"].includes(run.state))throw new Error("Agent run has ended");const agent=await ctx.db.get(run.agentId);if(!agent||agent.permissionMode==="plan")throw new Error("Plan mode cannot edit or submit simulations");return{run,agent};}
-export const saveSimulationForRun=mutation({args:{token:v.string(),runId:v.id("runs"),...saveCaseArgs},handler:async(ctx,a)=>{const{run}=await simulationRunAccess(ctx,a.token,a.runId);if(a.id&&a.id!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before editing it");return saveCase(ctx,run.chatId,run.dispatchedBy,a,run._id);}});
-export const selectSimulationForRun=mutation({args:{token:v.string(),runId:v.id("runs"),caseId:v.id("simulationCases")},handler:async(ctx,a)=>{const {run}=await simulationRunAccess(ctx,a.token,a.runId);await selectStudy(ctx,run.chatId,a.caseId,run.dispatchedBy,run._id);return{activeStudyId:a.caseId};}});
-export const submitSimulationForRun=mutation({args:{token:v.string(),runId:v.id("runs"),...simulationArgs},handler:async(ctx,a)=>{const{run,agent}=await simulationRunAccess(ctx,a.token,a.runId);if(a.caseId!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before running it");return enqueueSimulation(ctx,run.chatId,run.runnerId,run.dispatchedBy,a,agent.permissionMode!=="auto",run._id);}});
-export const submitForRun = mutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any() }, handler: async (ctx, a) => {
+export const saveSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),...saveCaseArgs},handler:async(ctx,a)=>{const{run}=await simulationRunAccess(ctx,a.token,a.runId);if(a.id&&a.id!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before editing it");return saveCase(ctx,run.chatId,run.dispatchedBy,a,run._id);}});
+export const selectSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),caseId:v.id("simulationCases")},handler:async(ctx,a)=>{const {run}=await simulationRunAccess(ctx,a.token,a.runId);await selectStudy(ctx,run.chatId,a.caseId,run.dispatchedBy,run._id);return{activeStudyId:a.caseId};}});
+export const submitSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),...simulationArgs},handler:async(ctx,a)=>{const{run,agent}=await simulationRunAccess(ctx,a.token,a.runId);if(a.caseId!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before running it");return enqueueSimulation(ctx,run.chatId,run.runnerId,run.dispatchedBy,a,agent.permissionMode!=="auto",run._id);}});
+export const submitForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any() }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   if (!["working", "starting"].includes(run.state)) throw new Error("Agent run has ended");
   const agent = await ctx.db.get(run.agentId);
@@ -192,7 +192,7 @@ export const cancel = mutation({ args: { id: v.id("computeJobs") }, handler: asy
   const job = await ctx.db.get(id); if (!job) throw new Error("Job not found");
   await requireChat(ctx, job.chatId); await cancelJob(ctx, id);
 } });
-export const cancelForRun = mutation({ args: { token: v.string(), runId: v.id("runs"), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+export const cancelForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   const agent = await ctx.db.get(run.agentId);
   if (agent?.permissionMode !== "auto") throw new Error("Cancel this job using the Jobs panel");
@@ -216,7 +216,7 @@ export const get = query({ args: { id: v.id("computeJobs") }, handler: async (ct
   const job = await ctx.db.get(id); if (!job) return null;
   await requireChat(ctx, job.chatId); return detail(ctx, job);
 } });
-export const forRun = query({ args: { token: v.string(), runId: v.id("runs"), id: v.optional(v.id("computeJobs")) }, handler: async (ctx, a) => {
+export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("runs"), id: v.optional(v.id("computeJobs")) }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   if (a.id) {
     const job = await ctx.db.get(a.id);
@@ -233,18 +233,18 @@ export const targets = query({ args: { chatId: v.id("chats") }, handler: async (
 } });
 
 // Connector APIs. Claim serializes work per local runner; disconnection does not fail a job.
-export const pending = query({ args: { token: v.string() }, handler: async (ctx, { token }) => {
+export const pending = readableQuery({ args: { token: v.string() }, handler: async (ctx, { token }) => {
   const runner = await runnerForToken(ctx, token);
   return (await Promise.all([...executing, "queued"].map(state => ctx.db.query("computeJobs").withIndex("by_runner_state", q => q.eq("runnerId", runner._id).eq("state", state)).take(100)))).flat();
 } });
-export const claim = mutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+export const claim = readableMutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { job, runner } = await workerAccess(ctx, a.token, a.id);
   if (job.state !== "queued") return false;
   await targetAccess(ctx, job.chatId, runner._id, job.requestedBy);
   for (const state of executing) if (await ctx.db.query("computeJobs").withIndex("by_runner_state", q => q.eq("runnerId", runner._id).eq("state", state)).first()) return false;
   await ctx.db.patch(job._id, { state: "preparing", startedAt: Date.now(), updatedAt: Date.now() }); return true;
 } });
-export const inputs = query({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+export const inputs = readableQuery({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   await chatAccess(ctx, job.chatId, job.requestedBy);
   return Promise.all(ProcessJobSpec.parse(job.spec).inputs.map(async input => {
@@ -256,7 +256,7 @@ export const inputs = query({ args: { token: v.string(), id: v.id("computeJobs")
 } });
 /** Resume publication after the owning runner has rebuilt a stack-overflowed
  * simulation export from its retained solver files. Never launches a new solve. */
-export const resumeSimulationExport = mutation({ args: {token:v.string(),id:v.id("computeJobs")}, handler:async(ctx,a)=>{
+export const resumeSimulationExport = readableMutation({ args: {token:v.string(),id:v.id("computeJobs")}, handler:async(ctx,a)=>{
   const {job}=await workerAccess(ctx,a.token,a.id);
   await chatAccess(ctx,job.chatId,job.requestedBy);
   if(job.cancelRequestedAt)throw new Error("Cancelled jobs cannot resume publication");
@@ -266,7 +266,7 @@ export const resumeSimulationExport = mutation({ args: {token:v.string(),id:v.id
   return true;
 } });
 
-export const report = mutation({ args: { token: v.string(), id: v.id("computeJobs"), state: v.union(v.literal("running"), v.literal("publishing"), v.literal("succeeded"), v.literal("failed"), v.literal("cancelled")), log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())), handle: v.optional(v.object({ backend: v.string(), id: v.string() })) }, handler: async (ctx, a) => {
+export const report = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), state: v.union(v.literal("running"), v.literal("publishing"), v.literal("succeeded"), v.literal("failed"), v.literal("cancelled")), log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())), handle: v.optional(v.object({ backend: v.string(), id: v.string() })) }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   if (jobFinished(job.state)) return;
   if (!executing.includes(job.state)) throw new Error("Job has not been claimed");
@@ -300,18 +300,18 @@ export const importFile = mutation({ args: { fileId: v.id("files"), path: v.stri
   const prior = await ctx.db.query("computeAssets").withIndex("by_storage", q => q.eq("storageId", file.storageId)).first();
   return prior?._id ?? asset(ctx, file.chatId, u.githubLogin!, file.storageId, a.path);
 } });
-export const inputUploadUrl = mutation({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
+export const inputUploadUrl = readableMutation({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
   await runAccess(ctx, a.token, a.runId); return ctx.storage.generateUploadUrl();
 } });
-export const stageInput = mutation({ args: { token: v.string(), runId: v.id("runs"), storageId: v.id("_storage"), path: v.string() }, handler: async (ctx, a) => {
+export const stageInput = readableMutation({ args: { token: v.string(), runId: v.id("runs"), storageId: v.id("_storage"), path: v.string() }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId); return asset(ctx, run.chatId, run.dispatchedBy, a.storageId, a.path);
 } });
-export const outputUploadUrl = mutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+export const outputUploadUrl = readableMutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   if (job.state !== "publishing" || job.cancelRequestedAt) throw new Error("Job is not publishing");
   return ctx.storage.generateUploadUrl();
 } });
-export const publishOutput = mutation({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string(), storageId: v.id("_storage") }, handler: async (ctx, a) => {
+export const publishOutput = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string(), storageId: v.id("_storage") }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   const published = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
   const prior = published.find(p => p?.path === a.path); if (prior) return prior._id;
@@ -319,12 +319,12 @@ export const publishOutput = mutation({ args: { token: v.string(), id: v.id("com
   const id = await asset(ctx, job.chatId, job.requestedBy, a.storageId, a.path, job._id);
   await ctx.db.patch(job._id, { outputs: [...job.outputs, id], updatedAt: Date.now() }); return id;
 } });
-export const hasOutput = query({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a) => {
+export const hasOutput = readableQuery({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   const assets = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
   return assets.some(asset => asset?.path === a.path);
 } });
-export const findRequest = query({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string() }, handler: async (ctx, a) => {
+export const findRequest = readableQuery({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string() }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   return ctx.db.query("computeJobs").withIndex("by_request", q => q.eq("chatId", run.chatId).eq("requestedBy", run.dispatchedBy).eq("requestKey", a.requestKey)).first();
 } });

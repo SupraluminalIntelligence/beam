@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
-import { requireChat, requireMember, me } from "./lib";
+import { requireChat, requireMember, me, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { ResourceOperation } from "../packages/contracts/src/resources";
@@ -11,7 +11,7 @@ async function membership(ctx: QueryCtx | MutationCtx, workspaceId: Id<"workspac
   const members = await ctx.db.query("members").withIndex("by_workspace", q => q.eq("workspaceId", workspaceId)).collect();
   if (!members.some(m => m.githubLogin === login)) throw new Error("Workspace access revoked");
 }
-export const contribute = mutation({
+export const contribute = readableMutation({
   args: { token: v.string(), chatId: v.id("chats"), localId: v.string(), name: v.string(), kind: v.union(v.literal("folder"), v.literal("service")) },
   handler: async (ctx, a) => {
     const runner = await runnerForToken(ctx, a.token); const chat = await ctx.db.get(a.chatId);
@@ -34,7 +34,7 @@ export const list = query({ args: { chatId: v.id("chats") }, handler: async (ctx
   const { u } = await requireChat(ctx, chatId);
   return Promise.all((await visibleResources(ctx, chatId, u.githubLogin!)).map(async r => { const runner = await ctx.db.get(r.runnerId); const owner = await ctx.db.query("users").withIndex("by_login", q => q.eq("githubLogin", r.owner)).first(); return { ...r, ownerName: owner?.username ?? r.owner, mine: r.owner === u.githubLogin, machineName: runner?.displayName ?? runner?.name ?? "Unknown machine", online: !!runner?.online && runner.lastSeen > Date.now() - 90_000 }; }));
 } });
-export const forRun = query({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
+export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
   const { run } = await ownRun(ctx, a.token, a.runId);
   return (await visibleResources(ctx, run.chatId, run.dispatchedBy)).map(({ localId, ...r }) => r);
 } });
@@ -51,7 +51,7 @@ async function authorize(ctx: QueryCtx | MutationCtx, resource: Doc<"workspaceRe
   await membership(ctx, resource.workspaceId, requestedBy); await membership(ctx, resource.workspaceId, resource.owner);
   if (resource.revoked || (!resource.shared && (resource.owner !== requestedBy || resource.chatId !== chatId))) throw new Error("Resource access revoked");
 }
-export const request = mutation({
+export const request = readableMutation({
   args: { token: v.string(), runId: v.optional(v.id("runs")), chatId: v.optional(v.id("chats")), resourceId: v.id("workspaceResources"), operation: v.any() },
   handler: async (ctx, a) => {
     const requester = await runnerForToken(ctx, a.token);
@@ -71,8 +71,8 @@ export const request = mutation({
     return id;
   },
 });
-export const queued = query({ args: { token: v.string() }, handler: async (ctx, { token }) => { const r = await runnerForToken(ctx, token); return ctx.db.query("resourceRequests").withIndex("by_runner_state", q => q.eq("runnerId", r._id).eq("state", "queued")).collect(); } });
-export const claim = mutation({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
+export const queued = readableQuery({ args: { token: v.string() }, handler: async (ctx, { token }) => { const r = await runnerForToken(ctx, token); return ctx.db.query("resourceRequests").withIndex("by_runner_state", q => q.eq("runnerId", r._id).eq("state", "queued")).collect(); } });
+export const claim = readableMutation({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
   const host = await runnerForToken(ctx, token); const request = await ctx.db.get(id);
   if (!request || request.runnerId !== host._id || request.state !== "queued") throw new Error("Request unavailable");
   const resource = await ctx.db.get(request.resourceId); if (!resource) throw new Error("Resource removed");
@@ -83,12 +83,12 @@ export const claim = mutation({ args: { token: v.string(), id: v.id("resourceReq
   } catch (e) { await ctx.db.patch(id, { state: "failed", error: (e as Error).message }); return null; }
   await ctx.db.patch(id, { state: "running" }); return { request, resource };
 } });
-export const finish = mutation({ args: { token: v.string(), id: v.id("resourceRequests"), result: v.optional(v.string()), error: v.optional(v.string()) }, handler: async (ctx, { token, id, result, error }) => {
+export const finish = readableMutation({ args: { token: v.string(), id: v.id("resourceRequests"), result: v.optional(v.string()), error: v.optional(v.string()) }, handler: async (ctx, { token, id, result, error }) => {
   const r = await runnerForToken(ctx, token); const request = await ctx.db.get(id);
   if (!request || request.runnerId !== r._id || request.state !== "running") throw new Error("Not your active request");
   await ctx.db.patch(id, { state: error ? "failed" : "done", ...(error ? { error: error.slice(0, 500) } : { result: (result ?? "").slice(0, 700_000) }) });
 } });
-export const result = query({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
+export const result = readableQuery({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
   const r = await runnerForToken(ctx, token); const request = await ctx.db.get(id);
   if (!request || request.requesterRunnerId !== r._id) throw new Error("Not your request");
   const resource = await ctx.db.get(request.resourceId); if (!resource) throw new Error("Resource removed");
@@ -96,7 +96,7 @@ export const result = query({ args: { token: v.string(), id: v.id("resourceReque
   return { state: request.state, result: request.result ?? null, error: request.error ?? null };
 } });
 
-export const lease = query({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
+export const lease = readableQuery({ args: { token: v.string(), id: v.id("resourceRequests") }, handler: async (ctx, { token, id }) => {
   const host = await runnerForToken(ctx, token); const request = await ctx.db.get(id);
   if (!request || request.runnerId !== host._id || request.state !== "running") return false;
   const resource = await ctx.db.get(request.resourceId); if (!resource) return false;

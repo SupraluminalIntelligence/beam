@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireChat } from "./lib";
+import { requireChat, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { internal } from "./_generated/api";
 
@@ -33,7 +33,7 @@ export const forChat = query({
 });
 
 /** Runner side: what branch to check out per repo before a run. */
-export const openForRun = query({
+export const openForRun = readableQuery({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
     const runner = await runnerForToken(ctx, token);
@@ -45,7 +45,7 @@ export const openForRun = query({
 });
 
 /** Runner side: a run landed work in a repo. Creates the change on first landing, updates it after. */
-export const land = mutation({
+export const land = readableMutation({
   args: {
     token: v.string(), runId: v.id("runs"), repo: v.string(), branch: v.string(), base: v.string(), title: v.string(), body: v.optional(v.string()),
     add: v.number(), del: v.number(), files: v.number(), prUrl: v.union(v.string(), v.null()), prNumber: v.union(v.number(), v.null()),
@@ -75,7 +75,7 @@ export const land = mutation({
 });
 
 /** Runner side: the thread adopts an existing PR (review it, continue it). */
-export const adopt = mutation({
+export const adopt = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), repo: v.string(), branch: v.string(), base: v.string(), title: v.string(), prUrl: v.string(), prNumber: v.number() },
   handler: async (ctx, a) => {
     const runner = await runnerForToken(ctx, a.token);
@@ -96,7 +96,7 @@ export const adopt = mutation({
 });
 
 /** Runner side: the agent asked for a fresh PR on a repo; the open change is closed out so the next landing starts a new branch. */
-export const rotate = mutation({
+export const rotate = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), repo: v.string() },
   handler: async (ctx, { token, runId, repo }) => {
     const runner = await runnerForToken(ctx, token);

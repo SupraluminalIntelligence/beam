@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { me, requireChat, requireMember } from "./lib";
+import { me, requireChat, requireMember, readableMutation, readableQuery } from "./lib";
 import { sha256 } from "./runnerAuth";
 import { mergeProbedUsage } from "../packages/contracts/src/usage";
 
@@ -16,7 +16,7 @@ export async function requireRunner(ctx: QueryCtx | MutationCtx, token: string) 
 }
 
 /** First contact after start. Upserts the runner row for this token. */
-export const hello = mutation({
+export const hello = readableMutation({
   args: { token: v.string(), name: v.string(), hostname: v.string(), platform: v.string(), harnesses: v.any(), launchedByApp: v.boolean(), openfoam: v.optional(foamCapability), computeBackend: v.optional(v.literal("local-process")) },
   handler: async (ctx, a) => {
     const t = await requireRunner(ctx, a.token);
@@ -28,7 +28,7 @@ export const hello = mutation({
   },
 });
 
-export const heartbeat = mutation({
+export const heartbeat = readableMutation({
   args: { token: v.string(), runnerId: v.id("runners"), harnesses: v.optional(v.any()), openfoam: v.optional(foamCapability) },
   handler: async (ctx, { token, runnerId, harnesses, openfoam }) => {
     const t = await requireRunner(ctx, token);
@@ -38,7 +38,7 @@ export const heartbeat = mutation({
   },
 });
 
-export const bye = mutation({
+export const bye = readableMutation({
   args: { token: v.string(), runnerId: v.id("runners") },
   handler: async (ctx, { token, runnerId }) => {
     const t = await requireRunner(ctx, token);
@@ -48,7 +48,7 @@ export const bye = mutation({
 });
 
 /** The runner subscribes to its own row so a probe request from the app reaches it live. */
-export const self = query({
+export const self = readableQuery({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const t = await requireRunner(ctx, token);

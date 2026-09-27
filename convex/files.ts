@@ -4,7 +4,7 @@ import { ContextSourceInput } from "../packages/contracts/src/context";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { requireChat } from "./lib";
+import { requireChat, readableMutation, readableQuery } from "./lib";
 import { ownRun } from "./runs";
 
 async function fileRun(ctx: QueryCtx | MutationCtx, token: string, runId: Id<"runs">) {
@@ -47,7 +47,7 @@ export const preview = query({ args: { id: v.id("files") }, handler: async (ctx,
   if (!f.messageId && f.author !== u.githubLogin) throw new Error("Not your draft");
   return { ...f, url: await ctx.storage.getUrl(f.storageId) };
 } });
-export const forRun = query({ args: { token: v.string(), runId: v.id("runs"), messageId: v.optional(v.id("messages")) }, handler: async (ctx, a) => {
+export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("runs"), messageId: v.optional(v.id("messages")) }, handler: async (ctx, a) => {
   const { run } = await fileRun(ctx, a.token, a.runId);
   const files = await ctx.db.query("files").withIndex("by_chat", q => q.eq("chatId", run.chatId)).collect();
   const linked = await selectedSources(ctx, run.chatId);
@@ -56,10 +56,10 @@ export const forRun = query({ args: { token: v.string(), runId: v.id("runs"), me
   for(const file of linkedFiles)if(file?.messageId)available.set(file._id,file);
   return Promise.all([...available.values()].map(async f => ({ ...f, url: await ctx.storage.getUrl(f.storageId) })));
 } });
-export const runnerUploadUrl = mutation({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
+export const runnerUploadUrl = readableMutation({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
   await fileRun(ctx, a.token, a.runId); return ctx.storage.generateUploadUrl();
 } });
-export const share = mutation({ args: { token: v.string(), runId: v.id("runs"), ...fields }, handler: async (ctx, a) => {
+export const share = readableMutation({ args: { token: v.string(), runId: v.id("runs"), ...fields }, handler: async (ctx, a) => {
   const {run} = await fileRun(ctx, a.token, a.runId);
   if (await ctx.db.query("files").withIndex("by_storage", q=>q.eq("storageId",a.storageId)).first()) throw new Error("File already attached");
   const meta = await ctx.db.system.get(a.storageId);
@@ -163,7 +163,7 @@ export const sourcePreview=query({args:{chatId:v.id("chats"),id:v.id("contextSou
   const file=source.fileId?await ctx.db.get(source.fileId):null;
   return {title:source.title,kind:source.kind,url:source.url??null,content:source.content??null,file:file&&file.messageId?{name:file.name,mime:file.mime,text:file.text,url:await ctx.storage.getUrl(file.storageId)}:null};
 }});
-export const contextForRun=query({args:{token:v.string(),runId:v.id("runs")},handler:async(ctx,a)=>{
+export const contextForRun=readableQuery({args:{token:v.string(),runId:v.id("runs")},handler:async(ctx,a)=>{
   const {run}=await fileRun(ctx,a.token,a.runId);
   return (await selectedSources(ctx,run.chatId)).map(s=>({id:s._id,kind:s.kind,title:s.title,url:s.url??null,content:s.content??null,fileId:s.fileId??null}));
 }});

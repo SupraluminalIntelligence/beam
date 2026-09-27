@@ -2,6 +2,7 @@ import { ConvexClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { ACTIONS, RESOURCES, type ActionArgs, type ActionName, type ActionResult, type ChatSnapshot, type WorldEvent, type ResourceArgs, type ResourceName, type ResourceValue, type StateScope, type WorkspaceState } from "@beam/contracts/worlds";
 import { diffChat, diffWorkspace } from "./diff.ts";
+import { errorMessage } from "@beam/contracts";
 
 /** What the SDK needs from a Convex connection. Tests and other runtimes can supply their own. */
 export interface Transport {
@@ -13,16 +14,8 @@ export interface Transport {
 
 export const DEFAULT_URL = "https://cautious-fish-858.convex.cloud";
 
-/**
- * Beam's refusals arrive as ConvexErrors carrying a sentence ("this token may not chat:write"). Hand callers a
- * plain Error with just that sentence, not Convex's request-id wrapping.
- */
-export function plainError(e: unknown): Error {
-  const data = (e as { data?: unknown } | null)?.data;
-  if (typeof data === "string") return new Error(data);
-  const message = e instanceof Error ? e.message : String(e);
-  return new Error(message.replace(/^\[CONVEX [^\]]*\]\s*(\[Request ID: [^\]]*\]\s*)?/, "").replace(/^.*Uncaught (Convex)?Error: /s, "").split("\n")[0] || message);
-}
+/** Beam's refusals as plain Errors carrying just the sentence ("this token may not chat:write"). */
+export const plainError = (e: unknown): Error => new Error(errorMessage(e));
 
 /** Errors reach callers through promises and onError, so the Convex client's own console logging is off by default. */
 export function convexTransport(url: string, opts: { logs?: boolean } = {}): Transport {
