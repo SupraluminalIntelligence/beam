@@ -1,4 +1,4 @@
-import { ACTIONS, RESOURCES, Scope, type ActionName, type ResourceName } from "@beam/contracts/layer";
+import { ACTIONS, RESOURCES, Scope, type ActionName, type ResourceName } from "@beam/contracts/worlds";
 
 /** `chats.list workspaceId=abc` → a known resource and exactly its arguments. Pure, so it is tested alone. */
 export function resourceCall(name: string | undefined, rest: readonly string[]): { resource: ResourceName; args: Record<string, string> } {
@@ -35,7 +35,7 @@ export function parseFlags(argv: readonly string[]): { positional: string[]; fla
   }
   return { positional, flags };
 }
-const VALUED = new Set(["chat", "name", "workspace", "scopes", "mention", "run", "layer"]);
+const VALUED = new Set(["chat", "name", "workspace", "scopes", "mention", "run", "world"]);
 
 /** `messages.send chatId=… text="hi"`: values are strings, except `json` arguments, which parse as JSON. */
 export function actionCall(name: string | undefined, rest: readonly string[]): { action: ActionName; args: Record<string, unknown> } {

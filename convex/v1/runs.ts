@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { requireLayer, v1Mutation, v1Query } from "../layers";
+import { requireApp, v1Mutation, v1Query } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { visibleChats } from "../chats";
 import { LIVE, respondAs } from "../runs";
@@ -10,7 +10,7 @@ const ENDED = ["landed", "failed", "interrupted"] as const;
 export const list = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await readableChat(ctx, chatId, login);
     const rows = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
     return Promise.all(rows.map((r) => run(ctx, r)));
@@ -19,12 +19,12 @@ export const list = v1Query({
 
 /**
  * What every agent in a workspace is doing: its live runs, plus each chat's latest run per outcome, so a
- * layer sees a run end and how. Indexed by state; reading whole chat histories would rerun on every old run.
+ * world sees a run end and how. Indexed by state; reading whole chat histories would rerun on every old run.
  */
 export const active = v1Query({
   args: { token: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, { token, workspaceId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await requireMemberLogin(ctx, workspaceId, login);
     const live = [], ended = [];
     for (const c of await visibleChats(ctx, workspaceId, login)) {
@@ -42,7 +42,7 @@ export const active = v1Query({
 export const events = v1Query({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     const r = await ctx.db.get(runId);
     if (!r) throw new Error("no such run");
     await readableChat(ctx, r.chatId, login);
@@ -53,7 +53,7 @@ export const events = v1Query({
 export const eventsForChat = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await readableChat(ctx, chatId, login);
     const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chatId)).collect();
     const out: Record<string, ReturnType<typeof publicEvents>> = {};
@@ -66,7 +66,7 @@ export const eventsForChat = v1Query({
 export const respond = v1Mutation({
   args: { token: v.string(), runId: v.id("runs"), requestId: v.string(), decision: v.string() },
   handler: async (ctx, { token, runId, requestId, decision }) => {
-    const { login } = await requireLayer(ctx, token, "run:respond");
+    const { login } = await requireApp(ctx, token, "run:respond");
     const r = await ctx.db.get(runId);
     if (!r) throw new Error("no such run");
     await readableChat(ctx, r.chatId, login);
@@ -81,7 +81,7 @@ export const respond = v1Mutation({
 export const interrupt = v1Mutation({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
-    const { login } = await requireLayer(ctx, token, "run:interrupt");
+    const { login } = await requireApp(ctx, token, "run:interrupt");
     const r = await ctx.db.get(runId);
     if (!r) throw new Error("no such run");
     await readableChat(ctx, r.chatId, login);

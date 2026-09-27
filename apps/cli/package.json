@@ -13,6 +13,6 @@
   },
   "dependencies": {
     "@beam/contracts": "workspace:*",
-    "@beam/sdk": "workspace:*"
+    "@beam/worlds": "workspace:*"
   }
 }

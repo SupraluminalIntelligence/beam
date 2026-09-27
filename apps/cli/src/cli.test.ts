@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { Beam, type Transport } from "@beam/sdk";
+import { Beam, type Transport } from "@beam/worlds";
 import { actionCall, actionTable, loginScopes, parseFlags, resourceCall, resourceTable } from "./args.ts";
 import { createServer } from "./serve.ts";
 
@@ -59,10 +59,10 @@ it("serves the API as JSON lines", async () => {
 
 it("reads actions from the command line, parsing JSON only where the contract says so", () => {
   expect(actionCall("messages.send", ["chatId=c1", "text=hi @claude = friend"])).toEqual({ action: "messages.send", args: { chatId: "c1", text: "hi @claude = friend" } });
-  expect(actionCall("layers.set", ["workspaceId=ws", "layer=office", "scope=person", 'data={"x":3}'])).toMatchObject({ args: { data: { x: 3 } } });
-  expect(actionCall("layers.set", ["workspaceId=ws", "layer=office", "scope=workspace", "data=null"])).toMatchObject({ args: { data: null } });
-  expect(() => actionCall("layers.set", ["workspaceId=ws", "layer=office", "scope=person"])).toThrow("needs data (null removes it)");
-  expect(() => actionCall("layers.set", ["workspaceId=ws", "layer=o", "scope=person", "data={x"])).toThrow("data is JSON");
+  expect(actionCall("worlds.set", ["workspaceId=ws", "world=office", "scope=person", 'data={"x":3}'])).toMatchObject({ args: { data: { x: 3 } } });
+  expect(actionCall("worlds.set", ["workspaceId=ws", "world=office", "scope=workspace", "data=null"])).toMatchObject({ args: { data: null } });
+  expect(() => actionCall("worlds.set", ["workspaceId=ws", "world=office", "scope=person"])).toThrow("needs data (null removes it)");
+  expect(() => actionCall("worlds.set", ["workspaceId=ws", "world=o", "scope=person", "data={x"])).toThrow("data is JSON");
   expect(() => actionCall("messages.send", ["chatId=c1"])).toThrow("needs text");
   expect(() => actionCall("chats.delete", [])).toThrow('unknown action "chats.delete"');
   expect(actionTable()).toContain("runs.respond runId=… requestId=… decision=…");
@@ -71,7 +71,7 @@ it("reads actions from the command line, parsing JSON only where the contract sa
 it("asks for exactly the scopes named, always with read", () => {
   expect(loginScopes({})).toEqual(["read"]);
   expect(loginScopes({ scopes: "chat:write, run:respond" })).toEqual(["read", "chat:write", "run:respond"]);
-  expect(loginScopes({ write: true })).toContain("layer:state");
+  expect(loginScopes({ write: true })).toContain("world:state");
   expect(() => loginScopes({ scopes: "admin" })).toThrow('unknown scope "admin"');
 });
 

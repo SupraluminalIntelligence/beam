@@ -1,9 +1,9 @@
-import { ACTIONS, API_VERSION, RESOURCES, type ActionName, type ResourceName } from "@beam/contracts/layer";
-import type { Beam, Unsubscribe } from "@beam/sdk";
+import { ACTIONS, API_VERSION, RESOURCES, type ActionName, type ResourceName } from "@beam/contracts/worlds";
+import type { Beam, Unsubscribe } from "@beam/worlds";
 import { checkActionArgs, checkArgs } from "./args.ts";
 
 /**
- * `beam serve`: the layer API as JSON lines, for interfaces written in anything that can spawn a process.
+ * `beam serve`: the Beam Worlds API as JSON lines, for interfaces written in anything that can spawn a process.
  *
  *   → {"id":1,"op":"get","resource":"chats.list","args":{"workspaceId":"…"}}      ← {"id":1,"value":[…]}
  *   → {"id":2,"op":"subscribe","resource":"messages.list","args":{"chatId":"…"}}  ← {"id":2,"value":[…]} on every change
@@ -11,7 +11,7 @@ import { checkActionArgs, checkArgs } from "./args.ts";
  *   → {"id":2,"op":"unsubscribe"}                                                   ← {"id":2,"done":true}
  *   → {"id":4,"op":"resources"}                                                     ← {"id":4,"value":{resources,actions}}
  *   → {"id":5,"op":"do","action":"messages.send","args":{"chatId":"…","text":"…"}}  ← {"id":5,"value":…}
- *   → {"id":3,"op":"watch","workspaceId":"…","layer":"office"}   also follows that layer's state
+ *   → {"id":3,"op":"watch","workspaceId":"…","world":"office"}   also follows that world's state
  * Failures answer {"id":…,"error":"…"}. The first line out is {"ready":true,"api":1,"me":{…}}.
  */
 export function createServer(beam: Beam, write: (msg: object) => void) {
@@ -23,7 +23,7 @@ export function createServer(beam: Beam, write: (msg: object) => void) {
 
   async function handle(line: string): Promise<void> {
     if (!line.trim()) return;
-    let msg: { id?: string | number; op?: string; resource?: string; action?: string; args?: Record<string, unknown>; workspaceId?: string; chatId?: string; layer?: string };
+    let msg: { id?: string | number; op?: string; resource?: string; action?: string; args?: Record<string, unknown>; workspaceId?: string; chatId?: string; world?: string };
     try { msg = JSON.parse(line); } catch { write({ error: "not JSON" }); return; }
     const id = msg.id ?? null;
     const fail = (e: unknown) => write({ id, error: e instanceof Error ? e.message.replace(/^.*Uncaught Error: /s, "").split("\n")[0] : String(e) });
@@ -38,7 +38,7 @@ export function createServer(beam: Beam, write: (msg: object) => void) {
         }
         case "watch": {
           if (msg.chatId) track(id, beam.watchChat(msg.chatId, (event) => write({ id, event }), fail));
-          else if (msg.workspaceId) track(id, beam.watchWorkspace(msg.workspaceId, (event) => write({ id, event }), fail, msg.layer ? { layer: msg.layer } : {}));
+          else if (msg.workspaceId) track(id, beam.watchWorkspace(msg.workspaceId, (event) => write({ id, event }), fail, msg.world ? { world: msg.world } : {}));
           else throw new Error("watch needs workspaceId or chatId");
           return;
         }

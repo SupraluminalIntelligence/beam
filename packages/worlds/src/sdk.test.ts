@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { Chat, ChatSnapshot, LayerEvent, Message, Run, WorkspaceState } from "@beam/contracts/layer";
+import type { Chat, ChatSnapshot, WorldEvent, Message, Run, WorkspaceState } from "@beam/contracts/worlds";
 import { Beam, plainError, type Transport } from "./client.ts";
 import { ConvexError } from "convex/values";
 import { diffChat, diffWorkspace } from "./diff.ts";
@@ -9,24 +9,24 @@ const chat = (id: string, over: Partial<Chat> = {}): Chat => ({ id, workspaceId:
 const run = (id: string, over: Partial<Run> = {}): Run => ({ id, chatId: "team", agentId: "ag", dispatchedBy: "alice", dispatchMessageId: "m1", state: "working", branch: null, landing: null, openRequests: [], interruptRequested: false, machine: "Mac", model: null, effort: null, createdAt: 2, startedAt: 2, endedAt: null, ...over });
 const message = (id: string, over: Partial<Message> = {}): Message => ({ id, chatId: "team", author: { type: "person", login: "alice" }, kind: "text", text: id, runId: null, turn: null, reactions: [], attachments: [], createdAt: 1, ...over });
 const world = (over: Partial<WorkspaceState> = {}): WorkspaceState => ({ workspaceId: "ws", chats: [chat("team")], activity: {}, presence: [], runs: { live: [], ended: [] }, ...over });
-const types = (events: LayerEvent[]) => events.map((e) => e.type);
+const types = (events: WorldEvent[]) => events.map((e) => e.type);
 
 it("says nothing when nothing changed", () => {
-  const s = world({ presence: [{ login: "bob", chatId: "team", layer: null }], runs: { live: [run("r1")], ended: [] } });
+  const s = world({ presence: [{ login: "bob", chatId: "team", world: null }], runs: { live: [run("r1")], ended: [] } });
   expect(diffWorkspace(s, structuredClone(s))).toEqual([]);
 });
 
 it("turns a workspace's changes into what a world would animate", () => {
-  const before = world({ presence: [{ login: "bob", chatId: null, layer: null }, { login: "carol", chatId: "team", layer: null }], runs: { live: [run("r1")], ended: [] } });
+  const before = world({ presence: [{ login: "bob", chatId: null, world: null }, { login: "carol", chatId: "team", world: null }], runs: { live: [run("r1")], ended: [] } });
   const after = world({
     chats: [chat("team", { title: "Renamed" }), chat("new")],
     activity: { team: "ask" },
-    presence: [{ login: "bob", chatId: "team", layer: null }, { login: "dan", chatId: "new", layer: null }],
+    presence: [{ login: "bob", chatId: "team", world: null }, { login: "dan", chatId: "new", world: null }],
     runs: { live: [run("r1", { openRequests: ["q1"] }), run("r2", { chatId: "new", state: "queued" })], ended: [] },
   });
   const events = diffWorkspace(before, after);
   expect(types(events)).toEqual(["chat.updated", "chat.created", "chat.status", "person.moved", "person.arrived", "person.left", "run.asking", "run.started"]);
-  expect(events.find((e) => e.type === "person.moved")).toEqual({ type: "person.moved", login: "bob", chatId: "team", previous: null, layer: null });
+  expect(events.find((e) => e.type === "person.moved")).toEqual({ type: "person.moved", login: "bob", chatId: "team", previous: null, world: null });
   expect(events.find((e) => e.type === "chat.status")).toEqual({ type: "chat.status", chatId: "team", status: "ask", previous: "idle" });
 });
 
@@ -87,7 +87,7 @@ it("sends the token with every call and emits a snapshot before any events", () 
     close: async () => {},
   };
   const beam = new Beam(transport, "blt_x");
-  const events: LayerEvent[] = [];
+  const events: WorldEvent[] = [];
   const stop = beam.watchWorkspace("ws", (e) => events.push(e));
   expect([...subs.values()].every((s) => s.args["token"] === "blt_x" && s.args["workspaceId"] === "ws")).toBe(true);
   subs.get("v1/chats:list")!.push([chat("team")]);
@@ -96,22 +96,22 @@ it("sends the token with every call and emits a snapshot before any events", () 
   expect(events).toEqual([]);
   subs.get("v1/runs:active")!.push({ live: [], ended: [] });
   expect(types(events)).toEqual(["workspace.snapshot"]);
-  subs.get("v1/people:presence")!.push([{ login: "bob", chatId: "team", layer: null }]);
+  subs.get("v1/people:presence")!.push([{ login: "bob", chatId: "team", world: null }]);
   expect(types(events)).toEqual(["workspace.snapshot", "person.arrived"]);
   stop();
   expect(subs.size).toBe(0);
 });
 
-it("says when someone steps into another layer, and follows a layer's own state", () => {
-  const state = (people: { login: string; data: unknown }[], workspace: unknown = null) => ({ layer: "office", people: people.map((p) => ({ ...p, updatedAt: 1 })), chats: [], workspace: workspace === null ? null : { data: workspace, updatedBy: "alice", updatedAt: 1 } });
-  const before = world({ presence: [{ login: "bob", chatId: "team", layer: null }], layerState: state([{ login: "bob", data: { x: 1 } }, { login: "carol", data: { x: 9 } }]) });
-  const after = world({ presence: [{ login: "bob", chatId: "team", layer: "office" }], layerState: state([{ login: "bob", data: { x: 2 } }, { login: "dan", data: { x: 0 } }], { theme: "hamsters" }) });
+it("says when someone steps into another world, and follows a world's own state", () => {
+  const state = (people: { login: string; data: unknown }[], workspace: unknown = null) => ({ world: "office", people: people.map((p) => ({ ...p, updatedAt: 1 })), chats: [], workspace: workspace === null ? null : { data: workspace, updatedBy: "alice", updatedAt: 1 } });
+  const before = world({ presence: [{ login: "bob", chatId: "team", world: null }], worldState: state([{ login: "bob", data: { x: 1 } }, { login: "carol", data: { x: 9 } }]) });
+  const after = world({ presence: [{ login: "bob", chatId: "team", world: "office" }], worldState: state([{ login: "bob", data: { x: 2 } }, { login: "dan", data: { x: 0 } }], { theme: "hamsters" }) });
   expect(diffWorkspace(before, after)).toEqual([
-    { type: "person.moved", login: "bob", chatId: "team", previous: "team", layer: "office" },
-    { type: "layer.person", layer: "office", login: "bob", data: { x: 2 }, previous: { x: 1 } },
-    { type: "layer.person", layer: "office", login: "dan", data: { x: 0 }, previous: null },
-    { type: "layer.person", layer: "office", login: "carol", data: null, previous: { x: 9 } },
-    { type: "layer.workspace", layer: "office", data: { theme: "hamsters" }, previous: null },
+    { type: "person.moved", login: "bob", chatId: "team", previous: "team", world: "office" },
+    { type: "world.person", world: "office", login: "bob", data: { x: 2 }, previous: { x: 1 } },
+    { type: "world.person", world: "office", login: "dan", data: { x: 0 }, previous: null },
+    { type: "world.person", world: "office", login: "carol", data: null, previous: { x: 9 } },
+    { type: "world.workspace", world: "office", data: { theme: "hamsters" }, previous: null },
   ]);
 });
 
@@ -132,8 +132,8 @@ it("acts through the catalog with the token, leaving out what was not given", as
     { fn: "v1/messages:send", args: { chatId: "c1", text: "hi @claude", token: "blt_x" } },
     { fn: "v1/messages:send", args: { chatId: "c1", text: "and this", runId: "r1", token: "blt_x" } },
     { fn: "v1/runs:respond", args: { runId: "r1", requestId: "q1", decision: "allow", token: "blt_x" } },
-    { fn: "v1/people:focus", args: { workspaceId: "ws", chatId: null, layer: "office", token: "blt_x" } },
-    { fn: "v1/layers:set", args: { workspaceId: "ws", layer: "office", scope: "chat", data: { desks: 4 }, chatId: "c1", token: "blt_x" } },
+    { fn: "v1/people:focus", args: { workspaceId: "ws", chatId: null, world: "office", token: "blt_x" } },
+    { fn: "v1/worlds:set", args: { workspaceId: "ws", world: "office", scope: "chat", data: { desks: 4 }, chatId: "c1", token: "blt_x" } },
   ]);
 });
 

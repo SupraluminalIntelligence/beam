@@ -35,10 +35,10 @@ export default defineSchema({
   /** A runner's long-lived credential. Only the hash is stored. One per machine per person. */
   runnerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
     .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
-  /** An interaction layer's credential: reads (and later, scoped writes) as one person. Only the hash is stored. */
+  /** A connected app's credential (Beam Worlds): reads, and scoped writes, as one person. Only the hash is stored. Named before the feature was. */
   layerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), hostname: v.string(), scopes: v.array(v.string()), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
     .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
-  /** Device-code login in flight. Deleted once polled after approval. kind: runner | desktop | layer; scopes are a layer's request. */
+  /** Device-code login in flight. Deleted once polled after approval. kind: runner | desktop | layer (a Beam Worlds app); scopes are the app's request. */
   deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), kind: v.optional(v.string()), scopes: v.optional(v.array(v.string())), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()), userId: v.optional(v.id("users")) })
     .index("by_device", ["deviceCode"]).index("by_user_code", ["userCode"]),
   /** A machine that can host runs. Belongs to a person, available in every workspace they are a member of. */
@@ -148,16 +148,16 @@ export default defineSchema({
   chatFollowers: defineTable({ chatId: v.id("chats"), login: v.string(), muted: v.optional(v.boolean()) }).index("by_chat", ["chatId"]),
   notifications: defineTable({ recipient: v.string(), key: v.string(), chatId: v.id("chats"), workspaceId: v.id("workspaces"), runId: v.optional(v.id("runs")), messageId: v.optional(v.id("messages")), deliveryToken: v.optional(v.string()), deliveryExpiresAt: v.optional(v.number()), kind: v.union(v.literal("completed"), v.literal("failed"), v.literal("input"), v.literal("mention")), title: v.string(), body: v.string(), readAt: v.union(v.number(), v.null()), deliveredAt: v.union(v.number(), v.null()) })
     .index("by_recipient", ["recipient"]).index("by_key", ["recipient", "key"]).index("by_run", ["runId"]),
-  presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number(), layer: v.optional(v.string()) }) // layer: the interface they focused from, absent for the plain apps
+  presence: defineTable({ workspaceId: v.id("workspaces"), githubLogin: v.string(), focusedChat: v.union(v.id("chats"), v.null()), updatedAt: v.number(), world: v.optional(v.string()) }) // world: the interface they focused from, absent for the plain apps
     .index("by_workspace", ["workspaceId"]).index("by_login", ["githubLogin"]),
   /**
-   * Free-form state an interaction layer keeps: a position, a pose, a layout. Namespaced by layer id and never
+   * Free-form state a world keeps: a position, a pose, a layout. Namespaced by world id and never
    * read by the engine. person: one per person (only they write it) · chat: one per chat · workspace: one per workspace.
    */
-  layerState: defineTable({
-    workspaceId: v.id("workspaces"), layer: v.string(), scope: v.union(v.literal("person"), v.literal("chat"), v.literal("workspace")),
+  worldState: defineTable({
+    workspaceId: v.id("workspaces"), world: v.string(), scope: v.union(v.literal("person"), v.literal("chat"), v.literal("workspace")),
     chatId: v.union(v.id("chats"), v.null()), login: v.union(v.string(), v.null()), data: v.any(), updatedBy: v.string(), updatedAt: v.number(),
-  }).index("by_layer", ["workspaceId", "layer"]).index("by_key", ["workspaceId", "layer", "scope", "chatId", "login"]),
+  }).index("by_world", ["workspaceId", "world"]).index("by_key", ["workspaceId", "world", "scope", "chatId", "login"]),
   /** Phones that receive push. An Expo push token per install; a token moves to whoever signs in on that phone last. */
   pushTokens: defineTable({ login: v.string(), token: v.string(), platform: v.string(), deviceName: v.union(v.string(), v.null()), updatedAt: v.number() })
     .index("by_login", ["login"]).index("by_token", ["token"]),

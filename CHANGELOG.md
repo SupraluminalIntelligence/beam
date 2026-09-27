@@ -4,7 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
-- Build your own interface on Beam. The `beam` CLI and `@beam/sdk` read your workspaces, chats, messages, agent runs, pull requests, presence and inbox live, as JSON or as events, so a game, dashboard or terminal feed can show your team's work its own way. Apps can also post, react, answer agents, stop runs, say which chat you are in, and keep their own state (where you stand in a 3D office, say), each only with a permission you approve. Apps connect with a code you approve, and Settings › Connected apps lists and revokes them.
+- Beam Worlds: build your own world on Beam, whether a 2D or 3D space, a dashboard, a terminal feed or a world of sound. The `beam` CLI and `@beam/worlds` read your workspaces, chats, messages, agent runs, pull requests, presence and inbox live, as JSON or as events. With permissions you approve, a world can also post, react, answer agents, stop runs, say which chat you are in, and keep its own state (where you stand in it, say). Apps connect with a code you approve, and Settings › Connected apps lists and revokes them.
 - 3D simulation studies: a box domain with spheres, boxes and cylinders, meshed with snappyHexMesh and solved laminar or with k-ω SST turbulence on up to four cores. Results play back on slice planes and body walls in a 3D view.
 - Quitting or updating Beam no longer strands an agent's work. Runs in progress are stopped as if you pressed stop, and their edits are committed and pushed before the runner goes offline. Beam's window hides while this finishes, which takes up to a minute. A run that hadn't started yet waits for the next launch.
 

@@ -7,7 +7,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./layer": "./src/layer.ts"
+    "./worlds": "./src/worlds.ts"
   },
   "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
   "dependencies": { "zod": "^3.24.0" }

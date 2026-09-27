@@ -13,11 +13,11 @@ export const focus = mutation({
   },
 });
 
-/** One focused chat per person, whichever interface set it last. `layer` names that interface; the plain apps clear it. */
-export async function focusAs(ctx: MutationCtx, workspaceId: Id<"workspaces">, login: string, chatId: Id<"chats"> | null, layer?: string) {
+/** One focused chat per person, whichever interface set it last. `world` names that interface; the plain apps clear it. */
+export async function focusAs(ctx: MutationCtx, workspaceId: Id<"workspaces">, login: string, chatId: Id<"chats"> | null, world?: string) {
   const row = await ctx.db.query("presence").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
-  if (row) await ctx.db.patch(row._id, { workspaceId, focusedChat: chatId, updatedAt: Date.now(), layer });
-  else await ctx.db.insert("presence", { workspaceId, githubLogin: login, focusedChat: chatId, updatedAt: Date.now(), ...(layer ? { layer } : {}) });
+  if (row) await ctx.db.patch(row._id, { workspaceId, focusedChat: chatId, updatedAt: Date.now(), world });
+  else await ctx.db.insert("presence", { workspaceId, githubLogin: login, focusedChat: chatId, updatedAt: Date.now(), ...(world ? { world } : {}) });
 }
 
 export const inWorkspace = query({
@@ -32,7 +32,7 @@ export const inWorkspace = query({
 export async function presenceIn(ctx: QueryCtx, workspaceId: Id<"workspaces">) {
   const cutoff = Date.now() - 2 * 60_000;
   const rows = await ctx.db.query("presence").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-  return rows.filter((r) => r.updatedAt > cutoff).map((r) => ({ login: r.githubLogin, chatId: r.focusedChat, layer: r.layer ?? null }));
+  return rows.filter((r) => r.updatedAt > cutoff).map((r) => ({ login: r.githubLogin, chatId: r.focusedChat, world: r.world ?? null }));
 }
 
 export const leave = mutation({

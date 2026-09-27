@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import { requireLayer, v1Mutation, v1Query } from "../layers";
+import { requireApp, v1Mutation, v1Query } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { agent, person } from "./shape";
 
 export const list = v1Query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     const rows = await ctx.db.query("members").withIndex("by_login", (q) => q.eq("githubLogin", login)).collect();
     const ws = await Promise.all(rows.map((r) => ctx.db.get(r.workspaceId)));
     return ws.filter((w) => !!w).map((w) => ({ id: w._id, name: w.name, repos: w.repos }));
@@ -16,7 +16,7 @@ export const list = v1Query({
 export const get = v1Query({
   args: { token: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, { token, workspaceId }) => {
-    const { login } = await requireLayer(ctx, token);
+    const { login } = await requireApp(ctx, token);
     await requireMemberLogin(ctx, workspaceId, login);
     const w = await ctx.db.get(workspaceId);
     if (!w) throw new Error("no such workspace");

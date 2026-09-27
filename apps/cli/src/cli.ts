@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { hostname } from "node:os";
 import { createInterface } from "node:readline";
-import { connect, type Beam, type LayerEvent } from "@beam/sdk";
+import { connect, type Beam, type WorldEvent } from "@beam/worlds";
 import { actionCall, actionTable, loginScopes, parseFlags, resourceCall, resourceTable } from "./args.ts";
 import { configFile, credentials, forgetConfig } from "./config.ts";
 import { login } from "./login.ts";
@@ -19,19 +19,19 @@ const HELP = `beam: Beam's engine for interfaces you build yourself. Output is J
   beam sub <resource> [key=value…]      follow; a line per change
   beam watch [workspaceId]              a workspace as events: people moving, agents working, asking, landing
   beam watch --chat <chatId>            a chat as events: messages, streaming replies, tool steps, PRs
-       [--layer ID]                     also follow a layer's own state in the workspace
+       [--world ID]                     also follow a world's own state in the workspace
 
   beam actions                          everything you can do, with its scope
-  beam do <action> [key=value…]         e.g. beam do layers.set workspaceId=… layer=office scope=person data='{"x":3}'
+  beam do <action> [key=value…]         e.g. beam do worlds.set workspaceId=… world=office scope=person data='{"x":3}'
   beam send <chatId> <text…> [--mention HANDLE] [--run RUNID]
   beam react <messageId> <emoji>
   beam respond <runId> <requestId> <decision…>
   beam interrupt <runId>
-  beam focus <workspaceId> [chatId] [--layer ID]
-  beam serve                            the whole API as JSON lines on stdin/stdout, for layers in any language
+  beam focus <workspaceId> [chatId] [--world ID]
+  beam serve                            the whole API as JSON lines on stdin/stdout, for worlds in any language
 
   --pretty    indent JSON          BEAM_TOKEN, BEAM_CONVEX_URL    override the saved token and backend
-  Guide: docs/layers.md`;
+  Guide: docs/worlds.md`;
 
 const out = (value: unknown, pretty: boolean) => process.stdout.write(JSON.stringify(value, null, pretty ? 2 : undefined) + "\n");
 const clean = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^.*Uncaught Error: /s, "").split("\n")[0]!;
@@ -93,7 +93,7 @@ async function main(argv: string[]): Promise<void> {
     }
     case "watch": {
       const b = await beam();
-      const emit = (e: LayerEvent) => out(e, pretty);
+      const emit = (e: WorldEvent) => out(e, pretty);
       if (typeof flags["chat"] === "string") return hold(b, b.watchChat(flags["chat"], emit, failAndExit));
       let workspaceId = rest[0] ?? (typeof flags["workspace"] === "string" ? flags["workspace"] : undefined);
       if (!workspaceId) {
@@ -101,7 +101,7 @@ async function main(argv: string[]): Promise<void> {
         if (all.length !== 1) throw new Error(`you are in ${all.length} workspaces; pass one: ${all.map((w) => `${w.id} (${w.name})`).join(", ")}`);
         workspaceId = all[0]!.id;
       }
-      return hold(b, b.watchWorkspace(workspaceId, emit, failAndExit, typeof flags["layer"] === "string" ? { layer: flags["layer"] } : {}));
+      return hold(b, b.watchWorkspace(workspaceId, emit, failAndExit, typeof flags["world"] === "string" ? { world: flags["world"] } : {}));
     }
     case "serve": {
       const b = await beam();
@@ -127,7 +127,7 @@ function shortcut(cmd: string, rest: string[], flags: Record<string, string | tr
     case "react": need(2, "<messageId> <emoji>"); return actionCall("messages.react", [`messageId=${rest[0]}`, `emoji=${rest[1]}`]);
     case "respond": need(3, "<runId> <requestId> <decision…>"); return actionCall("runs.respond", [`runId=${rest[0]}`, `requestId=${rest[1]}`, `decision=${rest.slice(2).join(" ")}`]);
     case "interrupt": need(1, "<runId>"); return actionCall("runs.interrupt", [`runId=${rest[0]}`]);
-    default: need(1, "<workspaceId> [chatId] [--layer ID]"); return actionCall("people.focus", [`workspaceId=${rest[0]}`, ...(rest[1] ? [`chatId=${rest[1]}`] : []), ...(str("layer") ? [`layer=${str("layer")}`] : [])]);
+    default: need(1, "<workspaceId> [chatId] [--world ID]"); return actionCall("people.focus", [`workspaceId=${rest[0]}`, ...(rest[1] ? [`chatId=${rest[1]}`] : []), ...(str("world") ? [`world=${str("world")}`] : [])]);
   }
 }
 

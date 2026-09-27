@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
-import { SCOPES } from "@beam/contracts/layer";
+import { SCOPES } from "@beam/contracts/worlds";
 
 /** What each scope lets an app do, in the contract's own words, shown before anyone approves it. */
 const scopeText = (s: string) => (SCOPES as Record<string, string>)[s] ?? `Unknown permission "${s}"`;

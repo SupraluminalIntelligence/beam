@@ -3,17 +3,17 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { me } from "./lib";
 import { sha256 } from "./runnerAuth";
-import { Scope } from "../packages/contracts/src/layer";
+import { Scope } from "../packages/contracts/src/worlds";
 
 /**
- * Tokens for interaction layers: interfaces built on Beam outside this codebase. A layer signs in with a
+ * Tokens for worlds: interfaces built on Beam outside this codebase. A world signs in with a
  * device code like a runner does, shows it to the person, and gets a token once they approve the scopes it
- * asked for. Only the v1 functions accept these tokens, so a layer can never reach the rest of the API.
+ * asked for. Only the v1 functions accept these tokens, so a world can never reach the rest of the API.
  */
 
 /**
  * Production Convex tells clients only "Server Error" for a thrown Error; a ConvexError keeps its message.
- * Layers are built by other people, so every refusal they can meet says why: "this token may not chat:write".
+ * Worlds are built by other people, so every refusal they can meet says why: "this token may not chat:write".
  */
 export function plainErrors<C, A, R>(handler: (ctx: C, args: A) => Promise<R>): (ctx: C, args: A) => Promise<R> {
   return async (ctx, args) => {
@@ -70,7 +70,7 @@ async function waiting(ctx: QueryCtx | MutationCtx, userCode: string) {
   return row && row.kind === "layer" && row.expiresAt > Date.now() ? row : null;
 }
 
-/** What a layer is asking for, shown before anyone approves it. */
+/** What a world is asking for, shown before anyone approves it. */
 export const pending = v1Query({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
@@ -103,7 +103,7 @@ export const deny = v1Mutation({
   },
 });
 
-/** Your connected layers, newest first. Revoked ones stay listed for a week so a revoke is visible. */
+/** Your connected worlds, newest first. Revoked ones stay listed for a week so a revoke is visible. */
 export const mine = v1Query({
   args: {},
   handler: async (ctx) => {
@@ -126,10 +126,10 @@ export const revoke = v1Mutation({
 });
 
 /** Every v1 call starts here: a live token with the scope, and the person it acts for. */
-export async function requireLayer(ctx: QueryCtx | MutationCtx, token: string, scope: Scope = "read") {
+export async function requireApp(ctx: QueryCtx | MutationCtx, token: string, scope: Scope = "read") {
   const hash = await sha256(token);
   const t = await ctx.db.query("layerTokens").withIndex("by_hash", (q) => q.eq("tokenHash", hash)).first();
-  if (!t || t.revokedAt) throw new Error("layer token invalid or revoked");
+  if (!t || t.revokedAt) throw new Error("app token invalid or revoked");
   if (!t.scopes.includes(scope)) throw new Error(`this token may not ${scope}`);
   return { token: t, login: t.githubLogin };
 }
