@@ -62,6 +62,7 @@ export default function ChatScreen() {
         title={chat.title}
         sub={status ? <T mono size={10.5} tone={status.tone}>{status.text}</T> : (c.detail?.name ?? "")}
         right={<>
+          <Pressable onPress={() => router.push({ pathname: "/chat/[id]/context", params: { id: chatId } })} accessibilityRole="button" accessibilityLabel="Files and context" style={{ minWidth: 44, height: 44, alignItems: "center", justifyContent: "center" }}><Icon name="files" size={20} /></Pressable>
           <Pressable onPress={openDetails} hitSlop={4} accessibilityLabel="Code and machines" style={{ flexDirection: "row", alignItems: "center", gap: 4, height: 44, paddingHorizontal: 6 }}>
             <Icon name="branch" size={20} />{gitTag ? <T mono size={11} tone="ink2">{gitTag}</T> : null}
           </Pressable>

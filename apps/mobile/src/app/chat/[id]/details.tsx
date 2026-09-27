@@ -36,6 +36,10 @@ export default function Details() {
     <Screen>
       <TopBar nameCase title={chat.title} sub={`${c.detail?.name ?? ""}${chat.private ? " · private" : ""}`} onBack={() => router.back()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <Label>Context</Label>
+        <Row onPress={() => router.push({ pathname: "/chat/[id]/context", params: { id: chatId } })}>
+          <Icon name="files" /><View style={{ flex: 1, gap: 2 }}><T>Files and context</T><T mono size={11} tone="ink3">Screenshots, documents, links and notes</T></View><Icon name="right" size={16} />
+        </Row>
         <Label>Code</Label>
         <Pressable disabled={!repo} onPress={() => repo && open(prUrl ?? `https://github.com/${repo}${c.branch ? `/tree/${c.branch}` : ""}`)} style={({ pressed }) => ({ marginHorizontal: space.padX, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderWidth: 1, borderColor: t.line2, borderRadius: radius.object, backgroundColor: pressed ? t.surface2 : t.surface })}>
           <View style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: t.line2, borderRadius: radius.control, backgroundColor: t.surface2 }}><Icon name="github" size={19} /></View>
