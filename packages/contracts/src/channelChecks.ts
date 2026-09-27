@@ -2,7 +2,7 @@ import type { ChannelCase } from "./simulation.ts";
 
 /** ok: the assumption holds for these inputs · warn: worth a look · fail: the model does not represent this flow · unknown: needs stated fluid data · info: context, not a verdict. */
 export type SetupCheckStatus = "ok" | "warn" | "fail" | "unknown" | "info";
-export type SetupCheck = { id: "laminar" | "buoyancy" | "single-phase" | "viscosity" | "development"; label: string; status: SetupCheckStatus; value: string; detail: string };
+export type SetupCheck = { id: "laminar" | "buoyancy" | "single-phase" | "viscosity" | "development" | "convection-cells" | "run-length"; label: string; status: SetupCheckStatus; value: string; detail: string };
 
 const G = 9.81;
 /** Fully developed Nusselt number for parallel plates with both walls at one fixed temperature, on 2H (Shah & London 1978). */

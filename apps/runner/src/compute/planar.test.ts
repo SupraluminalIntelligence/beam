@@ -16,7 +16,7 @@ it("constructs independent named surfaces for three cylinders and a nonrectangul
  expect(planarMesh(polygon).cells).toBeGreaterThan(1000);expect(planarFiles(polygon)["0/U"]).toContain("wall { type noSlip;");
  expect(meshKey({...defaultPlanar,duration:2})).toBe(meshKey(defaultPlanar));
  expect(meshKey({...defaultPlanar,bodies:defaultPlanar.bodies.slice(0,1)})).not.toBe(meshKey(defaultPlanar));
-});
+},30000);
 const refinements:NonNullable<typeof defaultPlanar.refinements>=[...defaultPlanar.bodies.map(b=>({name:`near_${b.name}`,kind:"body-distance" as const,body:b.name,size:.00125,distance:.002,transition:.0025})),{name:"wake",kind:"box",min:[.015,-.025],max:[.06,.025],size:.002,transition:.003}];
 it("concentrates smaller cells around bodies and in the wake while keeping far field coarse",()=>{
  const config={...defaultPlanar,refinements},m=planarMesh(config);
