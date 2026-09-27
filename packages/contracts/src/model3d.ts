@@ -19,12 +19,16 @@ export const Model3D=z.object({
  area:z.number().finite().positive(),volume:z.number().finite().positive(),
  // Silhouette area seen along native x, y and z.
  projectedArea:z.array(z.number().finite().nonnegative()).length(3).transform(p=>p as Point3),
+ // What import fixed: triangle edges split at T-junctions, and small gaps closed with the widest gap's hydraulic diameter.
+ repairs:z.object({tJunctions:z.number().int().nonnegative(),gaps:z.number().int().nonnegative(),widestGap:z.number().finite().nonnegative()}).strict().optional(),
 }).strict();
 export type Model3D=z.infer<typeof Model3D>;
 /** Quarter turns only, so the rotated bounding box, and so every validation check, stays exact. */
 export const QuarterTurns=z.array(z.number().int().min(0).max(270).multipleOf(90)).length(3).transform(p=>p as Point3);
 export type Surface={points:Float64Array;triangles:Uint32Array};
 export type ModelMeasures=Omit<Model3D,"assetId"|"file"|"sha256">&{shells:number};
+/** Gaps up to this fraction of the model's largest dimension (as a hydraulic diameter) are closed on import. */
+export const MODEL_GAP_LIMIT=.01;
 
 function extension(file:string){return file.toLowerCase().match(/\.[a-z0-9]+$/)?.[0]??"";}
 /** Binary STL when the size matches its triangle count; ASCII STL otherwise. */
@@ -78,19 +82,92 @@ function boundsOf(points:Float64Array){
  for(let i=0;i<points.length;i+=3)for(let k=0;k<3;k++){min[k]=Math.min(min[k]!,points[i+k]!);max[k]=Math.max(max[k]!,points[i+k]!);}
  return{min,max};
 }
-/** Merge coincident vertices and drop triangles that collapse to an edge or point. */
+/**
+ * Merge vertices within 1e-7 of the model's diagonal (float32 exports round the same corner differently)
+ * and drop triangles that collapse to an edge or point. Neighbouring grid cells are searched, so two
+ * nearby vertices merge even when they straddle a cell boundary.
+ */
 export function weld(s:Surface):Surface{
  const {min,max}=boundsOf(s.points),diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
  if(!(diagonal>0))throw new Error("The model has no extent");
- const q=diagonal*1e-9,ids=new Map<string,number>(),remap=new Uint32Array(s.points.length/3),points:number[]=[];
+ const q=diagonal*1e-7,grid=new Map<number,number[]>(),remap=new Uint32Array(s.points.length/3),points:number[]=[];
+ const hash=(x:number,y:number,z:number)=>(Math.imul(x,73856093)^Math.imul(y,19349663)^Math.imul(z,83492791))>>>0;
  for(let i=0;i<remap.length;i++){
-  const key=`${Math.round(s.points[3*i]!/q)},${Math.round(s.points[3*i+1]!/q)},${Math.round(s.points[3*i+2]!/q)}`;
-  let id=ids.get(key);if(id===undefined){id=points.length/3;ids.set(key,id);points.push(s.points[3*i]!,s.points[3*i+1]!,s.points[3*i+2]!);}
+  const x=s.points[3*i]!,y=s.points[3*i+1]!,z=s.points[3*i+2]!,cx=Math.floor((x-min[0])/q),cy=Math.floor((y-min[1])/q),cz=Math.floor((z-min[2])/q);
+  let id=-1;
+  for(let dx=-1;dx<=1&&id<0;dx++)for(let dy=-1;dy<=1&&id<0;dy++)for(let dz=-1;dz<=1&&id<0;dz++)
+   for(const j of grid.get(hash(cx+dx,cy+dy,cz+dz))??[])if(Math.abs(points[3*j]!-x)<=q&&Math.abs(points[3*j+1]!-y)<=q&&Math.abs(points[3*j+2]!-z)<=q){id=j;break;}
+  if(id<0){id=points.length/3;points.push(x,y,z);const key=hash(cx,cy,cz),cell=grid.get(key);if(cell)cell.push(id);else grid.set(key,[id]);}
   remap[i]=id;
  }
  const triangles:number[]=[];
  for(let t=0;t<s.triangles.length;t+=3){const a=remap[s.triangles[t]!]!,b=remap[s.triangles[t+1]!]!,c=remap[s.triangles[t+2]!]!;if(a!==b&&b!==c&&a!==c)triangles.push(a,b,c);}
  return{points:Float64Array.from(points),triangles:Uint32Array.from(triangles)};
+}
+/** Edges used by an odd number of triangles, each with the triangle and direction that owns it. */
+function openEdges(s:{points:ArrayLike<number>;triangles:ArrayLike<number>}){
+ const n=s.points.length/3,t=s.triangles,uses=new Map<number,number[]>();
+ for(let k=0;k<t.length/3;k++)for(let j=0;j<3;j++){const a=t[3*k+j]!,b=t[3*k+(j+1)%3]!,key=Math.min(a,b)*n+Math.max(a,b);let u=uses.get(key);if(!u){u=[];uses.set(key,u);}u.push(k,a,b);}
+ const open:{tri:number;a:number;b:number}[]=[];
+ for(const u of uses.values())if((u.length/3)%2)open.push({tri:u[0]!,a:u[1]!,b:u[2]!});
+ return open;
+}
+/**
+ * Split triangles where another triangle's corner lies on their open edge (a T-junction), so both sides
+ * share the vertex. CAD tessellations of neighbouring faces commonly leave these.
+ */
+export function repairTJunctions(s:Surface){
+ const {min,max}=boundsOf(s.points),tol=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2])*1e-6,p=s.points;
+ let tri=Array.from(s.triangles),count=0;
+ for(let pass=0;pass<64;pass++){
+  const open=openEdges({points:p,triangles:tri}),corners=[...new Set(open.flatMap(e=>[e.a,e.b]))],splits=new Map<number,{v:number;at:number;a:number;b:number}>();
+  for(const e of open){
+   const ax=p[3*e.a]!,ay=p[3*e.a+1]!,az=p[3*e.a+2]!,dx=p[3*e.b]!-ax,dy=p[3*e.b+1]!-ay,dz=p[3*e.b+2]!-az,l2=dx*dx+dy*dy+dz*dz;
+   for(const v of corners){
+    if(v===e.a||v===e.b)continue;
+    const at=((p[3*v]!-ax)*dx+(p[3*v+1]!-ay)*dy+(p[3*v+2]!-az)*dz)/l2;
+    if(at<=1e-9||at>=1-1e-9)continue;
+    if(Math.hypot(ax+at*dx-p[3*v]!,ay+at*dy-p[3*v+1]!,az+at*dz-p[3*v+2]!)>tol)continue;
+    // One split per triangle per pass: the nearest to the edge's start, so the pieces stay ordered.
+    const prior=splits.get(e.tri);if(!prior||at<prior.at)splits.set(e.tri,{v,at,a:e.a,b:e.b});
+   }
+  }
+  if(!splits.size)break;
+  // Triangle (a, b, c) becomes (a, v, c) and (v, b, c), keeping its winding.
+  for(const [k,{v,a,b}] of splits){const c=[tri[3*k]!,tri[3*k+1]!,tri[3*k+2]!].find(x=>x!==a&&x!==b)!;tri.splice(3*k,3,a,v,c);tri.push(v,b,c);count++;}
+ }
+ return{surface:{points:s.points,triangles:Uint32Array.from(tri)},count};
+}
+/**
+ * Close the remaining small gaps with a fan from each gap's centre. A gap is sized by its hydraulic
+ * diameter, 4 × area / perimeter: its diameter when round and twice its width when a slit, with the
+ * area projected (a vector sum), so a hole in a curved surface counts no larger than its opening. Larger
+ * gaps, or boundaries that branch, mean the model is genuinely open and are refused.
+ */
+export function fillGaps(s:Surface,limit=MODEL_GAP_LIMIT){
+ const open=openEdges(s),next=new Map<number,number>(),{min,max}=boundsOf(s.points),size=Math.max(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
+ const refuse=(detail:string)=>new Error(`The surface is not closed: ${open.length.toLocaleString("en-US")} edge${open.length===1?" belongs":"s belong"} to a single triangle${detail}. snappyHexMesh needs a watertight surface; close the holes (for example with Blender's 3D-Print Toolbox or MeshLab) and export again`);
+ // A gap's boundary runs against its neighbours' edges, so the filling triangles face the same way.
+ for(const e of open){if(next.has(e.b))throw refuse(", and its gaps branch");next.set(e.b,e.a);}
+ const points=Array.from(s.points),triangles=Array.from(s.triangles);let gaps=0,widest=0;
+ while(next.size){
+  const [start]=next.keys(),loop:number[]=[];let v:number|undefined=start!;
+  while(v!==undefined&&next.has(v)){loop.push(v);const w:number=next.get(v)!;next.delete(v);v=w;}
+  if(v!==start||loop.length<3)throw refuse(", and a gap does not close on itself");
+  const c=[0,1,2].map(i=>loop.reduce((sum,q)=>sum+s.points[3*q+i]!,0)/loop.length),centre=points.length/3;
+  // Vector area: a sliver that folds back on itself spans almost none, however long its sides.
+  const vector:Point3=[0,0,0];let perimeter=0;
+  for(let i=0;i<loop.length;i++){
+   const a=loop[i]!,b=loop[(i+1)%loop.length]!,u=[0,1,2].map(k=>s.points[3*a+k]!-c[k]!),w=[0,1,2].map(k=>s.points[3*b+k]!-c[k]!);
+   vector[0]+=u[1]!*w[2]!-u[2]!*w[1]!;vector[1]+=u[2]!*w[0]!-u[0]!*w[2]!;vector[2]+=u[0]!*w[1]!-u[1]!*w[0]!;
+   perimeter+=Math.hypot(...[0,1,2].map(k=>s.points[3*b+k]!-s.points[3*a+k]!));
+   triangles.push(a,b,centre);
+  }
+  const width=4*(Math.hypot(...vector)/2)/perimeter;
+  if(width>limit*size)throw refuse(`; the widest gap is about ${Number(width.toPrecision(2))} units across (${Number((width/size*100).toPrecision(2))}% of the model, over the ${limit*100}% Beam closes)`);
+  points.push(...c);gaps++;widest=Math.max(widest,width);
+ }
+ return{surface:{points:Float64Array.from(points),triangles:Uint32Array.from(triangles)},gaps,widest};
 }
 function signedVolume(s:Surface,tris:Iterable<number>){
  let v=0;const p=s.points,t=s.triangles;
@@ -160,8 +237,11 @@ export function measureModel(s:Surface,shells=1):ModelMeasures{
 }
 /** Read, weld, check and orient a model file; the result is ready to store as a binary STL. */
 export function normalizeModel(bytes:Uint8Array,file:string){
- const {surface,shells}=closeAndOrient(weld(readModel(bytes,file)));
- return{surface,measures:measureModel(surface,shells),stl:encodeStl(surface)};
+ const joined=repairTJunctions(weld(readModel(bytes,file))),filled=fillGaps(joined.surface);
+ if(filled.surface.triangles.length/3>MODEL_MAX_TRIANGLES)tooMany(filled.surface.triangles.length/3);
+ const {surface,shells}=closeAndOrient(filled.surface),measures:ModelMeasures=measureModel(surface,shells);
+ if(joined.count||filled.gaps)measures.repairs={tJunctions:joined.count,gaps:filled.gaps,widestGap:filled.widest};
+ return{surface,measures,stl:encodeStl(surface)};
 }
 export function encodeStl(s:{points:ArrayLike<number>;triangles:ArrayLike<number>},header="Beam normalized surface"):Uint8Array{
  const n=s.triangles.length/3,bytes=new Uint8Array(84+50*n),view=new DataView(bytes.buffer);

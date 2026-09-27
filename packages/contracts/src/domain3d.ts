@@ -150,6 +150,8 @@ export const Domain3DCase=z.object({
  refinements:z.array(Refinement3D).max(16).optional(),
  slices:z.array(Slice3D).min(1).max(3),
  initialVelocity:velocity3,duration:z.number().min(.001).max(100),frames:z.number().int().min(2).max(60),
+ // A published drag coefficient to compare with, on its source's reference area (m²). Never used by the solve.
+ reference:z.object({cd:z.number().finite().min(0).max(10),area:z.number().finite().positive().max(1000),source:z.string().min(1).max(120)}).strict().optional(),
 }).strict().superRefine((c,ctx)=>{
  const errors=new Set<string>();
  const issue=(message:string)=>{if(!errors.has(message)){errors.add(message);ctx.addIssue({code:"custom",message});}};
@@ -229,6 +231,19 @@ export const defaultAhmedTunnel:Domain3DCase={version:1,geometry:"domain3d",
 export const AHMED_MEASURED_CD:Readonly<Record<number,number>>={25:.285,35:.26};
 /** The measured Cd to compare against, when the study is a single Ahmed body at a measured slant. */
 export function ahmedMeasuredCd(c:Domain3DCase){const b=c.bodies.length===1?c.bodies[0]!:null;return b?.shape==="ahmed"?AHMED_MEASURED_CD[b.slantDegrees]??null:null;}
+/** The drag to compare a run with: the study's stated reference, or the Ahmed measurement at its slant (on the body's own frontal area). */
+export function referenceDrag(c:Domain3DCase):{cd:number;area:number|null;source:string}|null{
+ if(c.reference)return c.reference;
+ const cd=ahmedMeasuredCd(c);return cd===null?null:{cd,area:null,source:"Ahmed 1984"};
+}
+/**
+ * WindsorML run 1 (Ashton et al. 2024, CC BY-SA 4.0): a squareback Windsor body on four pins, y up, flow
+ * along +x, at 40 m/s over a stationary no-slip ground. Its wall-modelled LES gives Cd 0.3225 on 0.112 m².
+ */
+export const WINDSOR={file:"windsor_1.stl",rotation:[90,0,0] as Point3,speed:40,reference:{cd:.3225,area:.112,source:"WindsorML run 1 · WMLES"}} as const;
+export function windsorTunnel(model:Model3D):Domain3DCase{
+ return Domain3DCase.parse({...modelWindTunnel(model,{scale:1,rotation:WINDSOR.rotation,speed:WINDSOR.speed,name:"windsor"}),reference:WINDSOR.reference});
+}
 /** Estimated cells a generated tunnel aims for: well inside the budget, so a solve takes minutes rather than hours. */
 export const MODEL_TUNNEL_CELL_TARGET=150_000;
 /**

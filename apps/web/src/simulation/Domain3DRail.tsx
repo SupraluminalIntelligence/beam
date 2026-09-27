@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AHMED, ahmedMeasuredCd, bodyBounds, bodyLevel, estimateDomain3dCells, frontalArea, modelWindTunnel, MODEL_UNITS, DOMAIN3D_CELL_BUDGET, type Domain3DCase, type Domain3DForces, type ModelBody } from "@beam/contracts";
+import { AHMED, referenceDrag, bodyBounds, bodyLevel, estimateDomain3dCells, frontalArea, modelWindTunnel, MODEL_UNITS, DOMAIN3D_CELL_BUDGET, type Domain3DCase, type Domain3DForces, type ModelBody, WINDSOR } from "@beam/contracts";
+const WINDSOR_FILE=WINDSOR.file;
 const fmt=(n:number)=>Number(n.toPrecision(4));
 const vec=(p:readonly number[])=>`(${p.map(fmt).join(", ")})`;
 /** Setup rail for 3-D studies. Geometry and boundaries are composed through chat; values here are editable. */
@@ -33,18 +34,23 @@ export function Domain3DRail({config:c,change}:{config:Domain3DCase;change:(c:Do
  </>;
 }
 
-/** Second-half body loads, the coefficient history and, for the Ahmed benchmark, the measured drag. */
+/** Second-half body loads, the coefficient history and the published drag to compare with, if the study has one. */
 export function Domain3DLoads({config:c,forces}:{config:Domain3DCase;forces:Domain3DForces|undefined}){
  if(!c.bodies.length)return null;
  const fact=(label:string,value:string)=><div className="sim-value" key={label}><span>{label}</span><span>{value}</span></div>;
  if(!forces)return <p>This run has no body loads; runs made before forces were added report sampled fields only.</p>;
- const measured=ahmedMeasuredCd(c),[fx,fy,fz]=forces.forceN;
+ const reference=referenceDrag(c),[fx,fy,fz]=forces.forceN,q=.5*c.region.density*forces.speed**2;
+ // Compare on the source's reference area when it names one; the plot shows it on this run's area.
+ const onReference=reference?.area?fx/(q*reference.area):null,measured=reference?(reference.area?reference.cd*reference.area/forces.referenceArea:reference.cd):null;
  return <>
   <div className="sim-section-title">BODY LOADS <span>mean t ≥ {fmt(forces.averagedFrom)} s</span></div>
-  {forces.cd!==null&&fact("Cd",fmt(forces.cd).toFixed(3))}{measured!==null&&fact("wind tunnel Cd",`${measured.toFixed(3)} · Ahmed 1984`)}{forces.cl!==null&&fact("Cl",fmt(forces.cl).toFixed(3))}
+  {forces.cd!==null&&fact("Cd",fmt(forces.cd).toFixed(3))}
+  {onReference!==null&&forces.cd!==null&&fact(`Cd on ${fmt(reference!.area!)} m²`,onReference.toFixed(3))}
+  {reference&&fact("reference Cd",`${reference.cd.toFixed(3)} · ${reference.source}`)}
+  {forces.cl!==null&&fact("Cl",fmt(forces.cl).toFixed(3))}
   {fact("drag",`${fmt(fx)} N`)}{fact("lift",`${fmt(fz)} N`)}{fact("side force",`${fmt(fy)} N`)}{fact("reference area",`${fmt(forces.referenceArea)} m² · U ${fmt(forces.speed)} m/s`)}
   {forces.history.length>1&&<CoefficientPlot forces={forces} duration={c.duration} measured={measured}/>}
-  <p>{forces.cd===null?"Coefficients need the inlet flow along +x; forces are in newtons on every body wall.":"Cd and Cl use the bodies' frontal area and the inlet speed, from pressure and wall shear on every body wall."} The mesh has no boundary layers and the near-wall flow uses wall functions, so treat the loads as coarse estimates; a finer mesh or longer run can move them by tens of percent.</p>
+  <p>{forces.cd===null?"Coefficients need the inlet flow along +x; forces are in newtons on every body wall.":"Cd and Cl use the bodies' frontal area and the inlet speed, from pressure and wall shear on every body wall."}{reference?.area?` The reference Cd uses ${fmt(reference.area)} m², so compare it with Cd on that area.`:""} The mesh has no boundary layers and the near-wall flow uses wall functions, so treat the loads as coarse estimates; a finer mesh or longer run can move them by tens of percent.</p>
  </>;
 }
 /** Cd and Cl against time; the start-up transient is clipped so the settled values are readable. */
@@ -70,7 +76,7 @@ function ModelControls({config:c,body,change}:{config:Domain3DCase;body:ModelBod
  const speed=c.boundaries.flatMap(b=>b.type==="velocity-inlet"?[b.velocity[0]]:[])[0]??40;
  const refit=()=>{try{change(modelWindTunnel(body.model,{scale:body.scale,rotation:body.rotation,speed:speed>0?speed:40,ground:c.boundaries.find(b=>b.name===c.domain.faces.zMin)?.type==="wall",name:body.name}));setProblem("");}catch(e){setProblem((e as Error).message);}};
  return <>
-  {fact("file",body.model.file)}{fact("triangles",body.model.triangles.toLocaleString())}
+  {fact("file",body.model.file)}{fact("triangles",body.model.triangles.toLocaleString())}{body.model.repairs&&fact("repaired",`${body.model.repairs.tJunctions} T-junctions · ${body.model.repairs.gaps} gaps ≤ ${fmt(body.model.repairs.widestGap)} units`)}
   {fact("size",`${fmt(max[0]-min[0])} × ${fmt(max[1]-min[1])} × ${fmt(max[2]-min[2])} m`)}{fact("frontal area",`${fmt(frontalArea(body))} m²`)}
   <label className="sim-value"><span>file units</span><select aria-label="Model file units" value={units} onChange={e=>set({scale:MODEL_UNITS[e.target.value as keyof typeof MODEL_UNITS]})}>{units===""&&<option value="">custom</option>}{Object.keys(MODEL_UNITS).map(u=><option key={u} value={u}>{u}</option>)}</select></label>
   <label className="sim-value"><span>scale</span><span><input aria-label="Model scale" type="number" step="any" value={body.scale} onChange={e=>{if(e.target.valueAsNumber>0)set({scale:e.target.valueAsNumber});}}/><i>m per unit</i></span></label>
@@ -78,6 +84,7 @@ function ModelControls({config:c,body,change}:{config:Domain3DCase;body:ModelBod
   {([0,1,2] as const).map(k=><label className="sim-value" key={`at${k}`}><span>position {"xyz"[k]}</span><span><input aria-label={`Model position ${"xyz"[k]}`} type="number" step="any" value={body.position[k]} onChange={e=>{if(Number.isFinite(e.target.valueAsNumber))set({position:body.position.map((v,j)=>j===k?e.target.valueAsNumber:v) as ModelBody["position"]});}}/><i>m</i></span></label>)}
   <button className="sim-row" onClick={refit}>↺ Fit tunnel to model<span>domain · mesh · slices</span></button>
   {problem&&<p className="sim-warning">{problem}</p>}
+  {c.reference&&<p>Reference: {c.reference.source}, Cd {c.reference.cd} on {c.reference.area} m².{body.model.file===WINDSOR_FILE?" Geometry from WindsorML (Ashton et al. 2024), CC BY-SA 4.0.":""}</p>}
   <p>Position is the front-bottom-centre of the placed model (min x, mid y, min z). Flow runs along +x with z up; a y-up export usually needs 90° about x. Turns and units change the mesh; fit the tunnel again after changing them. Validation treats the bounding box as the body.</p>
  </>;
 }

@@ -1,0 +1,16 @@
+Beam's Windsor body wind-tunnel example ships geometry from WindsorML.
+
+File: src/simulation/assets/windsor_1.stl.gz, bundled as a build asset. It is
+run_1/windsor_1.stl from https://huggingface.co/datasets/neashton/windsorml,
+compressed with gzip and otherwise unmodified.
+
+WindsorML: High-Fidelity Computational Fluid Dynamics Dataset For Automotive
+Aerodynamics. Neil Ashton, Jordan B. Angel, Aditya S. Ghate, Gaetan K. W. Kenway,
+Man Long Wong, Cetin Kiris, Astrid Walle, Danielle C. Maddix and Gary Page, 2024.
+https://arxiv.org/abs/2407.19320
+
+Licensed under Creative Commons Attribution-ShareAlike 4.0 International.
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Beam compares its result with the dataset's drag coefficient for this run,
+Cd 0.3225 on a reference area of 0.112 m² (run_1/force_mom_1.csv).

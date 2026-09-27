@@ -30,3 +30,10 @@ export function useModelSurfaces(assetIds:string[]){
  },[key,files]);
  return{surfaces:loaded,error};
 }
+/** Bytes of a bundled model, gunzipped unless the server already decoded it. */
+export async function bundledModel(url:string,file:string):Promise<File>{
+ const response=await fetch(url);if(!response.ok)throw new Error(`Could not load ${file}`);
+ let bytes=new Uint8Array(await response.arrayBuffer());
+ if(bytes[0]===0x1f&&bytes[1]===0x8b)bytes=new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+ return new File([bytes],file);
+}

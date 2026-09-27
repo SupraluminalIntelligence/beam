@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, copyFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
-import { defaultDomain3d, defaultAhmedTunnel, ahmedSurface, encodeStl, normalizeModel, decodeModel, measureModel, modelWindTunnel, modelInputPath, bodyBounds, type Model3D, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
+import { defaultDomain3d, defaultAhmedTunnel, ahmedSurface, encodeStl, normalizeModel, decodeModel, measureModel, modelWindTunnel, windsorTunnel, modelInputPath, bodyBounds, type Model3D, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
 import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses, writeModelSurfaces } from "./domain3d.ts";
 import { runOpenFoam } from "./openfoam.ts";
 
@@ -43,7 +44,10 @@ const imported=(sha="q".repeat(44)):Model3D=>{const {measures:{shells,...m}}=nor
 it("places an imported surface for snappyHexMesh and refuses one that differs from the study",async()=>{
  const config=modelWindTunnel(imported(),{scale:.001,rotation:[90,0,0]}),body=config.bodies[0]!,dir=await mkdtemp(join(tmpdir(),"beam-model-"));
  try{
-  expect(domain3dFiles(config)["system/snappyHexMeshDict"]).toContain('body_model { type triSurfaceMesh; file "body_model.stl"; }');
+  const snappy=domain3dFiles(config)["system/snappyHexMeshDict"]!;
+  expect(snappy).toContain('body_model { type triSurfaceMesh; file "body_model.stl"; }');
+  // One level more where the surface curves sharply; the parametric Ahmed body keeps one level.
+  expect(snappy).toContain("body_model { level (3 4);");expect(domain3dFiles(defaultAhmedTunnel)["system/snappyHexMeshDict"]).toContain("body_ahmed { level (3 3);");
   await mkdir(join(dir,"models"));await writeFile(join(dir,modelInputPath(body)),ahmedFile());
   await writeModelSurfaces(config,dir);
   const placed=measureModel(decodeModel(await readFile(join(dir,"constant","triSurface","body_model.stl")))),b=bodyBounds(body);
@@ -145,6 +149,17 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real 3D OpenFOAM mesh and
    process.chdir(join(root,"solve"));await runOpenFoam({caseId:"c",revision:1,stage:"solve",config,meshJobId:"m"},name);
    const forces=SimulationReport.parse(JSON.parse(await readFile("report.json","utf8"))).domain3d?.forces;
    expect(forces?.cd).toBeGreaterThan(.1);expect(forces?.referenceArea).toBeCloseTo(.112,2);
+  }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
+ },900_000); it("meshes the bundled Windsor body, pins included, to checkMesh's quality limits",async()=>{
+  // Its pins are about 1.5 surface cells wide; the extra curvature level keeps their cells unskewed.
+  const {measures:{shells:_,...m},stl}=normalizeModel(gunzipSync(await readFile(new URL("../../../web/src/simulation/assets/windsor_1.stl.gz",import.meta.url))),"windsor_1.stl");
+  const config=windsorTunnel({assetId:"asset",file:"windsor_1.stl",sha256:"q".repeat(44),...m});
+  const root=await mkdtemp(join(tmpdir(),"beam-foam3d-")),cwd=process.cwd(),name="beam-foam-0123456789abcdefd1d2";
+  try{
+   await mkdir(join(root,"models"));await writeFile(join(root,modelInputPath(config.bodies[0]!)),stl);
+   process.chdir(root);await runOpenFoam({caseId:"c",revision:1,stage:"mesh",config},name);
+   const mesh=SimulationReport.parse(JSON.parse(await readFile("report.json","utf8")));
+   expect(mesh.meshOk).toBe(true);expect(mesh.maxSkewness).toBeLessThan(4);expect(mesh.cells).toBeLessThan(200_000);
   }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
  },900_000);
 });

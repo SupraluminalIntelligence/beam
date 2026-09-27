@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { normalizeModel, readModel, encodeStl, decodeModel, measureModel, closeAndOrient, weld, modelMatches, placement, placeSurface, guessUnits, turnMatrix, type Model3D } from "./model3d.ts";
-import { Domain3DCase, AHMED, ahmedSurface, bodyBounds, frontalArea, estimateDomain3dCells, insideBody, locationInMesh, modelInputs, modelWindTunnel, MODEL_TUNNEL_CELL_TARGET, meshKey, simulationOutputs, simulationMeshInputs, type Body3D } from "./simulation.ts";
+import { Domain3DCase, referenceDrag, windsorTunnel, defaultAhmedTunnel, AHMED, ahmedSurface, bodyBounds, frontalArea, estimateDomain3dCells, insideBody, locationInMesh, modelInputs, modelWindTunnel, MODEL_TUNNEL_CELL_TARGET, meshKey, simulationOutputs, simulationMeshInputs, type Body3D } from "./simulation.ts";
 import { ProcessJobSpec } from "./compute.ts";
 
 // Unit cube, outward-facing, as 12 triangles over 8 corners.
@@ -31,6 +31,22 @@ it("rejects open surfaces, unsupported formats and oversized models",()=>{
  expect(()=>normalizeModel(text("solid x\nendsolid x\n"),"empty.stl")).toThrow(/no triangles/);
  const huge=new Uint8Array(84+50*300_000);new DataView(huge.buffer).setUint32(80,300_000,true);
  expect(()=>readModel(huge,"big.stl")).toThrow(/limit is 200,000/);
+});
+it("closes float32 seams, T-junctions and small gaps, and says so",()=>{
+ const c=cube();
+ // Top face split at the middle of one edge (a T-junction against the side face), and one corner
+ // of another triangle nudged 1e-9 (float32 rounding) and one 1e-4 (a sliver gap).
+ const m=c.points.length/3,top=[4,m,7,m,5,6,m,6,7];c.points.push(.5,0,1);
+ const seam=c.points.length/3;c.points.push(1+1e-9,0,0);
+ const nudged=c.points.length/3;c.points.push(-1e-4,1,1e-4);
+ const triangles=c.triangles.slice(0,6).concat(top,c.triangles.slice(12));
+ const at=(a:number,b:number,cc:number)=>triangles.findIndex((_,i)=>i%3===0&&triangles[i]===a&&triangles[i+1]===b&&triangles[i+2]===cc);
+ triangles[at(0,1,5)+1]=seam;triangles[at(3,0,4)]=nudged;
+ const {measures}=normalizeModel(encodeStl({points:c.points,triangles}),"seams.stl");
+ expect(measures.volume).toBeCloseTo(1,3);expect(measures.shells).toBe(1);
+ expect(measures.repairs).toMatchObject({tJunctions:1,gaps:1});expect(measures.repairs!.widestGap).toBeLessThan(1e-3);
+ // A clean model reports no repairs.
+ expect(normalizeModel(encodeStl(cube()),"clean.stl").measures.repairs).toBeUndefined();
 });
 it("orients every shell outward, whatever order the file lists triangles in",()=>{
  // Flip two faces and turn a second cube inside out.
@@ -99,4 +115,13 @@ it("sends each imported surface to the mesh job and keys the mesh on it",()=>{
  const moved={...c,bodies:[{...c.bodies[0]!,model:{...yUp,assetId:"other",sha256:"z".repeat(44)}}]} as typeof c;
  expect(meshKey(moved)).not.toBe(meshKey(c));
  expect(meshKey({...c,duration:2})).toBe(meshKey(c));
+});
+it("compares with a stated reference drag, or the Ahmed measurement",()=>{
+ expect(referenceDrag(defaultAhmedTunnel)).toEqual({cd:.285,area:null,source:"Ahmed 1984"});
+ const windsor=windsorTunnel(model(normalizeModel(encodeStl(cube([1.044,.475,.389],[-.56,0,-.1945])),"windsor_1.stl").measures,"windsor_1.stl"));
+ expect(referenceDrag(windsor)).toEqual({cd:.3225,area:.112,source:"WindsorML run 1 · WMLES"});
+ // y up in the file, z up in the tunnel; the reference never changes the mesh.
+ const b=bodyBounds(windsor.bodies[0]!);expect(b.max[2]-b.min[2]).toBeCloseTo(.475,5);
+ const {reference:_,...plain}=windsor;expect(meshKey(plain as typeof windsor)).toBe(meshKey(windsor));
+ expect(Domain3DCase.safeParse({...windsor,reference:{cd:.3,area:0,source:"x"}}).success).toBe(false);
 });
