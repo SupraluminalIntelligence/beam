@@ -2,7 +2,7 @@
 
 What changed in Beam, newest first. The app shows this under Settings › What's new. Add a line under Unreleased with any user-visible change; a release renames Unreleased to its version and date.
 
-## Unreleased
+## 0.1.8 — 2026-09-26
 
 - Chats show live status in the sidebar, tabs and ⌘K: pulsing blue while an agent or job runs, half amber when an agent is waiting on you, green when a run finished and you haven't looked, ✕ when it failed, and a blue outline when someone mentions you.
 - Parallel-channel studies: two to four heated or unheated channels between an inlet and an outlet manifold, solved transient with buoyancy in the real orientation (stacked, or vertical with flow up or down). Results show how the flow divides between channels over time, each channel's exit temperature, the hottest heated wall against the boiling point, and how much of the heat has left the outlet. The default is the two-channel HFE-7100 device from Masrouri and Yagoobi (IJHMT 2026) without its EHD pumps: on real OpenFOAM the heated lower channel draws 57% of the flow at 5 s, within half a point on three meshes, and its walls pass 61 °C after about 2 s. Setup checks flag buoyancy, convection rolls in channels heated from below, boiling walls and a run too short to reach steady state. Agents set up and run the same study.
@@ -12,12 +12,16 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 - Heated-channel studies check their own assumptions before anything runs: gravity off (Richardson number), single phase (boiling point), viscosity units and entry lengths. The checks update as you edit Setup, show on the study card and in the Results checks, and agents see them too. Set the fluid's expansion coefficient and boiling point to turn on the first two.
 - PRs from Beam look like any other PR: ready for review instead of draft, titled and described by the agent that did the work, and committed under your own git name so GitHub shows your avatar. Commits fall back to Beam only on a machine with no git identity.
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
+- Invalid or inaccessible repo names no longer lock a thread while attaching a repo.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
 - Usage & limits: see how much of each plan window your Claude Code and Codex accounts have used, and when each resets. Numbers refresh on every probe and while agents run.
 - The account menu shows whether your machine is ready, your tightest usage window, and quick links into Settings.
 - Pause desktop notifications for an hour or until tomorrow. The inbox keeps collecting.
 - Settings groups its pages into You, Workspaces and Beam. Folder sharing moved to Machines; Shortcuts lists every shortcut.
 - What's new: this changelog, inside the app.
+
+## 0.1.7 — 2026-09-26
+
 - Settings is a rail of pages: General, Models & accounts, Machines, Notifications, and a page per workspace with its repos, members and agents.
 - Model, effort and account are personal and follow you across workspaces; permissions and context stay shared per workspace agent.
 - Opus 5.5 for Claude Code.
