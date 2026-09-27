@@ -10,6 +10,7 @@ import { font, radius, useTheme } from "../lib/theme";
 import { AgentMark, Avatar, Sq, T } from "../ui";
 import { landingOf, STEP_LABEL, stepText, type Run } from "./model";
 import { Rich } from "./Rich";
+import { MessageFiles } from "./Files";
 
 const tap = () => { if (Platform.OS !== "web") void Haptics.selectionAsync(); };
 
@@ -29,7 +30,7 @@ export function Frame({ avatar, name, at, cont, children }: { avatar: React.Reac
   );
 }
 
-type Msg = { _id: Id<"messages">; author: string; text: string; reactions: { emoji: string; by: string[] }[] };
+type Msg = { _id: Id<"messages">; author: string; text: string; reactions: { emoji: string; by: string[] }[]; attachments?: Id<"files">[] };
 
 /** Reaction chips under a message. Tap toggles yours. */
 export function Reactions({ m, me }: { m: Msg; me: string }) {
@@ -69,6 +70,7 @@ export function PersonBody({ m, at, cont, name, image, me, known }: { m: Msg; at
   return (
     <Frame avatar={<Avatar login={m.author} name={name} image={image} size={26} />} name={name} at={at} cont={cont}>
       {m.text ? <Rich text={m.text} known={known} /> : null}
+      <MessageFiles ids={m.attachments} />
       <Reactions m={m} me={me} />
     </Frame>
   );
@@ -78,6 +80,7 @@ export function AgentBody({ m, harness, name, at, cont, known, me }: { m: Msg; h
   return (
     <Frame avatar={<AgentMark harness={harness} size={26} />} name={name} at={at} cont={cont}>
       <Rich text={m.text} known={known} />
+      <MessageFiles ids={m.attachments} />
       <Reactions m={m} me={me} />
     </Frame>
   );

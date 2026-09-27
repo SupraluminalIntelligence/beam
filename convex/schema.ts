@@ -103,6 +103,7 @@ export default defineSchema({
     chatId: v.id("chats"), workspaceId: v.id("workspaces"), repo: v.string(), branch: v.string(), base: v.string(),
     state: v.string(),                       // open | merged | closed
     title: v.string(), prUrl: v.union(v.string(), v.null()), prNumber: v.union(v.number(), v.null()),
+    body: v.optional(v.string()),            // the agent's PR description, for a PR opened later with Create PR
     add: v.number(), del: v.number(), files: v.number(),
     workScope: v.optional(v.string()),
     adopted: v.boolean(),                    // came from an existing PR rather than a run

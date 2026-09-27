@@ -31,3 +31,14 @@
 @media(prefers-reduced-motion:reduce){.sim-progress.live .sim-progress-marker{animation:none}}
 
 .wake-viewer{flex:1;min-height:330px;display:flex;flex-direction:column}.wake-viewer .sim-field-control{padding:0 12px 8px;flex-wrap:wrap}.wake-viewport{position:relative;flex:1;min-height:240px;overflow:hidden}.wake-viewport canvas{width:100%;height:100%;position:absolute;inset:0;display:block}.wake-empty{position:absolute;left:38%;top:48%;font:13px var(--font-sans);color:var(--ink-2);max-width:280px;pointer-events:none}.wake-empty span{display:block;font:12px/1.6 var(--font-sans);color:var(--ink-3);margin-top:8px}.wake-playback{display:flex;align-items:center;gap:9px;padding:12px;border-top:1px solid var(--line);font-size:10px}.wake-playback input[type=range]{flex:1;min-width:35px;accent-color:var(--ink-2);height:20px;padding:0}.wake-scale{display:flex;align-items:center;justify-content:center;gap:10px;font-size:10px;padding:10px 12px;flex-wrap:wrap;color:var(--ink-3)}.wake-scale i{width:160px;height:6px}.wake-scale>span:last-child{margin-left:auto}.wake-playback button{white-space:nowrap}
+
+/* Setup checks: a verdict per modelling assumption. */
+.sim-check b{display:inline-block;width:12px;text-align:center;font:10px var(--font-mono);color:var(--ink-3)}
+.sim-check.ok b{color:var(--ok)}
+.sim-check.warn b,.sim-check.unknown b{color:var(--warn)}
+.sim-check.fail b,.sim-check.fail>span:last-child{color:var(--bad)}
+.sim-rail p.sim-check-note{margin:6px 0 8px}
+.sim-rail p.sim-check-note.warn,.sim-rail p.sim-check-note.unknown{color:var(--warn)}
+.sim-rail p.sim-check-note.fail{color:var(--bad)}
+.sim-value input::placeholder{color:var(--ink-3)}
+.sim-measure.warn>span:last-child{color:var(--warn)}.sim-measure.fail>span:last-child{color:var(--bad)}

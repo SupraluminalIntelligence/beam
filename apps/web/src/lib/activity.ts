@@ -7,6 +7,7 @@ const BEAM_ACTIONS: Record<string, string> = {
   save_simulation: "Save simulation study",
   run_simulation: "Start simulation job",
   compare_simulation_runs: "Compare simulation runs",
+  mesh_convergence: "Estimate mesh convergence",
   list_jobs: "List compute jobs",
   get_job: "Check job status",
   cancel_job: "Request job cancellation",
