@@ -1,14 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { getFunctionName } from "convex/server";
 import { markTokenRejected, openChangesWithTokens, syncChanges } from "./github";
-import { EXPIRED } from "./prStatus";
+import { EXPIRED, fingerprint } from "./prStatus";
 
 const call = (fn: any, ctx: any, args = {}) => fn._handler(ctx, args);
 
 function fixture() {
   const users = [
-    { _id: "u1", githubLogin: "creator", githubToken: "dead", githubRejectedToken: undefined as string | undefined },
-    { _id: "u2", githubLogin: "teammate", githubToken: "alive", githubRejectedToken: undefined as string | undefined },
+    { _id: "u1", githubLogin: "creator", githubToken: "dead", githubRejectedTokenHash: undefined as string | undefined },
+    { _id: "u2", githubLogin: "teammate", githubToken: "alive", githubRejectedTokenHash: undefined as string | undefined },
   ];
   const changes = [{ _id: "c1", state: "open", prNumber: 21, repo: "acme/beam", createdBy: "creator", workspaceId: "ws", syncGen: 3 }];
   const members = [{ workspaceId: "ws", githubLogin: "creator" }, { workspaceId: "ws", githubLogin: "teammate" }];
@@ -56,7 +56,9 @@ it("marks a token GitHub no longer accepts and reads the PR with a teammate's in
 
   await call(syncChanges, ctx);
   expect(seen).toEqual(["dead", "alive"]);
-  expect(users[0]!.githubRejectedToken).toBe("dead");
+  // Only a fingerprint is kept: the raw token appears nowhere but the field sign-in writes.
+  expect(users[0]!.githubRejectedTokenHash).toBe(await fingerprint("dead"));
+  expect(Object.entries(users[0]!).filter(([k, v]) => k !== "githubToken" && v === "dead")).toEqual([]);
   expect(applied[0]).toMatchObject({ changeId: "c1", gen: 3, pr: { title: "Renamed by an agent", isDraft: true } });
   expect(errors).toEqual([]);
 
@@ -66,6 +68,16 @@ it("marks a token GitHub no longer accepts and reads the PR with a teammate's in
   expect(seen).toEqual(["alive"]);
   users[0]!.githubToken = "fresh";
   expect((await call(openChangesWithTokens, { db }))[0].access.tokens.map((t: any) => t.login)).toEqual(["creator", "teammate"]);
+});
+
+it("hands a PR the creator's token can't see over to a teammate's, when GraphQL reports it as not found", async () => {
+  const { db } = fixture();
+  vi.stubGlobal("fetch", async (_url: string, init: { headers: Record<string, string> }) =>
+    init.headers["authorization"] === "Bearer alive" ? new Response(JSON.stringify(pr)) : new Response(JSON.stringify({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository", type: "NOT_FOUND" }] })));
+  const applied: any[] = [];
+  const ctx = { runQuery: async () => call(openChangesWithTokens, { db }), runMutation: async (ref: any, args: any) => { if (getFunctionName(ref) === "github:applyPr") applied.push(args); } };
+  await call(syncChanges, ctx);
+  expect(applied).toHaveLength(1);
 });
 
 it("says GitHub access expired, not that no one gave access, when the only token is dead", async () => {
@@ -89,6 +101,6 @@ it("says GitHub access expired, not that no one gave access, when the only token
 it("only marks the token GitHub answered for, not one a sign-in has since replaced", async () => {
   const { users, db } = fixture();
   users[0]!.githubToken = "fresh";
-  await call(markTokenRejected, { db }, { login: "creator", token: "dead" });
-  expect(users[0]!.githubRejectedToken).toBeUndefined();
+  await call(markTokenRejected, { db }, { login: "creator", tokenHash: await fingerprint("dead") });
+  expect(users[0]!.githubRejectedTokenHash).toBeUndefined();
 });

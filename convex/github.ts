@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireChat } from "./lib";
 import { startSync } from "./changes";
-import { EXPIRED, MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, type ChecksSummary, type PrSnapshot, type Refusal } from "./prStatus";
+import { EXPIRED, fingerprint, MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, type ChecksSummary, type PrSnapshot, type Refusal } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
 export const myToken = internalQuery({
@@ -57,7 +57,7 @@ async function tokensFor(ctx: QueryCtx, c: Doc<"changes">): Promise<{ tokens: Ca
   for (const login of logins) {
     const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
     if (!u?.githubToken) continue;
-    if (u.githubRejectedToken === u.githubToken) { expired = true; continue; }
+    if (u.githubRejectedTokenHash && u.githubRejectedTokenHash === await fingerprint(u.githubToken)) { expired = true; continue; }
     tokens.push({ login, token: u.githubToken });
   }
   return { tokens, expired };
@@ -65,12 +65,12 @@ async function tokensFor(ctx: QueryCtx, c: Doc<"changes">): Promise<{ tokens: Ca
 
 const NO_ACCESS = "No one in this workspace has given Beam GitHub access";
 
-/** GitHub answered 401 for this token. Only the token it answered for: a sign-in since then stored a new one. */
+/** GitHub answered 401 for the token with this fingerprint. Only that token: a sign-in since then stored a new one. */
 export const markTokenRejected = internalMutation({
-  args: { login: v.string(), token: v.string() },
-  handler: async (ctx, { login, token }) => {
+  args: { login: v.string(), tokenHash: v.string() },
+  handler: async (ctx, { login, tokenHash }) => {
     const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
-    if (u?.githubToken === token) await ctx.db.patch(u._id, { githubRejectedToken: token });
+    if (u?.githubToken && await fingerprint(u.githubToken) === tokenHash) await ctx.db.patch(u._id, { githubRejectedTokenHash: tokenHash });
   },
 });
 
@@ -84,7 +84,7 @@ async function readPr(ctx: ActionCtx, repo: string, prNumber: number, access: { 
     const pr = await fetchPr(repo, prNumber, t.token);
     if (!("error" in pr)) return pr;
     first ??= pr;
-    if (pr.kind === "expired") await ctx.runMutation(internal.github.markTokenRejected, { login: t.login, token: t.token });
+    if (pr.kind === "expired") await ctx.runMutation(internal.github.markTokenRejected, { login: t.login, tokenHash: await fingerprint(t.token) });
     else if (pr.kind !== "forbidden") break;
   }
   return first ?? { error: access.expired ? EXPIRED : NO_ACCESS, kind: access.expired ? "expired" : "other" };
@@ -171,7 +171,7 @@ async function fetchPr(repo: string, prNumber: number, token: string): Promise<P
     });
     if (!res.ok) { if (first) break; return refusal(res.status, res.headers); }
     const parsed = parsePrPage(await res.json());
-    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); if (first) break; return { error: parsed.error, kind: "other" }; }
+    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); if (first) break; return parsed; }
     first ??= parsed.pr;
     items.push(...parsed.pr.items);
     after = parsed.next;

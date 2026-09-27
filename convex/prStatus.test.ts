@@ -59,7 +59,10 @@ describe("parsePrPage", () => {
   it("rejects a malformed response at the boundary instead of passing it on", () => {
     const bad = page(); (bad.data.repository.pullRequest as Record<string, unknown>).additions = "137";
     expect(parsePrPage(bad)).toMatchObject({ error: expect.stringContaining("additions") });
-    expect(parsePrPage({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository" }] })).toEqual({ error: "Could not resolve to a Repository" });
+    expect(parsePrPage({ data: { repository: null }, errors: [{ message: "Could not resolve to a Repository", type: "NOT_FOUND" }] })).toEqual({ error: "Could not resolve to a Repository", kind: "forbidden" });
+    expect(parsePrPage({ data: { repository: { pullRequest: null } } })).toEqual({ error: "pull request not found", kind: "forbidden" });
+    expect(parsePrPage({ data: null, errors: [{ message: "API rate limit exceeded", type: "RATE_LIMITED" }] })).toMatchObject({ kind: "rate-limited" });
+    expect(parsePrPage({ data: null, errors: [{ message: "Something went wrong", type: "INTERNAL" }] })).toMatchObject({ kind: "other" });
     expect(parsePrPage("nope")).toMatchObject({ error: expect.any(String) });
   });
 });
