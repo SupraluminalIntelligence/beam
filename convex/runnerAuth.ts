@@ -64,6 +64,8 @@ export const approve = mutation({
     const code = userCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^(.{4})(.{4})$/, "$1-$2");
     const row = await ctx.db.query("deviceCodes").withIndex("by_user_code", (q) => q.eq("userCode", code)).first();
     if (!row || row.expiresAt < Date.now()) throw new Error("That code is not waiting for approval");
+    // A layer asks for scopes; it is approved only where they are shown (layers.approve).
+    if (row.kind === "layer") throw new Error("That code is for an app built on Beam. Approve it in Settings → Connected apps.");
     if (row.status === "approved") return { name: row.name, kind: row.kind ?? "runner", already: true };
     if ((row.kind ?? "runner") === "desktop") { await ctx.db.patch(row._id, { status: "approved", userId: u._id, githubLogin: u.githubLogin! }); return { name: row.name, kind: "desktop", already: false }; }
     const token = randomToken();

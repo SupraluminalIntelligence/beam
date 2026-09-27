@@ -18,18 +18,20 @@ import { AgentDefaults } from "./AgentDefaults";
 import { WorkspaceSettings } from "./WorkspaceSettings";
 import { ResourceSharingPolicy } from "./SharedResources";
 import { UsagePage } from "./Usage";
+import { ConnectedApps } from "./ConnectedApps";
 import { markChangelogSeen, releases, useChangelogUnseen } from "../lib/changelog";
 import { chatStatus, useChatActivity } from "../lib/chatStatus";
 
 type Detail = { id: Id<"workspaces">; name: string; repos: string[]; members: string[]; agents: Doc<"agents">[] };
 
-export type SettingsTab = "general" | "models" | "machines" | "notifications" | "usage" | "whatsnew" | "workspace" | `agent:${string}`;
+export type SettingsTab = "general" | "models" | "machines" | "apps" | "notifications" | "usage" | "whatsnew" | "workspace" | `agent:${string}`;
 const icon = (d: ReactNode) => <svg viewBox="0 0 24 24" aria-hidden="true">{d}</svg>;
 /** Pages about you: they follow you into every workspace. */
 const YOU_TABS = [
   ["general", "General", <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>],
   ["models", "Models & accounts", <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>],
   ["machines", "Machines", <><rect x="3" y="4" width="18" height="12" rx="1" /><path d="M8 20h8M12 16v4" /></>],
+  ["apps", "Connected apps", <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M17.5 14v7M14 17.5h7" /></>],
   ["usage", "Usage & limits", <><path d="M4 20a8 8 0 1 1 16 0" /><path d="m12 20 4-6" /></>],
   ["notifications", "Notifications", <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0" /></>],
 ] as const;
@@ -87,6 +89,7 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
               </>}
               {tab === "models" && <AgentDefaults workspaceId={detail.id} onOpenMachines={() => setTab("machines")} />}
               {tab === "machines" && <><Machines pairCode={pairCode ?? null} /><div className="sb-sec" style={{ padding: "12px 14px 4px" }}>Folders you share</div><ResourceSharingPolicy /></>}
+              {tab === "apps" && <ConnectedApps />}
               {tab === "usage" && <UsagePage />}
               {tab === "notifications" && <NotificationSettings />}
               {tab === "whatsnew" && <WhatsNew />}

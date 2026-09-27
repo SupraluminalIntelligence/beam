@@ -35,8 +35,11 @@ export default defineSchema({
   /** A runner's long-lived credential. Only the hash is stored. One per machine per person. */
   runnerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
     .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
-  /** Device-code login in flight. Deleted once polled after approval. */
-  deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), kind: v.optional(v.string()), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()), userId: v.optional(v.id("users")) })
+  /** An interaction layer's credential: reads (and later, scoped writes) as one person. Only the hash is stored. */
+  layerTokens: defineTable({ tokenHash: v.string(), githubLogin: v.string(), name: v.string(), hostname: v.string(), scopes: v.array(v.string()), createdAt: v.number(), revokedAt: v.union(v.number(), v.null()) })
+    .index("by_hash", ["tokenHash"]).index("by_login", ["githubLogin"]),
+  /** Device-code login in flight. Deleted once polled after approval. kind: runner | desktop | layer; scopes are a layer's request. */
+  deviceCodes: defineTable({ deviceCode: v.string(), userCode: v.string(), kind: v.optional(v.string()), scopes: v.optional(v.array(v.string())), name: v.string(), hostname: v.string(), status: v.string(), expiresAt: v.number(), token: v.union(v.string(), v.null()), githubLogin: v.union(v.string(), v.null()), userId: v.optional(v.id("users")) })
     .index("by_device", ["deviceCode"]).index("by_user_code", ["userCode"]),
   /** A machine that can host runs. Belongs to a person, available in every workspace they are a member of. */
   runners: defineTable({

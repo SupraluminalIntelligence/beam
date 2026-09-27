@@ -1,4 +1,6 @@
 import { mutation, query } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { openChange, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
@@ -10,8 +12,7 @@ export const list = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, { workspaceId }) => {
     const u = await requireMember(ctx, workspaceId);
-    const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    return all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!))).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    return visibleChats(ctx, workspaceId, u.githubLogin!);
   },
 });
 
@@ -34,24 +35,34 @@ export const activity = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, { workspaceId }) => {
     const u = await requireMember(ctx, workspaceId);
-    const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
-    const chats = all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!)));
-    const inbox = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", u.githubLogin!)).order("desc").take(100);
-    const out: Record<string, ChatActivity> = {};
-    // Only live rows, looked up by state: reading each chat's whole history would grow forever and rerun this on every past run's update.
-    for (const c of chats) {
-      const runs = (await Promise.all([...LIVE].map((state) => ctx.db.query("runs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
-      const jobs = (await Promise.all(OPEN_JOBS.map((state) => ctx.db.query("computeJobs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
-      const status = chatActivity({
-        asking: runs.some((r) => (r.openRequests ?? []).length > 0) || jobs.some((j) => j.state === "awaiting-approval"),
-        working: runs.length > 0 || jobs.length > 0,
-        unread: inbox.filter((n) => n.chatId === c._id && n.readAt === null).map((n) => n.kind),
-      });
-      if (status !== "idle") out[c._id] = status;
-    }
-    return out;
+    return activityFor(ctx, workspaceId, u.githubLogin!);
   },
 });
+
+/** Chats a person can see in a workspace, most recent first. Membership is the caller's to check. */
+export async function visibleChats(ctx: QueryCtx, workspaceId: Id<"workspaces">, login: string) {
+  const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
+  return all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(login))).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+}
+
+/** The status squares as one person sees them. Membership is the caller's to check. */
+export async function activityFor(ctx: QueryCtx, workspaceId: Id<"workspaces">, login: string) {
+  const chats = await visibleChats(ctx, workspaceId, login);
+  const inbox = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", login)).order("desc").take(100);
+  const out: Record<string, ChatActivity> = {};
+  // Only live rows, looked up by state: reading each chat's whole history would grow forever and rerun this on every past run's update.
+  for (const c of chats) {
+    const runs = (await Promise.all([...LIVE].map((state) => ctx.db.query("runs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
+    const jobs = (await Promise.all(OPEN_JOBS.map((state) => ctx.db.query("computeJobs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
+    const status = chatActivity({
+      asking: runs.some((r) => (r.openRequests ?? []).length > 0) || jobs.some((j) => j.state === "awaiting-approval"),
+      working: runs.length > 0 || jobs.length > 0,
+      unread: inbox.filter((n) => n.chatId === c._id && n.readAt === null).map((n) => n.kind),
+    });
+    if (status !== "idle") out[c._id] = status;
+  }
+  return out;
+}
 
 /** Keep history and git references intact, but remove the chat from the workspace. */
 export const remove = mutation({

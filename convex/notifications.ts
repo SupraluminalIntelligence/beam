@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { mentionTargets } from "./mentionTargets";
-import { me, requireChat } from "./lib";
+import { me, requireChat, requireChatLogin } from "./lib";
 import { schedulePush } from "./push";
 
 export const defaults = { enabled: true, completed: true, failed: true, input: true, mention: true, sound: true };
@@ -58,13 +58,14 @@ export async function resolveInputNotifications(ctx: MutationCtx, runId: Id<"run
   const rows = await ctx.db.query("notifications").withIndex("by_run", (q) => q.eq("runId", runId)).collect();
   for (const row of rows) if (row.kind === "input" && row.readAt === null && (!requestId || row.key === `${runId}:input:${requestId}`)) await ctx.db.patch(row._id, { readAt: Date.now(), deliveredAt: row.deliveredAt ?? Date.now() });
 }
-export const inbox = query({ args: {}, handler: async (ctx) => {
-  const user = await me(ctx);
-  const rows = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", user.githubLogin!)).order("desc").take(100);
+export const inbox = query({ args: {}, handler: async (ctx) => inboxFor(ctx, (await me(ctx)).githubLogin!) });
+/** A person's latest notifications, skipping chats they can no longer see. */
+export async function inboxFor(ctx: QueryCtx, login: string) {
+  const rows = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", login)).order("desc").take(100);
   const visible = [];
-  for (const row of rows) { try { const { chat } = await requireChat(ctx, row.chatId); if (chat.state !== "deleted") visible.push(row); } catch { /* Membership revoked. */ } }
+  for (const row of rows) { try { const chat = await requireChatLogin(ctx, row.chatId, login); if (chat.state !== "deleted") visible.push(row); } catch { /* Membership revoked. */ } }
   return visible;
-} });
+}
 export const read = mutation({ args: { id: v.id("notifications") }, handler: async (ctx, { id }) => {
   const user = await me(ctx), row = await ctx.db.get(id);
   if (!row || row.recipient !== user.githubLogin) throw new Error("Not your notification");
