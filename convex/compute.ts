@@ -6,7 +6,7 @@ import { requireChat } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { JobPath, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
-import { SimulationCase, meshKey, simulationOutputs } from "../packages/contracts/src/simulation";
+import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath } from "../packages/contracts/src/simulation";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
@@ -57,7 +57,7 @@ async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId:
       const mesh=await ctx.db.get(sim.meshJobId as Id<"computeJobs">), prior=mesh && ProcessJobSpec.parse(mesh.spec).simulation;
       if(!mesh || mesh.chatId!==input.chatId || mesh.state!=="succeeded" || prior?.stage!=="mesh" || prior.caseId!==sim.caseId || meshKey(prior.config)!==meshKey(sim.config)) throw new Error("Build a matching mesh before solving");
       const asset=await ctx.db.get(spec.inputs[0]!.assetId as Id<"computeAssets">);
-      if(!asset || !mesh.outputs.includes(asset._id) || asset.path!=="mesh.json") throw new Error("Use the mesh output of the selected mesh job");
+      if(!asset || !mesh.outputs.includes(asset._id) || asset.path!==meshAssetPath(sim.config)) throw new Error("Use the mesh output of the selected mesh job");
     }
   }
   let size = 0;
@@ -151,8 +151,8 @@ async function enqueueSimulation(ctx:MutationCtx,chatId:Id<"chats">,runnerId:Id<
   const model=await ctx.db.get(a.caseId);
   if(!model||model.chatId!==chatId||model.revision!==a.revision)throw new Error("Simulation revision changed; reload the case");
   const inputs=[];
-  if(a.stage==="solve"&&a.meshJobId){const mesh=await ctx.db.get(a.meshJobId);if(mesh?.chatId!==chatId)throw new Error("Mesh unavailable");for(const id of mesh.outputs){const asset=await ctx.db.get(id);if(asset?.path==="mesh.json")inputs.push({assetId:id,path:"mesh-input.json"});}}
-  return enqueue(ctx,{chatId,runnerId,requestedBy:login,requestKey:a.requestKey,needsApproval,...(sourceRunId?{sourceRunId}:{}),spec:{version:1,kind:"process",title:`${model.name} · ${a.stage} · r${model.revision}`,executable:"beam:openfoam",args:[],inputs,outputs:simulationOutputs(a.stage,SimulationCase.parse(model.config)),timeoutSeconds:3600,simulation:{caseId:a.caseId,revision:model.revision,stage:a.stage,config:SimulationCase.parse(model.config),...(a.meshJobId?{meshJobId:a.meshJobId}:{})}}});
+  if(a.stage==="solve"&&a.meshJobId){const mesh=await ctx.db.get(a.meshJobId);if(mesh?.chatId!==chatId)throw new Error("Mesh unavailable");const config=SimulationCase.parse(model.config);for(const id of mesh.outputs){const asset=await ctx.db.get(id);if(asset?.path===meshAssetPath(config))inputs.push({assetId:id,path:meshInputPath(config)});}}
+  return enqueue(ctx,{chatId,runnerId,requestedBy:login,requestKey:a.requestKey,needsApproval,...(sourceRunId?{sourceRunId}:{}),spec:{version:1,kind:"process",title:`${model.name} · ${a.stage} · r${model.revision}`,executable:"beam:openfoam",args:[],inputs,outputs:simulationOutputs(a.stage,SimulationCase.parse(model.config)),timeoutSeconds:SimulationCase.parse(model.config).geometry==="domain3d"?4*3600:3600,simulation:{caseId:a.caseId,revision:model.revision,stage:a.stage,config:SimulationCase.parse(model.config),...(a.meshJobId?{meshJobId:a.meshJobId}:{})}}});
 }
 export const saveSimulation=mutation({args:{chatId:v.id("chats"),...saveCaseArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);if(!a.id){const runs=await ctx.db.query("runs").withIndex("by_chat",q=>q.eq("chatId",a.chatId)).collect();if(runs.some(r=>["queued","starting","working","landing"].includes(r.state)))throw new Error("Ask the working agent to create the new study, or wait for its turn to finish.");}return saveCase(ctx,a.chatId,u.githubLogin!,a);}});
 export const submitSimulation=mutation({args:{chatId:v.id("chats"),runnerId:v.id("runners"),...simulationArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);return enqueueSimulation(ctx,a.chatId,a.runnerId,u.githubLogin!,a,false);}});

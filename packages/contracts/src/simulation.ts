@@ -2,10 +2,12 @@ import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
 import { ParallelChannelsCase, ParallelChannelsResults, parallelSetupChecks } from "./parallelChannels.ts";
 import { channelSetupChecks } from "./channelChecks.ts";
+import { Domain3DCase } from "./domain3d.ts";
 export * from "./planar.ts";
 export * from "./parallelChannels.ts";
 export * from "./channelChecks.ts";
 export * from "./meshStudy.ts";
+export * from "./domain3d.ts";
 
 export const OPENFOAM_IMAGE = "opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319";
 /** First supported study: a 2-D laminar channel, prescribed wall temperature, no buoyancy. SI units. */
@@ -38,7 +40,7 @@ export const CylinderCase = z.object({
 }).strict();
 export type CylinderCase = z.infer<typeof CylinderCase>;
 export const defaultCylinder:CylinderCase = {version:2,geometry:"cylinder",diameter:.01,velocity:.1,reynolds:150,density:1000,duration:100};
-export const SimulationCase = z.union([ChannelCase,CylinderCase,PlanarCase,ParallelChannelsCase]);
+export const SimulationCase = z.union([ChannelCase,CylinderCase,PlanarCase,ParallelChannelsCase,Domain3DCase]);
 export type SimulationCase = z.infer<typeof SimulationCase>;
 /** Assumption checks for studies that have them: the heated channel and parallel channels. */
 export const studySetupChecks = (c: SimulationCase) => c.geometry === "channel" ? channelSetupChecks(c) : c.geometry === "parallel-channels" ? parallelSetupChecks(c) : null;
@@ -47,14 +49,17 @@ export function canonicalMeshKey(key:string):string {
  const stable=(v:unknown):unknown=>Array.isArray(v)?v.map(stable):v!==null&&typeof v==="object"?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,value])=>[k,stable(value)])):v;
  return JSON.stringify(stable(JSON.parse(key)));
 }
-export const meshKey = (c: SimulationCase) => canonicalMeshKey(JSON.stringify(c.geometry==="planar"?[c.geometry,c.domain,c.bodies,c.meshSize,c.boundaries.map(b=>[b.name,b.type==="symmetry"?"symmetry":b.type==="wall"?"wall":"patch"]),...(c.refinements?.length?["refined-planar-1",c.refinements]:[]),...(c.motion?["pitch-mesh-1",c.motion]:[])]:c.geometry==="channel"?[c.geometry,c.length,c.height,c.nx,c.ny]:c.geometry==="parallel-channels"?[c.geometry,c.channelLength,c.channelHeight,c.wallThickness,c.manifoldLength,c.channels.length,c.cellsAcross,c.cellsAlong]:[c.geometry,c.diameter,c.version===1?"wake-grid-1":"wake-grid-2"]));
+export const meshKey = (c: SimulationCase) => canonicalMeshKey(JSON.stringify(c.geometry==="domain3d"?[c.geometry,"snappy-1",c.domain,c.bodies,c.meshSize,c.refinements??[],c.boundaries.map(b=>[b.name,b.type==="symmetry"?"symmetry":b.type==="wall"?"wall":"patch"])]:c.geometry==="planar"?[c.geometry,c.domain,c.bodies,c.meshSize,c.boundaries.map(b=>[b.name,b.type==="symmetry"?"symmetry":b.type==="wall"?"wall":"patch"]),...(c.refinements?.length?["refined-planar-1",c.refinements]:[]),...(c.motion?["pitch-mesh-1",c.motion]:[])]:c.geometry==="channel"?[c.geometry,c.length,c.height,c.nx,c.ny]:c.geometry==="parallel-channels"?[c.geometry,c.channelLength,c.channelHeight,c.wallThickness,c.manifoldLength,c.channels.length,c.cellsAcross,c.cellsAlong]:[c.geometry,c.diameter,c.version===1?"wake-grid-1":"wake-grid-2"]));
 export const SimulationJob = z.object({image:z.literal(OPENFOAM_IMAGE).default(OPENFOAM_IMAGE),caseId:z.string().min(1),revision:z.number().int().positive(),stage:z.enum(["mesh","solve"]),config:SimulationCase,meshJobId:z.string().optional()}).strict();
 export type SimulationJob = z.infer<typeof SimulationJob>;
-export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel" && config.geometry!=="parallel-channels"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
+/** 3-D polyMesh snapshots are binary archives; 2-D snapshots remain inline JSON. */
+export const meshAssetPath = (config?:SimulationCase) => config?.geometry==="domain3d" ? "mesh.tar.gz" : "mesh.json";
+export const meshInputPath = (config?:SimulationCase) => config?.geometry==="domain3d" ? "mesh-input.tar.gz" : "mesh-input.json";
+export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => config?.geometry==="domain3d" ? (stage==="mesh" ? ["report.json","mesh.tar.gz","mesh-view.json"] : ["report.json","fields.json","frames.bin","case.tar.gz"]) : stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel" && config.geometry!=="parallel-channels"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
 /** Heated-channel results a thermal engineer reads: flow-weighted outlet temperature, discrete energy balance, developed f·Re and local Nu(x) on 2H. */
 export const ChannelResults = z.object({bulkOutletTemperatureK:z.number().finite(),maxWallTemperatureK:z.number().finite().optional(),energyImbalance:z.number().finite().nullable(),fRe:z.number().finite().nullable(),nusselt:z.array(z.tuple([z.number().finite(),z.number().finite()])).max(160)});
 export type ChannelResults = z.infer<typeof ChannelResults>;
-export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional(),channel:ChannelResults.optional(),parallel:ParallelChannelsResults.optional()});
+export const SimulationReport = z.object({version:z.literal(1),stage:z.enum(["mesh","solve"]),config:SimulationCase,image:z.string(),cells:z.number().int().positive(),meshOk:z.boolean(),maxNonOrthogonality:z.number().nullable(),maxSkewness:z.number().nullable(),iterations:z.number().int().nonnegative(),converged:z.boolean(),residuals:z.array(z.object({iteration:z.number(),field:z.string(),initial:z.number(),final:z.number()})).max(30000),massImbalance:z.number().nullable(),pressureDropPa:z.number().nullable(),outletTemperatureK:z.number().nullable(),thermalBalance:z.literal("not-evaluated"),meshSensitivity:z.literal("not-studied"),physicalTime:z.number().finite().optional(),maxCourant:z.number().finite().optional(),motion:z.object({checkedFrames:z.number().int().positive(),minCellAreaM2:z.number().positive().finite()}).optional(),channel:ChannelResults.optional(),parallel:ParallelChannelsResults.optional(),domain3d:z.object({backgroundCells:z.number().int().positive(),estimatedCells:z.number().int().nonnegative(),cellTypes:z.record(z.string(),z.number().int().nonnegative()),geometryChecks:z.string().max(400),turbulence:z.string(),processes:z.number().int().positive(),requestedFrames:z.number().int().nonnegative(),savedFrames:z.number().int().nonnegative(),archive:z.enum(["final-fields","dictionaries-only","none"]),maxNutRatio:z.number().finite().nullable()}).optional()});
 export type SimulationReport = z.infer<typeof SimulationReport>;
 export const SimulationFields = z.object({version:z.literal(1),centres:z.array(z.tuple([z.number().finite(),z.number().finite(),z.number().finite()])).max(12800),velocity:z.array(z.number().finite()).max(12800),pressure:z.array(z.number().finite()).max(12800),temperature:z.array(z.number().finite()).max(12800)}).superRefine((f,ctx)=>{if(!f.centres.length||[f.velocity,f.pressure,f.temperature].some(a=>a.length!==f.centres.length))ctx.addIssue({code:"custom",message:"Field and cell counts differ"});});
 export type SimulationFields = z.infer<typeof SimulationFields>;
@@ -92,3 +97,26 @@ export function wakeGeometryAt(fields:WakeFields,geometry:Float32Array,lo:number
  const centres=polygons.map(p=>[p.reduce((s,v)=>s+v[0],0)/3,p.reduce((s,v)=>s+v[1],0)/3] as [number,number]);
  return{positions,polygons,centres};
 }
+
+/** Sampled 3-D surfaces: slices and body walls with fixed topology across saved times. */
+const Surface3D=z.object({name:z.string().min(1).max(60),kind:z.enum(["slice","wall"]),points:z.array(z.number().finite()).max(600000),triangles:z.array(z.number().int().nonnegative()).max(1200000)}).superRefine((s,ctx)=>{if(s.points.length%3||s.triangles.length%3||s.triangles.some(i=>i*3>=s.points.length))ctx.addIssue({code:"custom",message:"Invalid surface addressing"});});
+export type Surface3D=z.infer<typeof Surface3D>;
+/** Float32 little-endian, frame-major, then surface order, then point-major [Ux, Uy, Uz, p in Pa]. */
+export const Domain3DFields=z.object({
+ version:z.literal(1),kind:z.literal("domain3d-surfaces"),encoding:z.literal("float32-le"),
+ times:z.array(z.number().finite().positive()).min(1).max(60),
+ surfaces:z.array(Surface3D).min(1).max(12),
+ ranges:z.object({velocity:z.tuple([z.number().finite(),z.number().finite()]),pressure:z.tuple([z.number().finite(),z.number().finite()])}),
+}).superRefine((f,ctx)=>{if(f.times.some((t,i)=>i>0&&t<=f.times[i-1]!))ctx.addIssue({code:"custom",message:"Invalid time sequence"});});
+export type Domain3DFields=z.infer<typeof Domain3DFields>;
+export const domain3dPoints=(f:Pick<Domain3DFields,"surfaces">)=>f.surfaces.reduce((n,s)=>n+s.points.length/3,0);
+export function decodeDomain3dFrames(bytes:ArrayBuffer,fields:Domain3DFields):Float32Array{
+ const count=fields.times.length*domain3dPoints(fields)*4;
+ if(bytes.byteLength!==count*4||bytes.byteLength>20e6)throw new Error("3D frame size does not match its manifest");
+ const view=new DataView(bytes),values=new Float32Array(count);
+ for(let i=0;i<count;i++){const v=view.getFloat32(i*4,true);if(!Number.isFinite(v))throw new Error("Non-finite 3D field");values[i]=v;}
+ return values;
+}
+/** Actual snapped wall surfaces and the mesh cut by each slice plane (polygon faces). */
+export const Domain3DMeshView=z.object({version:z.literal(1),kind:z.literal("domain3d-mesh"),surfaces:z.array(z.object({name:z.string().min(1).max(60),kind:z.enum(["slice","wall"]),points:z.array(z.number().finite()).max(600000),counts:z.array(z.number().int().min(3).max(64)).max(200000),indices:z.array(z.number().int().nonnegative()).max(1200000)}).superRefine((s,ctx)=>{if(s.points.length%3||s.counts.reduce((a,b)=>a+b,0)!==s.indices.length||s.indices.some(i=>i*3>=s.points.length))ctx.addIssue({code:"custom",message:"Invalid mesh view addressing"});})).max(12)});
+export type Domain3DMeshView=z.infer<typeof Domain3DMeshView>;
