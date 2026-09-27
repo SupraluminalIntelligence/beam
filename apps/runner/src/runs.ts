@@ -1,7 +1,7 @@
 import type { ConvexClient } from "convex/browser";
 import { repoName, type Agent, type RepoLanding, type RunEvent } from "@beam/contracts";
 import { adapters, type BeamTool, type Session } from "@beam/harness";
-import { compareUrl, defaultBranch, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, openPullRequest, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
+import { branchFrom, compareUrl, defaultBranch, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, openPullRequest, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -38,7 +38,7 @@ export function watchRuns(client: ConvexClient, token: string) {
   client.onUpdate(api.runs.queuedFor, { token }, (runs) => {
     for (const r of runs) {
       if (active.has(r._id)) continue;
-      const progress: Progress = { title: "", slots: new Map(), landing: null };
+      const progress: Progress = { title: "", harness: "beam", slots: new Map(), landing: null };
       const p = hostRun(client, token, r._id, progress).catch(async (e) => {
         console.error(`[run ${r._id.slice(-6)}] crashed`, e);
         // Still end it, or it waits in the chat as queued or working until someone notices. Edits made so far are
@@ -46,7 +46,7 @@ export function watchRuns(client: ConvexClient, token: string) {
         try {
           const l = progress.landing;
           if (l) await land(client, token, r._id, l.state, l.repos, l.error, l.cursor);
-          else await land(client, token, r._id, "failed", await landSlots(client, token, r._id, progress.title, progress.slots), `the runner could not host this run: ${(e as Error).message}`, null);
+          else await land(client, token, r._id, "failed", await landSlots(client, token, r._id, progress.title, progress.harness, progress.slots), `the runner could not host this run: ${(e as Error).message}`, null);
         } catch (err) { console.error(`[run ${r._id.slice(-6)}] could not report the crash`, err); }
       }).finally(() => active.delete(r._id));
       active.set(r._id, p);
@@ -56,15 +56,16 @@ export function watchRuns(client: ConvexClient, token: string) {
 }
 
 /** What the agent says it changed in a repo: the commit message, and the PR's title and description. */
-interface Description { title: string; body: string }
+interface Description { title: string; body: string; branch?: string }
 /** One repo's place in the thread directory. */
 interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null; description?: Description }
 /** What a run has set up so far, so a crash can still land it. */
-interface Progress { title: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null }
+interface Progress { title: string; harness: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null }
 
 async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, progress: Progress) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
   progress.title = d.chat.title;
+  progress.harness = d.agent.harness;
   const { chat, agent, dispatch } = d;
   log(runId, `dispatch from ${dispatch.author} → @${agent.handle}${chat.repos.length ? ` in ${chat.repos.join(", ")}` : " (no repo yet)"}`);
 
@@ -166,12 +167,14 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
         repo: z.string().describe("owner/name"),
         title: z.string().min(1).max(120).describe("PR title: a short imperative summary, like a commit subject (e.g. \"Show live status on chat squares\")"),
         body: z.string().describe("PR description in Markdown, for reviewers: what changed and why, how it was tested, and anything they should check"),
+        branch: z.string().max(60).optional().describe("Branch name for a new PR: 2-5 lowercase words in kebab-case naming the change (e.g. \"chat-square-status\"). Beam adds the prefix for your harness (e.g. claude/). Ignored once the branch is on GitHub."),
       },
       run: async (args) => {
         const repo = String(args["repo"]);
         const s = slots.get(repo);
         if (!s) throw new Error(`${repo} is not mounted in this thread; mounted: ${[...slots.keys()].join(", ") || "none"}`);
-        s.description = { title: String(args["title"]).replace(/\s+/g, " ").trim(), body: String(args["body"]).trim() };
+        const branch = typeof args["branch"] === "string" && args["branch"].trim() ? args["branch"].trim() : undefined;
+        s.description = { title: String(args["title"]).replace(/\s+/g, " ").trim(), body: String(args["body"]).trim(), ...(branch ? { branch } : {}) };
         return s.change?.prUrl ? `Noted. The commit uses it; the PR (${s.change.prUrl}) keeps its current title and description.` : `Noted. The commit and the PR Beam opens for ${repo} will use it.`;
       },
     },
@@ -377,21 +380,26 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   }
 
   // 7. Land every repo that changed: commit, push, open or update its PR. Always, even after a failure or interrupt.
-  const landings = await landSlots(client, token, runId, chat.title, slots);
+  const landings = await landSlots(client, token, runId, chat.title, agent.harness, slots);
   progress.landing = { state, repos: landings, error: null, cursor };
   await land(client, token, runId, state, landings, null, cursor);
 }
 
 /** Commit, push and open or update a PR for every repo in the thread directory that changed. */
-async function landSlots(client: ConvexClient, token: string, runId: Id<"runs">, title: string, slots: Map<string, RepoSlot>): Promise<RepoLanding[]> {
+async function landSlots(client: ConvexClient, token: string, runId: Id<"runs">, title: string, harness: string, slots: Map<string, RepoSlot>): Promise<RepoLanding[]> {
   const landings: RepoLanding[] = [];
   for (const s of slots.values()) {
     try {
       // The agent's own description when it gave one; otherwise the change's title, then the thread's.
-      const d = s.description ?? { title: s.change?.title ?? title, body: "" };
-      const r = await landRepo(s.dir, s.branch, s.base, `${d.title}\n\n${d.body ? `${d.body}\n\n` : ""}Beam-Run: ${runId}`);
+      const d: Description = s.description ?? { title: s.change?.title ?? title, body: "" };
+      // A branch that has never been pushed takes its real name now: the agent's, or one made from the PR title. A name
+      // an earlier PR used is skipped, or that PR would be found below and this work reported as landing on it.
+      const rename = s.change ? undefined : { to: branchFrom(harness, d.branch ?? d.title), taken: async (name: string) => !!(await prForBranch(s.repo, name)) };
+      const r = await landRepo(s.dir, s.branch, s.base, `${d.title}\n\n${d.body ? `${d.body}\n\n` : ""}Beam-Run: ${runId}`, rename);
       if (!r.pushed) continue;
-      let pr = s.change?.prUrl ? { url: s.change.prUrl, number: s.change.prNumber } : await prForBranch(s.repo, s.branch).then((p) => (p ? { url: p.url, number: p.number } : null));
+      const renamed = r.branch !== s.branch;
+      s.branch = r.branch;
+      let pr = s.change?.prUrl ? { url: s.change.prUrl, number: s.change.prNumber } : renamed ? null : await prForBranch(s.repo, s.branch).then((p) => (p ? { url: p.url, number: p.number } : null));
       if (!pr && r.files > 0) { const url = await openPullRequest(s.dir, s.repo, s.branch, s.base, d.title, d.body); if (url) pr = { url, number: Number(url.split("/").pop()) || null }; }
       await client.mutation(api.changes.land, { token, runId, repo: s.repo, branch: s.branch, base: s.base, title: d.title, ...(d.body ? { body: d.body } : {}), add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, prNumber: pr?.number ?? null });
       landings.push({ repo: s.repo, branch: s.branch, base: s.base, pushed: true, add: r.add, del: r.del, files: r.files, prUrl: pr?.url ?? null, compareUrl: compareUrl(s.repo, s.base, s.branch), error: null });
@@ -428,7 +436,7 @@ function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>, unm
       `Tell the team. If the name is wrong, find the right one and attach_repo it; a person can remove the bad one from the thread's repo menu.`,
     ] : []),
     `Work inside those folders. Do not switch branches or push: Beam commits and pushes each folder that changed when the run ends, and opens or updates a PR per repo.`,
-    `Before you stop, call describe_change for each repo you changed, with a PR title and a description written for reviewers. Beam uses them for the commit and the PR, so they read like any other PR on GitHub.`,
+    `Before you stop, call describe_change for each repo you changed, with a PR title, a description written for reviewers, and, for a branch not yet on GitHub, a short branch name. Beam uses them for the commit, the branch and the PR, so they read like any other PR on GitHub.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
     `For the Simulation pane, use list_simulations, validate_simulation, save_simulation and run_simulation. Use geometry=planar to construct new 2-D flow domains: an arbitrary simple polygon outer boundary minus independently placed circles or simple polygons. Define the fluid region, explicit constant density/viscosity, named velocity-inlet/pressure-outlet/wall/symmetry boundaries, initial velocity, mesh size and duration in seconds. The solver is transient incompressible laminar isothermal pimpleFoam. Use geometry and boundary names that reflect the request; do not force a new geometry into a fixed demo. For local mesh refinement keep the background meshSize coarse and add named refinements: body-distance bands around selected bodies and box regions for wakes. Explicitly set target size and transition distance, preflight the cell budget, save a revision, remesh and check quality before rerunning. Preserve the prior successful solve ID and use compare_simulation_runs after completion; describe its common-time domain statistics and do not claim force, shedding-frequency or mesh-convergence diagnostics. Validate the geometry before saving, correct diagnostics, then mesh and inspect checkMesh before solving. If a referenced request or key geometry specification is missing, ask for it; never invent a replacement arrangement and proceed. State physical assumptions and distinguish the material label from explicit properties. Prescribed pitching is available for one planar body via optional motion: kind=pitch, body, pivot in metres, meanAngleDegrees (offset relative to supplied geometry), amplitudeDegrees up to 20 and frequencyHz. Do not double-rotate an already angled geometry. Require at least 16 saved frames per cycle (max100 frames) and a clear full rotation envelope. The body must have its own wall patch. Remesh after motion edits; solve computes moving-wall flow and exports actual moving coordinates for playback. Reduce amplitude or improve the initial mesh if motion quality fails. This does not support translation, continuous rotation, multiple moving bodies, free rigid-body dynamics or structural deformation. Legacy heated-channel and single-cylinder examples remain available. The heated channel is steady, laminar, single-phase and gravity-free; state the fluid's beta and boilingPoint with their source; for a heat source such as a chip use wallHeatFlux with the fluid's conductivity instead of a wall temperature, and report the maximum wall temperature against the boiling point; and report any setupChecks warn or fail to the user in plain terms before running, since the solve would still converge. Before relying on channel results, or when asked about mesh independence, solve two finer meshes of the same setup and use mesh_convergence; report each quantity's GCI and observed order, and say which are unresolved. Call the user-facing object a study. Chat and the pane share the saved study; unsaved pane drafts are not inputs. Read list_simulations before each edit. Use the active study for contextual follow-ups; if the target is ambiguous, ask. Use select_simulation when explicitly switching studies. Reuse the id and current revision for parameter changes; create a separate study only when asked for a new study or separate alternative. Never claim a run used later edits. Mesh first, inspect its job, then solve using that mesh job ID. Do not claim support for imported 3-D CAD, turbulence, solid regions or conjugate heat transfer. Solver completion is not engineering validation.`,
