@@ -43,52 +43,90 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
-it("keeps ordinary window close in the background but permits a normal quit", () => {
+/** The runner has landed its runs and exits. */
+const runnerExits = (i = 0) => host.children[i].emit("exit", 0, "SIGTERM");
+
+it("keeps ordinary window close in the background, and quits once the runner has landed its runs", async () => {
   expect(close().preventDefault).toHaveBeenCalledOnce();
   expect(host.windows[0].hide).toHaveBeenCalledOnce();
   expect(host.children[0].kill).not.toHaveBeenCalled();
-  app.emit("before-quit");
-  expect(close().preventDefault).not.toHaveBeenCalled();
+  const quit = { preventDefault: vi.fn() };
+  app.emit("before-quit", quit);
+  expect(quit.preventDefault).toHaveBeenCalledOnce();
+  expect(host.windows[0].hide).toHaveBeenCalledTimes(2);
   expect(host.children[0].kill).toHaveBeenCalledWith("SIGTERM");
+  expect(app.quit).not.toHaveBeenCalled();
+  runnerExits(); await vi.advanceTimersByTimeAsync(0);
+  expect(app.quit).toHaveBeenCalledOnce();
+  const again = { preventDefault: vi.fn() };
+  app.emit("before-quit", again);
+  expect(again.preventDefault).not.toHaveBeenCalled();
+  expect(close().preventDefault).not.toHaveBeenCalled();
+  expect(host.children).toHaveLength(1);
 });
 
-it("allows the updater to close the window BEFORE before-quit and ignores repeated clicks", () => {
+it("kills a runner that has not exited within the grace period, then quits", async () => {
+  app.emit("before-quit", { preventDefault: vi.fn() });
+  await vi.advanceTimersByTimeAsync(59_000);
+  expect(host.children[0].kill).not.toHaveBeenCalledWith("SIGKILL");
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(host.children[0].kill).toHaveBeenCalledWith("SIGKILL");
+  expect(app.quit).not.toHaveBeenCalled();
+  host.children[0].emit("exit", null, "SIGKILL"); await vi.advanceTimersByTimeAsync(0);
+  expect(app.quit).toHaveBeenCalledOnce();
+});
+
+it("stops the runner before the updater takes over, and ignores repeated clicks", async () => {
   autoUpdater.emit("update-downloaded", downloaded);
   vi.mocked(autoUpdater.quitAndInstall).mockImplementation(() => {
     expect(close().preventDefault).not.toHaveBeenCalled();
-    expect(host.children[0].kill).not.toHaveBeenCalled();
-    app.emit("before-quit");
+    const quit = { preventDefault: vi.fn() };
+    app.emit("before-quit", quit);
+    expect(quit.preventDefault).not.toHaveBeenCalled();
   });
   install(); install();
   expect(status().state).toBe("installing");
-  vi.advanceTimersByTime(0);
+  expect(host.children[0].kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled(); // the runner is still landing
+  expect(close().preventDefault).toHaveBeenCalledOnce();
+  runnerExits(); await vi.advanceTimersByTimeAsync(0);
   expect(autoUpdater.quitAndInstall).toHaveBeenCalledExactlyOnceWith(false, true);
-  expect(host.windows[0].hide).not.toHaveBeenCalled();
-  expect(host.children[0].kill).toHaveBeenCalledWith("SIGTERM");
+  expect(host.windows[0].hide).toHaveBeenCalledOnce(); // only by the close above, never by the quit
+  expect(host.children).toHaveLength(1);
 });
 
-it.each(["throw", "event"])("restores normal close and leaves the runner alive on updater failure (%s)", (failure) => {
+it.each(["throw", "event"])("restores normal close and restarts the runner on updater failure (%s)", async (failure) => {
   autoUpdater.emit("update-downloaded", downloaded);
   vi.mocked(autoUpdater.quitAndInstall).mockImplementation(() => {
     if (failure === "throw") throw new Error("Install failed");
   });
-  install(); vi.advanceTimersByTime(0);
+  install(); runnerExits(); await vi.advanceTimersByTimeAsync(0);
   if (failure === "event") autoUpdater.emit("error", new Error("Install failed"));
   expect(status()).toMatchObject({ state: "error", message: "Install failed" });
   expect(close().preventDefault).toHaveBeenCalledOnce();
-  expect(host.children[0].kill).not.toHaveBeenCalled();
+  expect(host.children).toHaveLength(2);
 });
 
-it("does not try to install an update before it is ready", () => {
-  install(); vi.advanceTimersByTime(0);
+it("waits for the runner to exit before starting it again", async () => {
+  host.handlers.get("beam:restartRunner")!();
+  expect(host.children[0].kill).toHaveBeenCalledWith("SIGTERM");
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(host.children).toHaveLength(1);
+  runnerExits(); await vi.advanceTimersByTimeAsync(500);
+  expect(host.children).toHaveLength(2);
+});
+
+it("does not try to install an update before it is ready", async () => {
+  install(); await vi.advanceTimersByTimeAsync(0);
   expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
   expect(close().preventDefault).toHaveBeenCalledOnce();
 });
 
-it("suppresses a pending runner restart during installation and recovers it after failure", () => {
+it("suppresses a pending runner restart during installation and recovers it after failure", async () => {
   host.children[0].emit("exit", 1, null);
   autoUpdater.emit("update-downloaded", downloaded);
-  install(); vi.advanceTimersByTime(2000);
+  install(); await vi.advanceTimersByTimeAsync(2000);
   expect(host.children).toHaveLength(1);
   autoUpdater.emit("error", new Error("Install failed"));
   expect(host.children).toHaveLength(2);

@@ -58,9 +58,10 @@ vi.mock("@beam/harness", async (original) => ({ ...(await original<typeof import
 
 
 /** A Convex client that answers the runner's queries from fixtures and records its mutations. */
-function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQuery?: (name: string) => void; claimError?: string; stateAfterClaim?: string; slowAppend?: number } = {}) {
+function fakeClient(opts: { detailError?: string; detailDelay?: number; landFailsOnce?: boolean; onQuery?: (name: string) => void; claimError?: string; stateAfterClaim?: string; slowAppend?: number; slowLand?: number } = {}) {
   const mutations: { name: string; args: Record<string, unknown> }[] = [];
   let control: ((c: unknown) => void) | null = null;
+  let queued: ((runs: unknown) => void) | null = null;
   const detail = {
     run: { _id: "run1", branch: null, resumeCursor: null },
     chat: { _id: "chat1", workspaceId: "ws1", title: "Fix it", repos: ["acme/app"] },
@@ -78,14 +79,16 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQue
   const client = {
     query: async (ref: never) => {
       const name = getFunctionName(ref);
-      if (name === "runs:detail" && opts.detailError) throw new Error(opts.detailError);
+      if (name === "runs:detail" && opts.detailError && !opts.detailDelay) throw new Error(opts.detailError);
       opts.onQuery?.(name);
+      if (name === "runs:detail" && opts.detailDelay) { await new Promise((r) => setTimeout(r, opts.detailDelay)); if (opts.detailError) throw new Error(opts.detailError); }
       return answers[name];
     },
     mutation: async (ref: never, args: Record<string, unknown>) => {
       const name = getFunctionName(ref);
       if (name === "runs:land" && opts.landFailsOnce) { opts.landFailsOnce = false; throw new Error("Connection lost"); }
       if (name === "runs:claim" && opts.claimError) throw new Error(opts.claimError);
+      if (name === "runs:land" && opts.slowLand) await new Promise((r) => setTimeout(r, opts.slowLand));
       if (name === "runs:appendEvents" && opts.slowAppend) { const ms = opts.slowAppend; delete opts.slowAppend; await new Promise((r) => setTimeout(r, ms)); } // the first batch is slow; recorded once written
       mutations.push({ name, args });
       if (name === "runs:say") return "said1";
@@ -94,7 +97,7 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQue
     },
     onUpdate: (ref: never, _args: unknown, cb: (v: unknown) => void) => {
       const name = getFunctionName(ref);
-      if (name === "runs:queuedFor") queueMicrotask(() => cb([{ _id: "run1" }]));
+      if (name === "runs:queuedFor") { queued = cb; queueMicrotask(() => cb([{ _id: "run1" }])); }
       if (name === "runs:control") control = cb;
       return () => {};
     },
@@ -103,6 +106,7 @@ function fakeClient(opts: { detailError?: string; landFailsOnce?: boolean; onQue
     client,
     mutations,
     control: (c: unknown) => control?.(c),
+    queue: (runs: { _id: string }[]) => queued?.(runs),
     landed: () => mutations.find((m) => m.name === "runs:land")?.args as { state: string; landing: { repos: { pushed: boolean; error: string | null }[] } } | undefined,
     errors: () => mutations.filter((m) => m.name === "runs:appendEvents").flatMap((m) => m.args["events"] as RunEvent[]).filter((e) => e.type === "error"),
   };
@@ -324,4 +328,82 @@ it("reports the real landing again when reporting it failed the first time", asy
   await Promise.all(active.values());
   expect(fake.landed()?.state).toBe("landed");
   expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+}, 30_000);
+
+it("interrupts a run in progress on shutdown and lands its work before resolving", async () => {
+  let fakeSession: FakeSession | null = null;
+  script.send = async (s) => { fakeSession = s; await edit(s); }; // still working when the runner is told to stop
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient();
+  const runs = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fakeSession).not.toBeNull());
+  expect(await runs.shutdown(20_000)).toEqual([]);
+  expect(fake.landed()?.state).toBe("interrupted");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true, error: null });
+  expect(await pushedBranches()).toHaveLength(1);
+  expect(fake.errors()).toContainEqual(expect.objectContaining({ fatal: false, message: expect.stringMatching(/shutting down/) }));
+  // Recorded as a stop on the server, so leases held for the run end with it.
+  const names = fake.mutations.map((m) => m.name);
+  expect(names).toContain("runs:stopping");
+  expect(names.indexOf("runs:stopping")).toBeLessThan(names.indexOf("runs:land"));
+  // A run dispatched while shutting down is left queued for the next runner.
+  fake.queue([{ _id: "run2" }]);
+  expect(runs.active.size).toBe(0);
+}, 30_000);
+
+it("leaves a run it has not claimed yet queued on shutdown", async () => {
+  let sent = 0;
+  script.send = async () => { sent += 1; };
+  const { watchRuns } = await import("./runs.ts");
+  let shutdown: Promise<string[]> | null = null;
+  let runs: ReturnType<typeof watchRuns> | null = null;
+  // Shut down while the run is still mounting its repos, before it is claimed.
+  const fake = fakeClient({ onQuery: (name) => { if (name === "runs:detail") setTimeout(() => { shutdown = runs!.shutdown(20_000); }, 0); } });
+  runs = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(shutdown).not.toBeNull());
+  expect(await shutdown).toEqual([]);
+  expect(fake.mutations.map((m) => m.name)).not.toContain("runs:claim");
+  expect(fake.landed()).toBeUndefined();
+  expect(sent).toBe(0);
+}, 30_000);
+
+it("does not change the outcome of a run that finished before shutdown", async () => {
+  let fake: ReturnType<typeof fakeClient> | null = null;
+  let shutdown: Promise<string[]> | null = null;
+  let runs: { shutdown(ms?: number): Promise<string[]> } | null = null;
+  script.send = async (s) => { await edit(s); s.emit(turnDone); };
+  // The agent is done and the run is landing when the signal comes.
+  script.stop = async () => { shutdown = runs!.shutdown(20_000); };
+  const { watchRuns } = await import("./runs.ts");
+  fake = fakeClient();
+  runs = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(shutdown).not.toBeNull());
+  expect(await shutdown).toEqual([]);
+  expect(fake.landed()?.state).toBe("landed");
+  expect(fake.landed()?.landing.repos[0]).toMatchObject({ pushed: true });
+  expect(fake.errors()).toEqual([]);
+}, 30_000);
+
+it("stops waiting for landings after the shutdown timeout", async () => {
+  let fakeSession: FakeSession | null = null;
+  script.send = async (s) => { fakeSession = s; await edit(s); };
+  const { watchRuns } = await import("./runs.ts");
+  const fake = fakeClient({ slowLand: 4_000 });
+  const runs = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(fakeSession).not.toBeNull());
+  const started = Date.now();
+  expect(await runs.shutdown(1_000)).toEqual(["run1"]);
+  expect(Date.now() - started).toBeLessThan(3_000);
+}, 30_000);
+
+it("leaves a run queued when its setup fails after shutdown began", async () => {
+  const { watchRuns } = await import("./runs.ts");
+  let shutdown: Promise<string[]> | null = null;
+  let runs: ReturnType<typeof watchRuns> | null = null;
+  // Shutdown starts while the run is still reading its detail, and then that read fails.
+  const fake = fakeClient({ detailError: "Server Error", detailDelay: 50, onQuery: (name) => { if (name === "runs:detail") setTimeout(() => { shutdown = runs!.shutdown(20_000); }, 0); } });
+  runs = watchRuns(fake.client as never, "token");
+  await vi.waitFor(() => expect(shutdown).not.toBeNull());
+  expect(await shutdown).toEqual([]);
+  expect(fake.landed()).toBeUndefined();
 }, 30_000);

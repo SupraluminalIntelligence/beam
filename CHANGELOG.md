@@ -5,6 +5,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 ## Unreleased
 
 - 3D simulation studies: a box domain with spheres, boxes and cylinders, meshed with snappyHexMesh and solved laminar or with k-ω SST turbulence on up to four cores. Results play back on slice planes and body walls in a 3D view.
+- Quitting or updating Beam no longer strands an agent's work. Runs in progress are stopped as if you pressed stop, and their edits are committed and pushed before the runner goes offline. Beam's window hides while this finishes, which takes up to a minute. A run that hadn't started yet waits for the next launch.
 
 ## 0.1.10 — 2026-09-26
 

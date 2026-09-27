@@ -188,6 +188,18 @@ export const land = mutation({
   },
 });
 
+/**
+ * The runner is shutting down and stopped this run itself. Record it as a stop, so what a stop from the chat ends
+ * (resource leases held for the run) ends now too, while the runner lands the run's work.
+ */
+export const stopping = mutation({
+  args: { token: v.string(), runId: v.id("runs") },
+  handler: async (ctx, { token, runId }) => {
+    const { run } = await ownRun(ctx, token, runId);
+    if (isLive(run.state) && !run.interruptRequestedAt) await ctx.db.patch(runId, { interruptRequestedAt: Date.now() });
+  },
+});
+
 // ---------------- member side (Convex Auth) ----------------
 
 export const forChat = query({

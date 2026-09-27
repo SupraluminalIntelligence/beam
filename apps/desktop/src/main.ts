@@ -120,6 +120,26 @@ function startRunner() {
   });
 }
 
+/**
+ * On SIGTERM the runner interrupts its runs and waits for them to land (commit, push, report) for up to 45s, then takes
+ * up to 5s to go offline. Give it that and a margin before killing it: a run always ends with a push.
+ */
+const RUNNER_GRACE_MS = 60_000;
+let runnerExit: Promise<void> | null = null;
+/** Stop the runner without restarting it, and resolve once it has exited. */
+function stopRunner(): Promise<void> {
+  const child = runner;
+  if (!child) return Promise.resolve();
+  if (runnerStopping === child && runnerExit) return runnerExit;
+  runnerStopping = child;
+  runnerExit = new Promise<void>((resolve) => {
+    const kill = setTimeout(() => { child.kill("SIGKILL"); }, RUNNER_GRACE_MS);
+    child.once("exit", () => { clearTimeout(kill); resolve(); });
+  });
+  child.kill("SIGTERM");
+  return runnerExit;
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1380, height: 860, minWidth: 900, minHeight: 600,
@@ -226,21 +246,30 @@ ipcMain.handle("beam:update:download", () => { if (update.state === "available" 
 ipcMain.handle("beam:update:install", () => {
   if (update.state !== "ready") return;
   setUpdate({ state: "installing", message: null });
-  setImmediate(() => {
+  // Land the runner's runs first: once Squirrel starts quitting, before-quit is too late to wait for them.
+  void stopRunner().then(() => setImmediate(() => {
     // Squirrel closes windows BEFORE app.before-quit. Allow that close instead of
-    // hiding the window and cancelling the update. Stop the runner only on actual quit.
+    // hiding the window and cancelling the update.
     quitting = true;
     try { autoUpdater.quitAndInstall(false, true); }
     catch (error) { updateFailed(error instanceof Error ? error : new Error(String(error))); }
-  });
+  }));
 });
 ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM_TEST"]) { console.log(`BEAM_OPEN ${url}`); return; } return shell.openExternal(url); });
 ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId ?? borrowed?.runnerId ?? null, running: !!runner || !!borrowed, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40), borrowed: noRunner, convexUrl: borrowed?.convexUrl ?? null }));
-ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; if (runner) { runnerStopping = runner; runner.kill(); } setTimeout(startRunner, 500); });
+ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; void stopRunner().then(() => setTimeout(startRunner, 500)); });
 
 app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", () => { quitting = true; if (runnerRetry) { clearTimeout(runnerRetry); runnerRetry = null; } runner?.kill("SIGTERM"); });
+app.on("before-quit", (event) => {
+  quitting = true;
+  if (runnerRetry) { clearTimeout(runnerRetry); runnerRetry = null; }
+  if (!runner) return;
+  // Quit once the runner has landed its runs; its exit clears `runner`, so the second quit goes through.
+  event.preventDefault();
+  for (const w of BrowserWindow.getAllWindows()) w.hide();
+  void stopRunner().then(() => app.quit());
+});
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); win?.show(); win?.focus(); });
 
 // Renderer is authenticated with Convex; only our own main frame may request a native banner.

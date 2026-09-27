@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
 vi.mock("./notifications", () => ({ notifyRun: async () => {}, resolveInputNotifications: async () => {} }));
 vi.mock("./runners", async (original) => ({ ...(await original<typeof import("./runners")>()), runnerForToken: async () => ({ _id: "asleep" }) }));
-import { land, reapStale } from "./runs";
+import { land, reapStale, stopping } from "./runs";
 
 const NOW = 1_000_000_000;
 
@@ -65,4 +65,15 @@ it("keeps a reaped run failed when its runner wakes up and lands it", async () =
   await (land as any)._handler({ db: f.db }, { token: "t", runId: "stranded", state: "landed", landing, resumeCursor: null });
   expect(f.state("stranded")).toBe("failed");
   expect(f.tables["runs"]!.find((r) => r._id === "stranded")!.landing).toEqual(landing);
+});
+
+it("records a runner's own shutdown stop on its live runs only", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(NOW);
+  const f = fixture();
+  const run = (id: string) => f.tables["runs"]!.find((r) => r._id === id)!;
+  await (stopping as any)._handler({ db: f.db }, { token: "t", runId: "stranded" });
+  expect(run("stranded").interruptRequestedAt).toBe(NOW);
+  await (stopping as any)._handler({ db: f.db }, { token: "t", runId: "done" });
+  expect(run("done").interruptRequestedAt).toBeUndefined();
+  await expect((stopping as any)._handler({ db: f.db }, { token: "t", runId: "healthy" })).rejects.toThrow(/not this runner's run/);
 });

@@ -32,15 +32,23 @@ const LIVE_STATES = new Set(["queued", "starting", "working", "landing"]);
 const log = (runId: string, ...a: unknown[]) => console.log(`[run ${runId.slice(-6)}]`, ...a);
 const stripMention = (text: string, handle: string) => text.replace(new RegExp(`(^|\\s)@${handle}\\b`, "gi"), "$1").trim();
 
+/** How long a shutting-down runner waits for its runs to land. The desktop app waits a little longer before it kills the runner. */
+export const SHUTDOWN_MS = 45_000;
+
 /** Watch for runs assigned to this runner and host each one to its landing. */
 export function watchRuns(client: ConvexClient, token: string) {
   const active = new Map<string, Promise<void>>();
-  client.onUpdate(api.runs.queuedFor, { token }, (runs) => {
+  const hosting = new Map<string, Progress>();
+  let closing = false;
+  const unsubscribe = client.onUpdate(api.runs.queuedFor, { token }, (runs) => {
+    if (closing) return;
     for (const r of runs) {
       if (active.has(r._id)) continue;
-      const progress: Progress = { title: "", harness: "beam", slots: new Map(), landing: null };
+      const progress: Progress = { title: "", harness: "beam", slots: new Map(), landing: null, claimed: false, shuttingDown: false, stop: null };
       const p = hostRun(client, token, r._id, progress).catch(async (e) => {
         console.error(`[run ${r._id.slice(-6)}] crashed`, e);
+        // Not claimed and the runner is going away: it stays queued for the next runner, as it would without the crash.
+        if (!progress.claimed && progress.shuttingDown) return;
         // Still end it, or it waits in the chat as queued or working until someone notices. Edits made so far are
         // pushed the normal way; a landing that already happened is reported again rather than replaced.
         try {
@@ -48,19 +56,41 @@ export function watchRuns(client: ConvexClient, token: string) {
           if (l) await land(client, token, r._id, l.state, l.repos, l.error, l.cursor);
           else await land(client, token, r._id, "failed", await landSlots(client, token, r._id, progress.title, progress.harness, progress.slots), `the runner could not host this run: ${(e as Error).message}`, null);
         } catch (err) { console.error(`[run ${r._id.slice(-6)}] could not report the crash`, err); }
-      }).finally(() => active.delete(r._id));
+      }).finally(() => { active.delete(r._id); hosting.delete(r._id); });
       active.set(r._id, p);
+      hosting.set(r._id, progress);
     }
   });
-  return { active };
+  /**
+   * Stop taking runs, interrupt the ones in progress the way a stop from the chat does, and wait for them to land
+   * (commit, push, report), for at most `ms`. Resolves with the runs still going when time ran out.
+   */
+  const shutdown = async (ms = SHUTDOWN_MS): Promise<string[]> => {
+    closing = true;
+    unsubscribe();
+    for (const [id, progress] of hosting) {
+      progress.shuttingDown = true;
+      if (progress.stop) progress.stop();
+      else log(id, "runner shutting down before the agent started");
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<void>((r) => { timer = setTimeout(r, ms); });
+    await Promise.race([Promise.allSettled([...active.values()]), timeout]);
+    clearTimeout(timer);
+    return [...active.keys()];
+  };
+  return { active, shutdown };
 }
 
 /** What the agent says it changed in a repo: the commit message, and the PR's title and description. */
 interface Description { title: string; body: string; branch?: string }
 /** One repo's place in the thread directory. */
 interface RepoSlot { repo: string; dir: string; branch: string; base: string; change: Change | null; description?: Description }
-/** What a run has set up so far, so a crash can still land it. */
-interface Progress { title: string; harness: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null }
+/**
+ * What a run has set up so far, so a crash can still land it, and how a shutting-down runner reaches it:
+ * `shuttingDown` for a run still setting up, `stop` once its agent is running.
+ */
+interface Progress { title: string; harness: string; slots: Map<string, RepoSlot>; landing: { state: string; repos: RepoLanding[]; error: string | null; cursor: unknown } | null; claimed: boolean; shuttingDown: boolean; stop: (() => void) | null }
 
 async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, progress: Progress) {
   const d = (await client.query(api.runs.detail, { token, runId })) as Detail;
@@ -96,7 +126,9 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     try { await mount(repo); }
     catch (e) { unmounted.push({ repo, error: (e as Error).message }); }
   }
-  try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); }
+  // Not claimed yet, so not this process's: it stays queued for the next runner on this machine.
+  if (progress.shuttingDown) { log(runId, "not hosting: the runner is shutting down"); return; }
+  try { await client.mutation(api.runs.claim, { token, runId, branch: null, worktree: dir, ...(scope ? { workScope: scope } : {}) }); progress.claimed = true; }
   catch (error) {
     // Another runner process with this machine's token (the desktop app's and a standalone one) may have won the claim,
     // or the run ended before it started: either way it is not this process's to end.
@@ -311,6 +343,21 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     }
   };
   let interrupting = false;
+  const interrupt = (why: string) => {
+    interrupting = true; state = "interrupted"; log(runId, why);
+    // Ask nicely, then insist: a hung harness never answers an interrupt.
+    const deadline = setTimeout(() => { if (!ended) { log(runId, "interrupt not acknowledged in 10s, forcing"); ended = true; } }, 10_000);
+    void session.interrupt().then(() => { clearTimeout(deadline); ended = true; }, () => { clearTimeout(deadline); ended = true; });
+  };
+  // The runner is going away (Beam quit or is updating): stop the agent as a stop from the chat would, and land its work.
+  const stopForShutdown = () => {
+    if (ended || interrupting) return;
+    // On the server too, as a stop from the chat is, so leases held for this run end with it. Deployments without it still land the run.
+    void client.mutation(api.runs.stopping, { token, runId }).catch((e) => log(runId, "could not record the stop", (e as Error).message));
+    queue({ type: "error", runId: runId as never, message: "This machine's runner is shutting down, so the run was stopped. The work so far is being pushed.", fatal: false });
+    interrupt("runner shutting down, interrupting");
+  };
+  progress.stop = stopForShutdown;
   const unsubscribe = client.onUpdate(api.runs.control, { token, runId }, (c) => {
     if (!c) return;
     // Ended elsewhere while this runner was away (asleep, offline): stop, so a newer run never shares this folder.
@@ -327,13 +374,10 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
       // The harness would wait forever on an answer it never got, and the watchdog ignores runs waiting on a person.
       void session.respond(r.requestId, r.decision, r.by).catch((e) => fail(`could not deliver ${r.by ?? "a person"}'s answer to ${agent.harness}: ${(e as Error).message}`));
     }
-    if (c.interruptRequestedAt && !interrupting) {
-      interrupting = true; state = "interrupted"; log(runId, "interrupt requested");
-      // Ask nicely, then insist: a hung harness never answers an interrupt.
-      const deadline = setTimeout(() => { if (!ended) { log(runId, "interrupt not acknowledged in 10s, forcing"); ended = true; } }, 10_000);
-      void session.interrupt().then(() => { clearTimeout(deadline); ended = true; }, () => { clearTimeout(deadline); ended = true; });
-    }
+    if (c.interruptRequestedAt && !interrupting) interrupt("interrupt requested");
   });
+  // Shutdown began while the agent was starting.
+  if (progress.shuttingDown) stopForShutdown();
   // Watchdog: a harness that says nothing for a long time, with no question pending, is treated as hung.
   const watchdog = setInterval(() => {
     if (ended || waitingOnPerson > 0 || Date.now() - lastEventAt < SILENCE_MS) return;
