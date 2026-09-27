@@ -44,7 +44,7 @@ Beam's dev setup assumes one checkout. When several are running at the same time
 | Shared | Effect | Fix |
 |---|---|---|
 | Web port 5173 | Only one checkout can serve the UI, and every dev desktop window loads whatever is on 5173. | `BEAM_WEB_PORT` sets the dev server's port and the port the dev desktop loads. |
-| Runner profile (`~/.beam`) | Every desktop starts a runner. Two runners with one profile are the same machine to Beam and race to claim each run. | `BEAM_NO_RUNNER=1` starts the window without a runner, and runs go to the runner you already have. For runner changes, give the checkout its own `BEAM_HOME` and pair it once. |
+| Runner profile (`~/.beam`) | Every desktop starts a runner. Two runners with one profile are the same machine to Beam and race to claim each run. | `BEAM_NO_RUNNER=1` starts the window without a runner. It borrows the identity of the runner paired in `~/.beam` (usually Beam's), so "My default" still means this Mac and runs go there while Beam is open. For runner changes, either take over `~/.beam` from Beam (`--takeover`) or give the checkout its own `BEAM_HOME` and pair it once. |
 | Electron profile | Windows share storage. | Automatic: a dev desktop with its own runner profile (`BEAM_HOME`) or its own port gets its own Electron profile. A window without a runner ignores `BEAM_HOME` for this. |
 | Convex deployment | Every checkout uses the backend in `apps/web/.env.local`. Deploying one checkout's `convex/` replaces another's. | Not solved. Test backend changes one at a time on a development deployment. |
 
@@ -53,11 +53,29 @@ Beam's dev setup assumes one checkout. When several are running at the same time
 ```sh
 pnpm dev:isolated              # first free port from 5174, desktop window, no runner of its own
 pnpm dev:isolated --runner     # also a runner, under ~/.beam-dev-<folder>-<path hash> (pair it once)
+pnpm dev:isolated --takeover   # quit Beam, run this checkout's runner on ~/.beam, reopen Beam on Ctrl-C (macOS)
 pnpm dev:isolated --port 5180  # a fixed port
 pnpm dev:isolated --web-only   # dev server only, for a browser
 ```
 
+`--takeover` is the closest thing to a release build without notarizing one: this Mac, your accounts, this branch's runner. It asks before quitting Beam, since that interrupts runs in progress, and refuses while another checkout's runner is on `~/.beam`. Only one checkout can take over at a time.
+
 If the checkout has no `apps/web/.env.local`, the script copies the main worktree's copy. Ctrl-C stops the server and the window. Keep `pnpm dev:web` and `pnpm dev:desktop` on 5173 for the checkout you use day to day.
+
+## Testing a desktop change without a release
+
+A signed, notarized build takes too long to try every change. Test on a local desktop window instead, and cut a release only once it works:
+
+```sh
+git worktree add ../beam-test origin/main   # or your branch
+cd ../beam-test
+pnpm install
+pnpm exec convex codegen                    # a new worktree has no convex/_generated; this writes it, it does not deploy
+pnpm dev:isolated                           # UI changes: Beam stays open and runs go to its runner
+pnpm dev:isolated --takeover                # runner or desktop changes: this checkout's runner replaces Beam's until Ctrl-C
+```
+
+Use plain `dev:isolated` when only `apps/web` changed. Use `--takeover` when the change touches `apps/runner`, `apps/desktop`, or a package the runner uses, so the window runs the code the next release would ship. Neither deploys `convex/`; backend changes still go to a development deployment first.
 
 ## Before opening a pull request
 

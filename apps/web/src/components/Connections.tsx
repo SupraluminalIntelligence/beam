@@ -3,7 +3,7 @@ import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { bridge } from "../bridge";
-import { useLocalRunner } from "../lib/localRunner";
+import { useRunnerStatus } from "../lib/localRunner";
 import { AgentAvatar } from "./Avatar";
 import { Select } from "./Select";
 import { toast } from "./Toast";
@@ -40,9 +40,10 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
   const value = override?.runnerId ? choiceValue(override.runnerId, override.connectionId ?? "default") : selected?.source === "chat" ? choiceValue(selected.runnerId, selected.connectionId) : "";
   // In the desktop app the usual cause is this Mac's own runner having stopped; say so and offer the fix.
   const b = bridge();
-  const localRunner = useLocalRunner();
+  // A dev window without a runner of its own cannot restart one; it borrows Beam's, or the checkout takes over.
+  const { id: localRunner, borrowed } = useRunnerStatus();
   const runnerDown = !!b && !localRunner && !!preview?.error;
-  const error = runnerDown ? "This Mac’s runner isn’t running." : preview?.error ?? null;
+  const error = runnerDown ? (borrowed ? "This dev window has no runner. Open Beam, or start it with dev:isolated --takeover." : "This Mac’s runner isn’t running.") : preview?.error ?? null;
   const where = selected ? `${selected.email ?? selected.name} · ${selected.remote ? `${selected.owner}’s ${selected.machineName}` : "this Mac"}` : null;
   const [restarting, setRestarting] = useState(false);
   const restart = async () => { setRestarting(true); try { await b!.restartRunner(); toast("Restarting the runner…"); } catch (e) { toast((e as Error).message); } finally { setTimeout(() => setRestarting(false), 4000); } };
@@ -57,7 +58,7 @@ export function ComposerAgent({ chatId, agent, model, effort, preview, onOpenDef
           setBusy(true); try { await save({ chatId, harness, ...(v ? parseChoice(v) : {}) }); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
         }} options={[{ value: "", label: "My default" }, ...(preview?.options ?? []).map(o => ({ value: choiceValue(o.runnerId, o.connectionId), label: `${o.name}${o.email ? ` · ${o.email}` : ""}`, hint: `${o.machineName}${o.online ? "" : " · offline"}` }))]} />
         <span className={`agent-meta${error ? " err" : ""}`} role="status" title={where ?? error ?? undefined}>{error ?? where ?? "Checking…"}</span>
-        {runnerDown && <button className="agent-link" disabled={restarting} onClick={() => void restart()}>{restarting ? "Restarting…" : "Restart runner"}</button>}
+        {runnerDown && !borrowed && <button className="agent-link" disabled={restarting} onClick={() => void restart()}>{restarting ? "Restarting…" : "Restart runner"}</button>}
       </div>
       <div className="agent-sec"><h4>Model</h4>
         <div className="agent-model"><span>{model} · {effort}</span><button className="agent-link" title="Your model and effort apply in every workspace" onClick={() => { setOpen(false); onOpenDefaults(); }}>Change</button></div>

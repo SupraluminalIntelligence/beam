@@ -13,7 +13,8 @@ export interface BeamBridge {
   shareResource?(value: { chatId: string; name: string; resource: { kind: "folder"; path: string } | { kind: "service"; port: number } }): Promise<{ id: string }>;
   signInConnection?(harness: "codex" | "claude", id: string): Promise<void>;
   connections?(command: { action: "list" } | { action: "create"; harness: "codex" | "claude"; name: string } | { action: "add"; harness: "codex" | "claude"; name: string; configDir: string } | { action: "default"; harness: "codex" | "claude"; id: string }): Promise<{ profiles: { id: string; harness: "codex" | "claude"; name: string; configDir: string }[]; defaults: Record<string, string> }>;
-  runnerStatus(): Promise<{ runnerId?: string | null; running: boolean; pid: number | null; pendingPair: string | null; log: string[] }>;
+  /** borrowed: a dev window without a runner of its own, reporting the one paired on this Mac (convexUrl is its deployment). */
+  runnerStatus(): Promise<{ runnerId?: string | null; running: boolean; pid: number | null; pendingPair: string | null; log: string[]; borrowed?: boolean; convexUrl?: string | null }>;
   restartRunner(): Promise<void>;
   onPairCode(cb: (code: string) => void): () => void;
   onRunnerLog(cb: (line: string) => void): () => void;
