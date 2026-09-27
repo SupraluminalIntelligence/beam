@@ -64,7 +64,8 @@ export type ParallelTime = { time: number; phi: number[] };
 /**
  * Flows, temperatures and the energy balance of a parallel-channel solve, from the solver's own face fluxes.
  * A channel's flow is the flux through the face plane nearest its mid-length; with no other openings, every plane in a channel carries the same flux.
- * Exit bulk temperatures weight each face at the channel exit by its flux, with the upwind cell's temperature.
+ * Exit bulk temperatures are for fluid leaving each channel: at the downstream end, or at the upstream end when the channel runs backwards.
+ * Only faces carrying fluid out of the channel count, each weighted by its flux with the channel-side cell's temperature, so local backflow cannot drag the value outside the range of what leaves.
  * Heated wall temperatures add the imposed gradient over the half cell to the wall cell's value.
  * Heat carried out is ρ·cp·Σ φ·(T − T_in) over outflowing outlet faces, with ρ·cp = k·Pr/ν; at a steady state it equals the heat input.
  */
@@ -81,7 +82,7 @@ export function parallelResults(c: ParallelChannelsCase, mesh: ParallelMesh, tim
     if (faces.length !== c.cellsAcross) throw new Error(`Channel ${k + 1} plane at x = ${xPlane} has ${faces.length} faces, expected ${c.cellsAcross}`);
     return faces;
   };
-  const mid = c.channels.map((_, k) => plane(k, x0 + Math.round(c.cellsAlong / 2) * dx)), exit = c.channels.map((_, k) => plane(k, x0 + c.channelLength));
+  const mid = c.channels.map((_, k) => plane(k, x0 + Math.round(c.cellsAlong / 2) * dx)), ends = c.channels.map((_, k) => [plane(k, x0), plane(k, x0 + c.channelLength)] as const);
   const flows = (phi: number[]) => mid.map(faces => faces.reduce((s, [f, sign]) => s + sign * phi[f]!, 0) / PARALLEL_DEPTH);
   const last = times.at(-1);
   if (!last) throw new Error("Solver produced no time directory");
@@ -89,10 +90,20 @@ export function parallelResults(c: ParallelChannelsCase, mesh: ParallelMesh, tim
   const inlet = patchFlux("inlet"), outlet = patchFlux("outlet"), inflow = -inlet.flux.reduce((s, f) => s + f, 0) / PARALLEL_DEPTH, outflow = outlet.flux.reduce((s, f) => s + f, 0) / PARALLEL_DEPTH;
   if (!(inflow > 0)) throw new Error("Inlet flux has the wrong direction");
   const final = flows(last.phi);
-  const exitBulk = exit.map((faces, k) => {
-    const net = faces.reduce((s, [f, sign]) => s + sign * last.phi[f]!, 0);
-    if (Math.abs(net / PARALLEL_DEPTH) < 0.02 * inflow) return null;
-    return faces.reduce((s, [f, sign]) => { const flux = sign * last.phi[f]!, upwind = (flux > 0) === (sign > 0) ? owner[f]! : neighbour[f]!; return s + flux * T[upwind]!; }, 0) / net;
+  const exitBulk = ends.map(([start, end], k) => {
+    const net = final[k]!;
+    if (Math.abs(net) < 0.02 * inflow) return null;
+    // Forward flow leaves through the downstream end; reversed flow through the upstream end, where leaving means a negative streamwise flux.
+    const faces = net > 0 ? end : start, out = net > 0 ? 1 : -1;
+    let flux = 0, heat = 0;
+    for (const [f, sign] of faces) {
+      const leaving = out * sign * last.phi[f]!;
+      if (leaving <= 0) continue;
+      // The channel-side cell is upwind of a leaving face: the upstream cell of the streamwise pair at the downstream end, the downstream one at the upstream end.
+      const upstream = sign > 0 ? owner[f]! : neighbour[f]!, downstream = sign > 0 ? neighbour[f]! : owner[f]!;
+      flux += leaving; heat += leaving * T[net > 0 ? upstream : downstream]!;
+    }
+    return flux > 0 ? heat / flux : null;
   });
   let maxWall: number | null = null;
   c.channels.forEach((ch, k) => { if (ch.heatFlux <= 0) return; const r = ranges[`channel${k + 1}`]; if (!r) throw new Error(`Missing channel${k + 1} patch`); for (const cell of owner.slice(r.start, r.start + r.count)) maxWall = Math.max(maxWall ?? -Infinity, T[cell]! + ch.heatFlux / c.conductivity * dy / 2); });

@@ -107,6 +107,6 @@ export function ParallelMeasurements({ config: c, report }: { config: ParallelCh
     {wall != null && fact("hottest heated wall", celsius(wall), c.boilingPoint !== undefined && wall >= c.boilingPoint ? "fail" : undefined)}
     {wall != null && c.boilingPoint !== undefined && fact(wall < c.boilingPoint ? "below Tsat" : "above Tsat", `${number(Math.abs(c.boilingPoint - wall))} K`, wall >= c.boilingPoint ? "fail" : undefined)}
     {carried !== null && fact("heat carried out", `${percent(carried)} of ${number(r.heatInputW)} W/m`, carried < .9 ? "warn" : undefined)}
-    <p>Flows are the solver's face fluxes through each channel's mid-length, per metre of depth. Exit bulk temperatures weight each exit face by its flux. {carried !== null && carried < .9 ? "Most of the heat is still warming the fluid, so the device has not reached a thermal steady state and the flow split can still change." : carried !== null ? "The outlet carries away about what the walls put in, as at a steady state." : ""}</p>
+    <p>Flows are the solver's face fluxes through each channel's mid-length, per metre of depth. Exit bulk temperatures weight each face where fluid leaves a channel by its flux; a channel running backwards leaves through its upstream end. {carried !== null && carried < .9 ? "Most of the heat is still warming the fluid, so the device has not reached a thermal steady state and the flow split can still change." : carried !== null ? "The outlet carries away about what the walls put in, as at a steady state." : ""}</p>
   </>;
 }

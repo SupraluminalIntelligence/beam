@@ -72,7 +72,8 @@ export const ParallelChannelsResults = z.object({
   inflow: z.number().finite(),
   flows: z.array(z.number().finite()).min(2).max(4),
   history: z.array(z.object({ time: z.number().finite(), flows: z.array(z.number().finite()).min(2).max(4) })).max(61),
-  // Flow-weighted temperature leaving each channel; null while a channel's net flow is too small to define one.
+  // Flow-weighted temperature of fluid leaving each channel, at the downstream end or, when a channel runs backwards, the upstream end.
+  // Only faces carrying fluid out count; null while a channel's net flow is too small to define one.
   exitBulkTemperaturesK: z.array(z.number().finite().nullable()).min(2).max(4),
   maxHeatedWallTemperatureK: z.number().finite().nullable(),
   // Per metre of depth: heat entering through the heated walls, and heat carried out of the outlet above the inlet temperature.

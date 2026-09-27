@@ -107,7 +107,8 @@ export async function exportOpenFoam(raw:unknown,dir:string){
     report.massImbalance=measured.massImbalance;report.channel=measured.results;
     await writeFile(join(dir,"fields.json"),JSON.stringify(fields));
     }else if(c.geometry==="parallel-channels"){
-      const [C,U,P,T]=await Promise.all([field("C",3),field("U",3),field("p_rgh"),field("T")]);
+      // Static pressure p = p_rgh + ρk·g·h, so a vertical device keeps its hydrostatic head, as a gauge would read it.
+      const [C,U,P,T]=await Promise.all([field("C",3),field("U",3),field("p"),field("T")]);
       const centres=Array.from({length:cells},(_,i)=>[C[3*i]!,C[3*i+1]!,C[3*i+2]!] as [number,number,number]);
       const fields=SimulationFields.parse({version:1,centres,velocity:centres.map((_,i)=>Math.hypot(U[3*i]!,U[3*i+1]!,U[3*i+2]!)),pressure:P.map(p=>p*c.density),temperature:T});
       const [boundary,owner,neighbour]=await Promise.all(["boundary","owner","neighbour"].map(n=>readFile(join(dir,"constant/polyMesh",n),"utf8")));
@@ -115,7 +116,7 @@ export async function exportOpenFoam(raw:unknown,dir:string){
       const history=[];for(const t of times)history.push({time:t,phi:foamValues(await readFile(join(dir,String(t),"phi"),"utf8"),mesh.neighbour.length)});
       const measured=parallelResults(c,mesh,history,await readFile(join(dir,String(time),"phi"),"utf8"),T);
       if(Math.abs(time-c.duration)>Math.max(1e-8,c.duration*1e-6))throw new Error("Solver did not reach the requested end time");
-      // Dynamic pressure (p_rgh) between the first and last cell columns, so the hydrostatic part cancels.
+      // Static pressure between the first and last cell columns: across a stacked device the hydrostatic part averages out; along a vertical one it stays in, as ρ·g·height.
       const total=2*c.manifoldLength+c.channelLength,edge=c.manifoldLength/parallelLayout(c).manifoldCells,mean=(near:(x:number)=>boolean)=>{const idx=centres.flatMap((p,i)=>near(p[0])?[i]:[]);return idx.reduce((s,i)=>s+fields.pressure[i]!,0)/idx.length;};
       report.pressureDropPa=mean(x=>x<edge)-mean(x=>x>total-edge);report.outletTemperatureK=measured.outletTemperatureK;report.massImbalance=measured.massImbalance;report.parallel=measured.results;
       report.physicalTime=time;report.iterations=residuals.at(-1)?.iteration??0;report.maxCourant=0;

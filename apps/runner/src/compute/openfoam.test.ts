@@ -128,6 +128,13 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM parallel ch
     expect(Math.abs(p.flows[0]!/p.flows[1]!-1)).toBeLessThan(1e-3);expect(Math.abs((p.flows[0]!+p.flows[1]!)/p.inflow-1)).toBeLessThan(1e-3);
     expect(p.heatInputW).toBe(0);expect(p.maxHeatedWallTemperatureK).toBe(null);
   },300000);
+  it("keeps the hydrostatic head in a vertical device's static pressure",async()=>{
+    const config={...defaultParallelChannels,channels:[{heatFlux:0},{heatFlux:0}],gravity:"upflow" as const,cellsAcross:10,cellsAlong:35,duration:1,frames:2};
+    const {report,fields}=await solve(config,"upflow");
+    // Flow runs up 0.21 m of HFE-7100; between the centres of the first and last 2 mm cell columns that is ρ·g·0.208 ≈ 3.08 kPa, and friction adds well under 1 Pa.
+    const head=config.density*9.81*(2*config.manifoldLength+config.channelLength-config.manifoldLength/35);
+    expect(Math.abs(report.pressureDropPa!/head-1)).toBeLessThan(.005);expect(Math.max(...fields.pressure)-Math.min(...fields.pressure)).toBeGreaterThan(.99*head);
+  },300000);
   it("draws more of the flow through the heated lower channel as buoyancy builds, and walls pass the boiling point by 5 s",async()=>{
     const {report,fields}=await solve(defaultParallelChannels,"masrouri"),p=report.parallel!;
     expect(report.meshOk).toBe(true);expect(report.cells).toBe(11200);expect(report.physicalTime).toBeCloseTo(5);expect(report.maxCourant!).toBeLessThan(1);
@@ -139,6 +146,8 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM parallel ch
     expect(p.heatInputW).toBeCloseTo(1050);expect(p.heatCarriedOutW).toBeGreaterThan(0);expect(p.heatCarriedOutW/p.heatInputW).toBeLessThan(.5);
     expect(p.maxHeatedWallTemperatureK!).toBeGreaterThan(defaultParallelChannels.boilingPoint!);expect(Math.min(...fields.temperature)).toBeGreaterThan(defaultParallelChannels.inletTemperature-.5);
     expect(p.exitBulkTemperaturesK[0]!).toBeGreaterThan(p.exitBulkTemperaturesK[1]!);
+    // Only fluid leaving a channel counts, so each exit temperature lies within the temperatures actually present.
+    for(const t of p.exitBulkTemperaturesK){expect(t!).toBeGreaterThan(defaultParallelChannels.inletTemperature-.5);expect(t!).toBeLessThan(Math.max(...fields.temperature));}
     expect(parallelSetupChecks(defaultParallelChannels).find(k=>k.id==="single-phase")!.status).toBe("fail");
   },600000);
 });
