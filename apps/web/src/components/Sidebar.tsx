@@ -15,6 +15,7 @@ import { AgentModelSelect } from "./AgentModelSelect";
 import { UpdatePill } from "./Update";
 import { AccountMenu } from "./AccountMenu";
 import { useChangelogUnseen } from "../lib/changelog";
+import { chatStatus, chatStatusLabel, useChatActivity } from "../lib/chatStatus";
 import { ChatContextMenu, type ChatMenuTarget } from "./ChatContextMenu";
 
 type Detail = NonNullable<ReturnType<typeof useDetailType>>;
@@ -171,21 +172,23 @@ function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imag
     if (!c || !value.trim() || value.trim() === c.title) return;
     try { await renameChat({ chatId: id as Id<"chats">, title: value.trim().slice(0, 80) }); } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
   };
-  const status = (c: Doc<"chats">) => (c.state && c.state !== "open" ? "settled" : "idle");
+  const activity = useChatActivity(wsId);
+  const status = (c: Doc<"chats">) => chatStatus(c, activity, active && p.activeId === c._id);
   const open = chats.filter((c) => !c.state || c.state === "open"), settled = chats.filter((c) => c.state && c.state !== "open");
   return (
     <>
       {[...open, ...(showDone && active ? settled : [])].map((c) => {
         const here = active ? p.presence.filter((x) => x.chatId === c._id).map((x) => x.login) : [];
+        const st = status(c);
         return (
-          <button key={c._id} className={`th-item${active && p.tabs.includes(c._id) ? " open" : ""}${active && p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(wsId, c._id)} onDoubleClick={() => setRenaming({ id: c._id, value: c.title })} title="Double-click to rename · Right-click for options"
+          <button key={c._id} className={`th-item${st !== "idle" && st !== "settled" ? " lit" : ""}${active && p.tabs.includes(c._id) ? " open" : ""}${active && p.activeId === c._id ? " on" : ""}`} onClick={() => ui.openChat(wsId, c._id)} onDoubleClick={() => setRenaming({ id: c._id, value: c.title })} title="Double-click to rename · Right-click for options"
             onContextMenu={e => {
               if (e.target instanceof HTMLInputElement) return;
               e.preventDefault(); e.stopPropagation();
               const bounds = e.currentTarget.getBoundingClientRect();
               onContextMenu({ chat: c, x: e.clientX || bounds.left + 24, y: e.clientY || bounds.bottom, trigger: e.currentTarget });
             }}>
-            <span className={`sq ${status(c)}`} />
+            <span className={`sq ${st}`} title={chatStatusLabel(st)} />
             {renaming?.id === c._id
               ? <input className="nm th-rename" autoFocus value={renaming.value} onChange={(e) => setRenaming({ id: c._id, value: e.target.value })} onBlur={() => void commit()} onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit(); } if (e.key === "Escape") setRenaming(null); }} />
@@ -202,11 +205,13 @@ function WorkspaceThreads({ wsId, active, p, showDone, setShowDone, nameOf, imag
 
 function PinnedChat({ pin, activeId, wsId, onContextMenu }: { pin: { workspaceId: string; chatId: string }; activeId: string | null; wsId: string; onContextMenu: (target: ChatMenuTarget) => void }) {
   const chats = useQuery(api.chats.list, { workspaceId: pin.workspaceId as Id<"workspaces"> });
+  const activity = useChatActivity(pin.workspaceId);
   const chat = chats?.find(c => c._id === pin.chatId);
   if (!chat) return null;
+  const status = chatStatus(chat, activity, activeId === chat._id && wsId === pin.workspaceId);
   return <button className={`th-item pinned-chat${activeId === chat._id && wsId === pin.workspaceId ? " on" : ""}`} onClick={() => ui.openChat(pin.workspaceId, chat._id)} title={chat.title} onContextMenu={e => {
     e.preventDefault(); e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     onContextMenu({ chat, x: e.clientX || rect.left + 24, y: e.clientY || rect.bottom, trigger: e.currentTarget });
-  }}><span className={`nm${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>{chat.private && <span className="lk" title="Private">{ICO.lock}</span>}</button>;
+  }}>{status !== "idle" && status !== "settled" && <span className={`sq ${status}`} title={chatStatusLabel(status)} />}<span className={`nm${chat.untitled ? " untitled" : ""}`}>{chat.title}</span>{chat.private && <span className="lk" title="Private">{ICO.lock}</span>}</button>;
 }

@@ -2,9 +2,9 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { openChange, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
-import { isLive } from "./runs";
+import { isLive, LIVE } from "./runs";
 import { followParticipant } from "./notifications";
-import { jobFinished } from "../packages/contracts/src/compute";
+import { JobState, jobFinished } from "../packages/contracts/src/compute";
 
 export const list = query({
   args: { workspaceId: v.id("workspaces") },
@@ -12,6 +12,44 @@ export const list = query({
     const u = await requireMember(ctx, workspaceId);
     const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
     return all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!))).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  },
+});
+
+export type ChatActivity = "ask" | "work" | "bad" | "done" | "new" | "idle";
+
+/** Most urgent first: an agent waiting on you, then anything running, then unread outcomes. */
+export function chatActivity(a: { asking: boolean; working: boolean; unread: ("completed" | "failed" | "input" | "mention")[] }): ChatActivity {
+  if (a.asking) return "ask";
+  if (a.working) return "work";
+  if (a.unread.includes("failed")) return "bad";
+  if (a.unread.includes("completed")) return "done";
+  if (a.unread.includes("mention")) return "new";
+  return "idle";
+}
+
+const OPEN_JOBS = JobState.options.filter((s) => !jobFinished(s));
+
+/** Live status square for every visible chat in a workspace, keyed by chat id. Idle chats are omitted. */
+export const activity = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, { workspaceId }) => {
+    const u = await requireMember(ctx, workspaceId);
+    const all = await ctx.db.query("chats").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect();
+    const chats = all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!)));
+    const inbox = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", u.githubLogin!)).order("desc").take(100);
+    const out: Record<string, ChatActivity> = {};
+    // Only live rows, looked up by state: reading each chat's whole history would grow forever and rerun this on every past run's update.
+    for (const c of chats) {
+      const runs = (await Promise.all([...LIVE].map((state) => ctx.db.query("runs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
+      const jobs = (await Promise.all(OPEN_JOBS.map((state) => ctx.db.query("computeJobs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
+      const status = chatActivity({
+        asking: runs.some((r) => (r.openRequests ?? []).length > 0) || jobs.some((j) => j.state === "awaiting-approval"),
+        working: runs.length > 0 || jobs.length > 0,
+        unread: inbox.filter((n) => n.chatId === c._id && n.readAt === null).map((n) => n.kind),
+      });
+      if (status !== "idle") out[c._id] = status;
+    }
+    return out;
   },
 });
 
