@@ -1,5 +1,5 @@
 import type { ConvexClient } from "convex/browser";
-import { repoName, type Agent, type RepoLanding, type RunEvent } from "@beam/contracts";
+import { errorMessage, repoName, type Agent, type RepoLanding, type RunEvent } from "@beam/contracts";
 import { adapters, type BeamTool, type Session } from "@beam/harness";
 import { branchFrom, compareUrl, defaultBranch, ensureMirror, ensureRepoWorktree, githubRepoAt, landRepo, openPullRequest, prByNumber, prForBranch, repoDirName, threadBranch, threadDir } from "@beam/git";
 import { z } from "zod";
@@ -14,6 +14,15 @@ import { computeTools, withSetupChecks } from "./compute/tools.ts";
 import { Transcript } from "./transcript.ts";
 import { api } from "../../../convex/_generated/api.js";
 import type { Id } from "../../../convex/_generated/dataModel.js";
+
+/**
+ * What an agent reads when a Beam tool fails: the reason, not "[CONVEX M(…)] [Request ID: …] Server Error".
+ * With only "Server Error" an agent guesses (a broken backend, a mismatched version) instead of fixing its call.
+ */
+export const readableTools = (tools: BeamTool[]): BeamTool[] => tools.map((t) => ({
+  ...t,
+  run: async (args) => { try { return await t.run(args); } catch (e) { throw new Error(errorMessage(e)); } },
+}));
 
 interface Change { _id: Id<"changes">; repo: string; branch: string; base: string; state: string; prUrl: string | null; prNumber: number | null; title: string }
 interface Detail {
@@ -144,7 +153,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   const files = fileAccess(client, token, runId, dir);
 
   // 2. Beam tools: the agent can grow the thread while it works.
-  const tools: BeamTool[] = [
+  const tools: BeamTool[] = readableTools([
     ...resourceTools(client, token, runId),
     ...computeTools(client, token, runId, dir, agent.permissionMode),
     { name: "list_sources", description: "List sources explicitly included in this chat context. Workspace sources are not included until a person adds them. Use read_source for full notes and read_file for file IDs.", schema: {}, run: async () => JSON.stringify((await files.sources()).map(({content,...source})=>({...source,excerpt:content?.slice(0,200)??null}))) },
@@ -222,7 +231,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
         return `Next landing on ${repo} goes to a new branch, ${s.branch}. The folder ./${s.dir.slice(dir.length + 1)} is now on it.`;
       },
     },
-  ];
+  ]);
 
   async function studyPrompt(messageId:Id<"messages">){
     const state=await client.query(api.compute.simulationForRun,{token,runId,messageId});

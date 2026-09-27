@@ -164,3 +164,4 @@ export const CONTRACTS_VERSION = 1 as const;
 
 export { ContextSourceInput } from "./context.ts";
 export { MENTION, firstMention } from "./mentions.ts";
+export { errorMessage } from "./errors.ts";

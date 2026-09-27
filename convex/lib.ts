@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ConvexError, type ObjectType, type PropertyValidators } from "convex/values";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 export async function me(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
@@ -45,3 +46,20 @@ export function autoTitle(text: string): string {
   const t = (words || "Untitled").replace(/[.,;:!?]+$/, "");
   return t.length > 42 ? t.slice(0, 42).replace(/\s+\S*$/, "") : t;
 }
+
+/**
+ * Production Convex tells a client only "Server Error" for a thrown Error; a ConvexError keeps its message.
+ * Code other than the plain apps reads these: agents through the runner's tools, and Beam Worlds. They need
+ * the reason ("Select this study explicitly before running it") to act on it instead of guessing.
+ */
+export function plainErrors<C, A, R>(handler: (ctx: C, args: A) => Promise<R>): (ctx: C, args: A) => Promise<R> {
+  return async (ctx, args) => {
+    try { return await handler(ctx, args); }
+    catch (e) { throw e instanceof ConvexError ? e : new ConvexError(e instanceof Error ? e.message : String(e)); }
+  };
+}
+/** A public query or mutation whose errors reach its caller as written: the runner, or a Beam World. */
+export const readableQuery = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: QueryCtx, args: ObjectType<A>) => Promise<R> }) =>
+  query({ args: def.args, handler: plainErrors(def.handler) });
+export const readableMutation = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: MutationCtx, args: ObjectType<A>) => Promise<R> }) =>
+  mutation({ args: def.args, handler: plainErrors(def.handler) });

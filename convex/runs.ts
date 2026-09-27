@@ -2,7 +2,7 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { requireChat } from "./lib";
+import { requireChat, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { threadRepos } from "./changes";
 import { notifyRun, resolveInputNotifications } from "./notifications";
@@ -24,7 +24,7 @@ export async function ownRun(ctx: QueryCtx | MutationCtx, token: string, runId: 
 // ---------------- runner side (token auth) ----------------
 
 /** Runners subscribe to this for work assigned to them. */
-export const queuedFor = query({
+export const queuedFor = readableQuery({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const runner = await runnerForToken(ctx, token);
@@ -33,7 +33,7 @@ export const queuedFor = query({
 });
 
 /** Everything a runner needs to host one run: the chat, the agent, the prompt, and recent context. */
-export const detail = query({
+export const detail = readableQuery({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -56,7 +56,7 @@ export const detail = query({
 });
 
 /** The runner has the thread directory ready and is about to start the harness. */
-export const claim = mutation({
+export const claim = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), branch: v.union(v.string(), v.null()), worktree: v.string(), workScope: v.optional(v.string()) },
   handler: async (ctx, { token, runId, branch, worktree, workScope }) => {
     const { run, runner } = await ownRun(ctx, token, runId);
@@ -77,7 +77,7 @@ export const claim = mutation({
 });
 
 /** Coalesced on the runner side. Seq is assigned here so user-side events (approvals) interleave safely. */
-export const appendEvents = mutation({
+export const appendEvents = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), events: v.array(v.any()) },
   handler: async (ctx, { token, runId, events }) => {
     const { runner, run } = await ownRun(ctx, token, runId);
@@ -115,7 +115,7 @@ async function insertEvents(ctx: MutationCtx, runId: Id<"runs">, events: unknown
 }
 
 /** The agent speaks. One message per turn, streamed by patching. */
-export const say = mutation({
+export const say = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), turn: v.number(), text: v.string() },
   handler: async (ctx, { token, runId, turn, text }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -124,7 +124,7 @@ export const say = mutation({
   },
 });
 
-export const patchSay = mutation({
+export const patchSay = readableMutation({
   args: { token: v.string(), messageId: v.id("messages"), text: v.string() },
   handler: async (ctx, { token, messageId, text }) => {
     const m = await ctx.db.get(messageId);
@@ -135,7 +135,7 @@ export const patchSay = mutation({
 });
 
 /** What the runner watches while a run is live: steers, approval decisions, and stop requests. */
-export const control = query({
+export const control = readableQuery({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -149,7 +149,7 @@ export const control = query({
 });
 
 /** Beam's attach_repo tool. The agent may attach any repo in the workspace, or add a new one by name. */
-export const attachRepo = mutation({
+export const attachRepo = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), repo: v.string() },
   handler: async (ctx, { token, runId, repo }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -165,7 +165,7 @@ export const attachRepo = mutation({
   },
 });
 
-export const workspaceRepos = query({
+export const workspaceRepos = readableQuery({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -175,7 +175,7 @@ export const workspaceRepos = query({
   },
 });
 
-export const land = mutation({
+export const land = readableMutation({
   args: { token: v.string(), runId: v.id("runs"), state: v.string(), landing: v.any(), resumeCursor: v.any() },
   handler: async (ctx, { token, runId, state, landing, resumeCursor }) => {
     const { run } = await ownRun(ctx, token, runId);
@@ -192,7 +192,7 @@ export const land = mutation({
  * The runner is shutting down and stopped this run itself. Record it as a stop, so what a stop from the chat ends
  * (resource leases held for the run) ends now too, while the runner lands the run's work.
  */
-export const stopping = mutation({
+export const stopping = readableMutation({
   args: { token: v.string(), runId: v.id("runs") },
   handler: async (ctx, { token, runId }) => {
     const { run } = await ownRun(ctx, token, runId);
