@@ -1,11 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
-import { requireLayer } from "../layers";
+import { requireLayer, v1Mutation, v1Query } from "../layers";
 import { person } from "./shape";
 import type { Scope } from "../../packages/contracts/src/layer";
 
 /** Who this token acts for, and what it may do. The first call every layer makes. */
-export const get = query({
+export const get = v1Query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const { token: t, login } = await requireLayer(ctx, token);
@@ -14,7 +13,7 @@ export const get = query({
 });
 
 /** A layer signing out ends its own token. It can never touch anyone else's. */
-export const revoke = mutation({
+export const revoke = v1Mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const { token: t } = await requireLayer(ctx, token);

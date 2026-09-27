@@ -13,13 +13,25 @@ export interface Transport {
 
 export const DEFAULT_URL = "https://cautious-fish-858.convex.cloud";
 
-export function convexTransport(url: string): Transport {
-  const client = new ConvexClient(url);
+/**
+ * Beam's refusals arrive as ConvexErrors carrying a sentence ("this token may not chat:write"). Hand callers a
+ * plain Error with just that sentence, not Convex's request-id wrapping.
+ */
+export function plainError(e: unknown): Error {
+  const data = (e as { data?: unknown } | null)?.data;
+  if (typeof data === "string") return new Error(data);
+  const message = e instanceof Error ? e.message : String(e);
+  return new Error(message.replace(/^\[CONVEX [^\]]*\]\s*(\[Request ID: [^\]]*\]\s*)?/, "").replace(/^.*Uncaught (Convex)?Error: /s, "").split("\n")[0] || message);
+}
+
+/** Errors reach callers through promises and onError, so the Convex client's own console logging is off by default. */
+export function convexTransport(url: string, opts: { logs?: boolean } = {}): Transport {
+  const client = new ConvexClient(url, { logger: opts.logs ?? false });
   const ref = (fn: string) => makeFunctionReference<"query">(fn);
   return {
-    query: (fn, args) => client.query(ref(fn), args),
-    mutation: (fn, args) => client.mutation(makeFunctionReference<"mutation">(fn), args),
-    subscribe: (fn, args, onValue, onError) => { const stop = client.onUpdate(ref(fn), args, onValue, onError); return () => stop(); },
+    query: (fn, args) => client.query(ref(fn), args).catch((e) => { throw plainError(e); }),
+    mutation: (fn, args) => client.mutation(makeFunctionReference<"mutation">(fn), args).catch((e) => { throw plainError(e); }),
+    subscribe: (fn, args, onValue, onError) => { const stop = client.onUpdate(ref(fn), args, onValue, (e) => onError(plainError(e))); return () => stop(); },
     close: () => client.close(),
   };
 }

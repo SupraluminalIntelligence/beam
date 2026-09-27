@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v, type ObjectType, type PropertyValidators } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { me } from "./lib";
@@ -10,6 +10,22 @@ import { Scope } from "../packages/contracts/src/layer";
  * device code like a runner does, shows it to the person, and gets a token once they approve the scopes it
  * asked for. Only the v1 functions accept these tokens, so a layer can never reach the rest of the API.
  */
+
+/**
+ * Production Convex tells clients only "Server Error" for a thrown Error; a ConvexError keeps its message.
+ * Layers are built by other people, so every refusal they can meet says why: "this token may not chat:write".
+ */
+export function plainErrors<C, A, R>(handler: (ctx: C, args: A) => Promise<R>): (ctx: C, args: A) => Promise<R> {
+  return async (ctx, args) => {
+    try { return await handler(ctx, args); }
+    catch (e) { throw e instanceof ConvexError ? e : new ConvexError(e instanceof Error ? e.message : String(e)); }
+  };
+}
+/** A public query or mutation whose errors reach clients as written. */
+export const v1Query = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: QueryCtx, args: ObjectType<A>) => Promise<R> }) =>
+  query({ args: def.args, handler: plainErrors(def.handler) });
+export const v1Mutation = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: MutationCtx, args: ObjectType<A>) => Promise<R> }) =>
+  mutation({ args: def.args, handler: plainErrors(def.handler) });
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const random = (len: number, map: (b: number) => string) => Array.from(crypto.getRandomValues(new Uint8Array(len)), map).join("");
@@ -55,7 +71,7 @@ async function waiting(ctx: QueryCtx | MutationCtx, userCode: string) {
 }
 
 /** What a layer is asking for, shown before anyone approves it. */
-export const pending = query({
+export const pending = v1Query({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     await me(ctx);
@@ -64,7 +80,7 @@ export const pending = query({
   },
 });
 
-export const approve = mutation({
+export const approve = v1Mutation({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     const u = await me(ctx);
@@ -78,7 +94,7 @@ export const approve = mutation({
   },
 });
 
-export const deny = mutation({
+export const deny = v1Mutation({
   args: { userCode: v.string() },
   handler: async (ctx, { userCode }) => {
     await me(ctx);
@@ -88,7 +104,7 @@ export const deny = mutation({
 });
 
 /** Your connected layers, newest first. Revoked ones stay listed for a week so a revoke is visible. */
-export const mine = query({
+export const mine = v1Query({
   args: {},
   handler: async (ctx) => {
     const u = await me(ctx);
@@ -99,7 +115,7 @@ export const mine = query({
   },
 });
 
-export const revoke = mutation({
+export const revoke = v1Mutation({
   args: { id: v.id("layerTokens") },
   handler: async (ctx, { id }) => {
     const u = await me(ctx);

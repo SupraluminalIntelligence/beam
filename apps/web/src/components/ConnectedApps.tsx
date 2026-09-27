@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
@@ -7,18 +7,22 @@ import { SCOPES } from "@beam/contracts/layer";
 
 /** What each scope lets an app do, in the contract's own words, shown before anyone approves it. */
 const scopeText = (s: string) => (SCOPES as Record<string, string>)[s] ?? `Unknown permission "${s}"`;
-const plain = (e: unknown) => String((e as Error).message ?? e).replace(/^.*Uncaught Error: /s, "").split("\n")[0] ?? "";
+const plain = (e: unknown) => { const data = (e as { data?: unknown }).data; return typeof data === "string" ? data : String((e as Error).message ?? e).replace(/^.*Uncaught Error: /s, "").split("\n")[0] ?? ""; };
 
 /**
  * Browser side of `beam login`: an app built on Beam (a CLI, a game, a dashboard) is waiting on a code.
  * Approving lets it act as you within the scopes listed here, until you revoke it in Settings.
  */
 export function ApproveLayer({ code, onDone }: { code: string; onDone: () => void }) {
-  const pending = useQuery(api.layers.pending, { userCode: code });
+  const live = useQuery(api.layers.pending, { userCode: code });
+  // The app collects its token and the code disappears the moment it is approved. Keep describing what was approved.
+  const seen = useRef<typeof live>(undefined);
+  if (live) seen.current = live;
   const me = useQuery(api.users.me);
   const approve = useMutation(api.layers.approve);
   const deny = useMutation(api.layers.deny);
   const [state, setState] = useState<"idle" | "approved" | "denied">("idle");
+  const pending = state === "idle" ? live : seen.current ?? live;
   const decide = async (yes: boolean) => {
     try { if (yes) await approve({ userCode: code }); else await deny({ userCode: code }); setState(yes ? "approved" : "denied"); }
     catch (e) { toast(plain(e)); }
@@ -28,6 +32,7 @@ export function ApproveLayer({ code, onDone }: { code: string; onDone: () => voi
       <div className="box">
         <h1 style={{ fontSize: 28 }}>Connect an app to Beam?</h1>
         {pending === undefined ? <div className="k">…</div>
+          : state !== "idle" ? null
           : !pending || pending.status === "denied" ? <div style={{ color: "var(--ink-2)" }}>No app is waiting with code <span className="mono">{code}</span>. It may have expired; run <span className="mono">beam login</span> again.</div>
           : <>
             <div style={{ color: "var(--ink-2)" }}><b>{pending.name}</b>{pending.hostname ? <> on {pending.hostname}</> : null} is waiting with code <span className="mono">{code}</span>. Approving lets it, as <b>{me?.name}</b>:</div>

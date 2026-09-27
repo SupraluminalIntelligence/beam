@@ -1,11 +1,10 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
 import { sendAs, toggleReaction } from "../messages";
 import { firstMention } from "../../packages/contracts/src/mentions";
-import { requireLayer } from "../layers";
+import { requireLayer, v1Mutation, v1Query } from "../layers";
 import { message, readableChat } from "./shape";
 
-export const list = query({
+export const list = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
     const { login } = await requireLayer(ctx, token);
@@ -18,7 +17,7 @@ export const list = query({
  * Post as the token's person. The first `@handle` of an agent in the chat starts it, or joins the live run it
  * already has for you, exactly as in the composer. Runs go to the person's own default machine and account.
  */
-export const send = mutation({
+export const send = v1Mutation({
   args: { token: v.string(), chatId: v.id("chats"), text: v.string(), mention: v.optional(v.union(v.string(), v.null())), runId: v.optional(v.union(v.id("runs"), v.null())) },
   handler: async (ctx, { token, chatId, text, mention, runId }) => {
     const { login } = await requireLayer(ctx, token, "chat:write");
@@ -37,7 +36,7 @@ export const send = mutation({
   },
 });
 
-export const react = mutation({
+export const react = v1Mutation({
   args: { token: v.string(), messageId: v.id("messages"), emoji: v.string() },
   handler: async (ctx, { token, messageId, emoji }) => {
     const { login } = await requireLayer(ctx, token, "chat:write");

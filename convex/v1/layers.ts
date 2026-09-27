@@ -1,8 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { requireLayer } from "../layers";
+import { requireLayer, v1Mutation, v1Query } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { readableChat } from "./shape";
 import { LAYER_ID, LAYER_STATE_MAX_BYTES } from "../../packages/contracts/src/layer";
@@ -25,7 +24,7 @@ async function access(ctx: QueryCtx | MutationCtx, token: string, workspaceId: I
   return login;
 }
 
-export const state = query({
+export const state = v1Query({
   args: { token: v.string(), workspaceId: v.id("workspaces"), layer: v.string() },
   handler: async (ctx, { token, workspaceId, layer }) => {
     const login = await access(ctx, token, workspaceId, "read");
@@ -47,7 +46,7 @@ export const state = query({
   },
 });
 
-export const set = mutation({
+export const set = v1Mutation({
   args: { token: v.string(), workspaceId: v.id("workspaces"), layer: v.string(), scope: v.string(), chatId: v.optional(v.union(v.id("chats"), v.null())), data: v.any() },
   handler: async (ctx, { token, workspaceId, layer, scope, chatId, data }) => {
     const login = await access(ctx, token, workspaceId, "layer:state");

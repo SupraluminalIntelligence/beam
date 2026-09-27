@@ -1,13 +1,12 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
 import { LAYER_ID } from "../../packages/contracts/src/layer";
-import { requireLayer } from "../layers";
+import { requireLayer, v1Mutation, v1Query } from "../layers";
 import { requireMemberLogin } from "../lib";
 import { focusAs, presenceIn, typingIn } from "../presence";
 import { readableChat } from "./shape";
 
 /** The shared truth of where people are. A chat focused in a private chat you are not in reads as nowhere. */
-export const presence = query({
+export const presence = v1Query({
   args: { token: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, { token, workspaceId }) => {
     const { login } = await requireLayer(ctx, token);
@@ -23,7 +22,7 @@ export const presence = query({
   },
 });
 
-export const typing = query({
+export const typing = v1Query({
   args: { token: v.string(), chatId: v.id("chats") },
   handler: async (ctx, { token, chatId }) => {
     const { login } = await requireLayer(ctx, token);
@@ -33,7 +32,7 @@ export const typing = query({
 });
 
 /** Say which chat you are in, from which layer. Every interface shares this one truth; the last to write wins. */
-export const focus = mutation({
+export const focus = v1Mutation({
   args: { token: v.string(), workspaceId: v.id("workspaces"), chatId: v.optional(v.union(v.id("chats"), v.null())), layer: v.optional(v.union(v.string(), v.null())) },
   handler: async (ctx, { token, workspaceId, chatId, layer }) => {
     const { login } = await requireLayer(ctx, token, "presence:write");

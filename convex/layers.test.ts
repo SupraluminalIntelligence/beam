@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { ConvexError } from "convex/values";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
 import { approve, deny, mine, parseScopes, pending, poll, revoke, start } from "./layers";
 import { approve as approveRunner } from "./runnerAuth";
@@ -118,6 +119,9 @@ it("stops working the moment it is revoked", async () => {
   await call(revoke, f.ctx, { id: t.id });
   await expect(call(me.get, f.queryCtx, { token })).rejects.toThrow("invalid or revoked");
   await expect(call(me.get, f.queryCtx, { token: "blt_forged" })).rejects.toThrow("invalid or revoked");
+  // Production hides a plain Error's message from clients; a layer needs to read why it was refused.
+  await expect(call(me.get, f.queryCtx, { token: "blt_forged" })).rejects.toBeInstanceOf(ConvexError);
+  await expect(call(messages.send, f.ctx, { token: await connect(f), chatId: "team", text: "hi" })).rejects.toBeInstanceOf(ConvexError);
 });
 
 it("lets a layer sign itself out, and nothing else", async () => {

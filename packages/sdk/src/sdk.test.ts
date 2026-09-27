@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { Chat, ChatSnapshot, LayerEvent, Message, Run, WorkspaceState } from "@beam/contracts/layer";
-import { Beam, type Transport } from "./client.ts";
+import { Beam, plainError, type Transport } from "./client.ts";
+import { ConvexError } from "convex/values";
 import { diffChat, diffWorkspace } from "./diff.ts";
 import { chatTimeline, openRequests } from "./views.ts";
 
@@ -146,4 +147,10 @@ it("sends every-frame state at a steady rate, always ending on the latest", asyn
   expect(xs.length).toBeLessThanOrEqual(4);
   expect(xs.at(-1)).toBe(29);
   vi.useRealTimers();
+});
+
+it("hands callers Beam's sentence, not Convex's wrapping", () => {
+  expect(plainError(new ConvexError("this token may not chat:write")).message).toBe("this token may not chat:write");
+  expect(plainError(new Error("[CONVEX M(v1/runs:respond)] [Request ID: ee85] Server Error")).message).toBe("Server Error");
+  expect(plainError(new Error("[CONVEX Q(v1/me:get)] [Request ID: 1] Server Error\nUncaught Error: nope\n  at x")).message).toBe("nope");
 });
