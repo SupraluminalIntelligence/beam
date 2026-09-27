@@ -89,14 +89,15 @@ export const parallelHeatInput = (c: ParallelChannelsCase) => c.channels.reduce(
  * Hottest heated-wall temperature expected by the end of the run, in K, from the lesser of two bounds.
  * Steady: the bulk rise with the flow split evenly plus the developed wall-to-bulk difference, q''·2h/(k·8.235).
  * Transient: a wall heated from t = 0 with no flow, 2q''·√(α·t/π)/k, which bounds early times.
+ * Across the channel, the wall stands above the core by the lesser of the transient rise and the developed wall-to-bulk difference, q''·2h/(k·8.235).
  */
 export function parallelWallEstimate(c: ParallelChannelsCase, time = c.duration) {
   const q = Math.max(...c.channels.map(ch => ch.heatFlux));
   if (q <= 0) return null;
   const alpha = c.nu / c.pr, rhoCp = c.conductivity / alpha, u = parallelLayout(c).channelVelocity;
-  const steady = 2 * q * c.channelLength / (rhoCp * u * c.channelHeight) + q * 2 * c.channelHeight / (c.conductivity * 8.235);
+  const film = q * 2 * c.channelHeight / (c.conductivity * 8.235), steady = 2 * q * c.channelLength / (rhoCp * u * c.channelHeight) + film;
   const transient = 2 * q * Math.sqrt(alpha * time / Math.PI) / c.conductivity;
-  return { steady, transient, wall: c.inletTemperature + Math.min(steady, transient), reachesAt: (dT: number) => Math.PI * (dT * c.conductivity / (2 * q)) ** 2 / alpha };
+  return { steady, transient, wall: c.inletTemperature + Math.min(steady, transient), across: Math.min(film, transient), reachesAt: (dT: number) => Math.PI * (dT * c.conductivity / (2 * q)) ** 2 / alpha };
 }
 
 const num = (n: number) => n !== 0 && (Math.abs(n) >= 1e4 || Math.abs(n) < 1e-2) ? n.toExponential(1).replace("e+", "e") : String(Number(n.toPrecision(3)));
@@ -119,17 +120,19 @@ export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   else if (c.gravity === "off") checks.push({ id: "buoyancy", label: "gravity off", status: ri < 0.1 ? "ok" : ri < 1 ? "warn" : "fail", value: `Ri ${num(ri)}`,
     detail: `Ri = gβΔT·2h/U² with ΔT ${num(dT)} K, the estimated hottest wall ${where} minus the inlet. ` + (ri < 0.1 ? "Forced convection dominates, so leaving gravity out is reasonable."
       : "Buoyancy is not negligible, and in parallel channels it can shift the flow between channels as well as the heat transfer. Turn gravity on in the orientation of the real device.") });
-  else checks.push({ id: "buoyancy", label: "buoyancy", status: c.beta * dT < 0.1 ? "info" : "warn", value: `Ri ${num(ri)}`,
+  else checks.push({ id: "buoyancy", label: "buoyancy", status: c.beta * dT < 0.1 ? "info" : "fail", value: c.beta * dT < 0.1 ? `Ri ${num(ri)}` : `βΔT ${num(c.beta * dT)}`,
     detail: `Gravity is on (${c.gravity}), so buoyancy is solved with the Boussinesq approximation: constant properties except a density that falls by β per kelvin. Ri = gβΔT·2h/U² with ΔT ${num(dT)} K, the estimated hottest wall ${where} minus the inlet. `
       + (ri >= 1 ? "Buoyancy is at least as strong as the flow's inertia, so it can set how the flow divides between channels. " : "")
-      + (c.beta * dT < 0.1 ? `The density changes by about ${num(100 * c.beta * dT)} %, within the approximation's usual range.` : `The density changes by about ${num(100 * c.beta * dT)} %, beyond the roughly 10 % where the Boussinesq approximation is usually trusted.`) });
+      + (c.beta * dT < 0.1 ? `The density changes by about ${num(100 * c.beta * dT)} %, within the approximation's usual range.` : `The density changes by about ${num(100 * c.beta * dT)} %, beyond the roughly 10 % where the Boussinesq approximation is trusted, so this model does not represent the flow. Reduce the heating or the run length, or use a solver with variable density.`) });
 
   if (c.gravity === "stacked" && heated) {
-    const ra = G * c.beta * dT * c.channelHeight ** 3 / (c.nu * alpha);
-    checks.push({ id: "convection-cells", label: "heated from below", status: ra > 1708 ? "warn" : "ok", value: `Ra ${num(ra)}`,
-      detail: `Each heated channel's floor is heated, with its ceiling above it. Ra = gβΔT·h³/(ν·α) on the channel height. ` + (ra > 1708
-        ? "Above about 1,708 a fluid layer heated from below forms convection rolls, so the flow can stay unsteady. Read the flow split over time, not from one snapshot."
-        : "Below about 1,708 a fluid layer heated from below stays free of convection rolls.") });
+    // Both walls of a heated channel take the flux, so only its lower half is heated from below. The driving difference is across the channel, wall to core,
+    // leaving out the fluid's warming along it; the half-layer has a rigid floor and a softer top, so the lower, rigid–free critical value applies.
+    const across = estimate!.across, ra = G * c.beta * across * (c.channelHeight / 2) ** 3 / (c.nu * alpha);
+    checks.push({ id: "convection-cells", label: "heated from below", status: ra > 1100 ? "warn" : "ok", value: `Ra ${num(ra)}`,
+      detail: `Each heated channel's floor heats the fluid above it, and with its ceiling heated too, the lower half of the channel is heated from below. Ra = gβΔT·(h/2)³/(ν·α) on that half height, with ΔT ${num(across)} K the estimated wall-to-core difference across the channel ${where}. ` + (ra > 1100
+        ? "Above about 1,100 to 1,708 (the critical values for a layer with a rigid floor and a free or rigid top) a layer heated from below forms convection rolls, so the flow can stay unsteady. Read the flow split over time, not from one snapshot."
+        : "Below about 1,100, the lower of the critical values for such a layer, it stays free of convection rolls.") });
   }
 
   if (c.boilingPoint !== undefined && c.inletTemperature >= c.boilingPoint) checks.push({ id: "single-phase", label: "single phase", status: "fail", value: "inlet at or above Tsat",

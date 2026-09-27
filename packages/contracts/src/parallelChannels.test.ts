@@ -49,6 +49,21 @@ it("flags buoyancy-driven cells, boiling walls and a run too short to reach stea
   expect(check(mana, "viscosity")?.status).toBe("ok");
 });
 
+it("fails the Boussinesq approximation once the density would change by 10 % or more", () => {
+  // Over 30 s the heated wall is estimated about 130 K above the inlet: βΔT ≈ 0.24.
+  expect(check({ ...mana, duration: 30 }, "buoyancy")).toMatchObject({ status: "fail", value: "βΔT 0.238" });
+});
+
+it("bases the convection-roll check on the difference across a channel, not the fluid's warming along it", () => {
+  // A 0.5 mm channel run to steady state: the wall ends about 33 K above the inlet, but only 13 K of that is across the channel, wall to core.
+  // Taken over the full height with the whole 33 K, Ra would be about 4,900 and trip the check.
+  const thin = { ...mana, channelHeight: 0.0005, cellsAcross: 4, duration: 60 };
+  expect(parallelWallEstimate(thin)!.across).toBeCloseTo(13.2, 1);
+  expect(parallelWallEstimate(thin)!.wall - thin.inletTemperature).toBeGreaterThan(30);
+  expect(check(thin, "convection-cells")?.status).toBe("ok");
+  expect(check(mana, "convection-cells")?.value).toBe("Ra 1.0e6");
+});
+
 it("fails the gravity-off assumption when buoyancy dominates, and has nothing to flag without heat", () => {
   expect(check({ ...mana, gravity: "off" }, "buoyancy")?.status).toBe("fail");
   expect(check({ ...mana, gravity: "off" }, "convection-cells")).toBeUndefined();
