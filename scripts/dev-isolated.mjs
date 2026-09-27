@@ -57,7 +57,7 @@ function sharedRunners() {
 }
 /**
  * What Beam's runner is running right now: the agent CLIs of runs in progress and any compute job, all its children.
- * Quitting Beam would stop them before they land (the runner exits on SIGTERM without waiting), so takeover waits for none.
+ * Quitting Beam would interrupt them (the runner lands what they did before it exits), so takeover waits for none.
  */
 function runnerWork() {
   const runners = new Set(sharedRunners().filter((r) => r.packaged).map((r) => r.pid));
@@ -132,7 +132,8 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   for (const c of children) kill(c);
-  if (reopenBeam) { await waitFor(() => sharedRunners().length === 0, 10_000); spawnSync("open", ["-b", BEAM_APP]); console.log("reopened Beam"); }
+  // The runner lands any run in progress before it exits, which can take up to a minute (RUNNER_GRACE_MS in apps/desktop).
+  if (reopenBeam) { await waitFor(() => sharedRunners().length === 0, 65_000); spawnSync("open", ["-b", BEAM_APP]); console.log("reopened Beam"); }
   process.exit(0);
 }
 process.on("SIGINT", () => void stop()); process.on("SIGTERM", () => void stop());

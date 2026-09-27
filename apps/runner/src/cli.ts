@@ -10,6 +10,7 @@ import { probeProfiles, manageProfiles, profileFor } from "./profiles.ts";
 import { login } from "./login.ts";
 import { contributeResource, watchResources } from "./resources.ts";
 import { watchRuns } from "./runs.ts";
+import { onShutdown } from "./shutdown.ts";
 import { probeOpenFoam, runOpenFoam } from "./compute/openfoam.ts";
 import { watchCompute } from "./compute/watch.ts";
 
@@ -115,13 +116,19 @@ if (cmd === "start") {
     catch (e) { console.error("probe failed", (e as Error).message); }
     finally { probing = false; }
   };
-  setInterval(() => client.mutation(api.runners.heartbeat, { token, runnerId }).catch((e) => console.error("heartbeat", (e as Error).message)), 30_000);
-  setInterval(() => void reprobe("interval"), 5 * 60_000);
+  const heartbeat = setInterval(() => client.mutation(api.runners.heartbeat, { token, runnerId }).catch((e) => console.error("heartbeat", (e as Error).message)), 30_000);
+  const reprobing = setInterval(() => void reprobe("interval"), 5 * 60_000);
   client.onUpdate(api.runners.self, { token }, (row) => { if (row && row.probeRequestedAt > lastProbeReq) { lastProbeReq = row.probeRequestedAt; void reprobe("requested"); } });
-  watchRuns(client, token);
+  const runs = watchRuns(client, token);
   watchResources(client, token);
   if (computeSupported) watchCompute(client, token);
 
-  const bye = async () => { try { await client.mutation(api.runners.bye, { token, runnerId }); } catch {} process.exit(0); };
-  process.on("SIGINT", bye); process.on("SIGTERM", bye);
+  // The desktop app may be gone by the time a run lands; a closed stdout must not crash the landing.
+  process.stdout.on("error", () => {}); process.stderr.on("error", () => {});
+  const shutdown = onShutdown({
+    landRuns: () => runs.shutdown(),
+    bye: () => { clearInterval(heartbeat); clearInterval(reprobing); return client.mutation(api.runners.bye, { token, runnerId }); },
+    exit: (code) => process.exit(code),
+  });
+  process.on("SIGINT", () => void shutdown()); process.on("SIGTERM", () => void shutdown());
 }
