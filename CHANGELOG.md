@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Wind tunnel: put an Ahmed body, the standard car-like test shape, in a 3D study and see streamlines flow over it, the drag and lift coefficients over time, and how the drag compares with the wind-tunnel measurement. New study › Wind tunnel · Ahmed body · 25° sets up the classic case at 40 m/s.
 - Settings › Models & accounts has a **From phone and apps** account per agent: the machine and account that run agents you start from your phone, the `beam` CLI or a Beam World, which have no machine of their own. With one signed-in account, Beam offers it. Approving an app that can start agents asks the same question.
 - Beam Worlds: build your own world on Beam, whether a 2D or 3D space, a dashboard, a terminal feed or a world of sound. The `beam` CLI and `@beam/worlds` read your workspaces, chats, messages, agent runs, pull requests, presence and inbox live, as JSON or as events. With permissions you approve, a world can also post, react, answer agents, stop runs, say which chat you are in, and keep its own state (where you stand in it, say). Apps connect with a code you approve, and Settings › Connected apps lists and revokes them.
 - 3D simulation studies: a box domain with spheres, boxes and cylinders, meshed with snappyHexMesh and solved laminar or with k-ω SST turbulence on up to four cores. Results play back on slice planes and body walls in a 3D view.
