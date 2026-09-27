@@ -54,6 +54,9 @@ it("fails the gravity-off assumption when buoyancy dominates, and has nothing to
   expect(check({ ...mana, gravity: "off" }, "convection-cells")).toBeUndefined();
   const cold = { ...mana, gravity: "off" as const, channels: [{ heatFlux: 0 }, { heatFlux: 0 }] };
   expect(parallelSetupChecks(cold).filter(k => k.status !== "ok" && k.status !== "info").map(k => k.id)).toEqual(["run-length"]);
+  // Liquid already at its boiling point boils without any heating.
+  expect(check({ ...cold, inletTemperature: 335 }, "single-phase")).toMatchObject({ status: "fail", value: "inlet at or above Tsat" });
+  expect(check({ ...mana, inletTemperature: 335 }, "single-phase")?.status).toBe("fail");
   // Vertical channels have no heated floor, so the Rayleigh–Bénard check only applies to a stacked device.
   expect(check({ ...mana, gravity: "upflow" }, "convection-cells")).toBeUndefined();
 });

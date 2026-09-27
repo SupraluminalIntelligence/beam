@@ -67,7 +67,8 @@ export type ParallelTime = { time: number; phi: number[] };
  * Exit bulk temperatures are for fluid leaving each channel: at the downstream end, or at the upstream end when the channel runs backwards.
  * Only faces carrying fluid out of the channel count, each weighted by its flux with the channel-side cell's temperature, so local backflow cannot drag the value outside the range of what leaves.
  * Heated wall temperatures add the imposed gradient over the half cell to the wall cell's value.
- * Heat carried out is ρ·cp·Σ φ·(T − T_in) over outflowing outlet faces, with ρ·cp = k·Pr/ν; at a steady state it equals the heat input.
+ * Heat leaving is ρ·cp·Σ φ·(T − T_in) over outflowing outlet faces, with ρ·cp = k·Pr/ν, plus conduction back out through the fixed-temperature inlet, k·(T − T_in)/x over each inlet face;
+ * at a steady state it equals the heat input.
  */
 export function parallelResults(c: ParallelChannelsCase, mesh: ParallelMesh, times: ParallelTime[], lastPhiText: string, T: number[]) {
   const L = parallelLayout(c), h = c.channelHeight, dx = c.channelLength / c.cellsAlong, dy = h / c.cellsAcross, x0 = c.manifoldLength;
@@ -108,11 +109,16 @@ export function parallelResults(c: ParallelChannelsCase, mesh: ParallelMesh, tim
   let maxWall: number | null = null;
   c.channels.forEach((ch, k) => { if (ch.heatFlux <= 0) return; const r = ranges[`channel${k + 1}`]; if (!r) throw new Error(`Missing channel${k + 1} patch`); for (const cell of owner.slice(r.start, r.start + r.count)) maxWall = Math.max(maxWall ?? -Infinity, T[cell]! + ch.heatFlux / c.conductivity * dy / 2); });
   const rhoCp = c.conductivity * c.pr / c.nu;
-  const carried = outlet.flux.reduce((s, f, i) => s + (f > 0 ? f * (T[outlet.cells[i]!]! - c.inletTemperature) : 0), 0) / PARALLEL_DEPTH * rhoCp;
+  // Advected out of the outlet, over outflowing faces only, and conducted back through the inlet from each inlet cell centre, x from the inlet plane.
+  let outward = 0, advected = 0;
+  outlet.flux.forEach((f, i) => { if (f > 0) { outward += f; advected += f * (T[outlet.cells[i]!]! - c.inletTemperature); } });
+  const faceHeight = (y: number) => L.channelBottoms.some(b => y > b && y < b + h) ? dy : c.wallThickness / L.wallCells;
+  const conducted = inlet.cells.reduce((s, cell) => s + c.conductivity * (T[cell]! - c.inletTemperature) / centres[cell]![0] * faceHeight(centres[cell]![1]), 0);
+  const carried = advected / PARALLEL_DEPTH * rhoCp + conducted;
   const results: ParallelChannelsResults = {
     inflow, flows: final, history: times.map(t => ({ time: t.time, flows: flows(t.phi) })), exitBulkTemperaturesK: exitBulk,
     maxHeatedWallTemperatureK: maxWall, heatInputW: parallelHeatInput(c), heatCarriedOutW: carried,
   };
-  return { results, massImbalance: (outflow - inflow) / inflow, outletTemperatureK: outflow > 0 ? c.inletTemperature + carried / (rhoCp * outflow) : null };
+  return { results, massImbalance: (outflow - inflow) / inflow, outletTemperatureK: outward > 0 ? c.inletTemperature + advected / outward : null };
 }
 

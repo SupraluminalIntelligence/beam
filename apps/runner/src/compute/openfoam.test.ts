@@ -128,6 +128,15 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real OpenFOAM parallel ch
     expect(Math.abs(p.flows[0]!/p.flows[1]!-1)).toBeLessThan(1e-3);expect(Math.abs((p.flows[0]!+p.flows[1]!)/p.inflow-1)).toBeLessThan(1e-3);
     expect(p.heatInputW).toBe(0);expect(p.maxHeatedWallTemperatureK).toBe(null);
   },300000);
+  it("balances heat in against heat leaving at a steady state, counting conduction back through the inlet",async()=>{
+    // A liquid-metal-like fluid at 1 mm/s in a short device: Péclet about 2, so heat conducts upstream to the inlet and the outlet alone carries away less than goes in.
+    const config={...defaultParallelChannels,channelLength:.02,channelHeight:.002,wallThickness:.002,manifoldLength:.005,channels:[{heatFlux:1e4},{heatFlux:0}],velocity:1e-3,
+      nu:3e-7,pr:.02,conductivity:20,gravity:"off" as const,cellsAcross:10,cellsAlong:40,duration:300,frames:30};
+    const {report}=await solve(config,"low-peclet"),p=report.parallel!;
+    expect(p.heatInputW).toBeCloseTo(400);expect(Math.abs(p.heatCarriedOutW/p.heatInputW-1)).toBeLessThan(.02);
+    const rise=(report.outletTemperatureK!-config.inletTemperature)*(config.conductivity*config.pr/config.nu)*p.inflow;
+    expect(rise/p.heatInputW).toBeLessThan(.9);
+  },300000);
   it("keeps the hydrostatic head in a vertical device's static pressure",async()=>{
     const config={...defaultParallelChannels,channels:[{heatFlux:0},{heatFlux:0}],gravity:"upflow" as const,cellsAcross:10,cellsAlong:35,duration:1,frames:2};
     const {report,fields}=await solve(config,"upflow");

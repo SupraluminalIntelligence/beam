@@ -76,7 +76,8 @@ export const ParallelChannelsResults = z.object({
   // Only faces carrying fluid out count; null while a channel's net flow is too small to define one.
   exitBulkTemperaturesK: z.array(z.number().finite().nullable()).min(2).max(4),
   maxHeatedWallTemperatureK: z.number().finite().nullable(),
-  // Per metre of depth: heat entering through the heated walls, and heat carried out of the outlet above the inlet temperature.
+  // Per metre of depth: heat entering through the heated walls, and heat leaving the device: carried out of the outlet above the inlet temperature,
+  // plus any conducted back out through the inlet. At a steady state the two match.
   heatInputW: z.number().finite(), heatCarriedOutW: z.number().finite(),
 });
 export type ParallelChannelsResults = z.infer<typeof ParallelChannelsResults>;
@@ -131,7 +132,9 @@ export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
         : "Below about 1,708 a fluid layer heated from below stays free of convection rolls.") });
   }
 
-  if (!heated) checks.push({ id: "single-phase", label: "single phase", status: "ok", value: "no heating", detail: "No channel is heated." });
+  if (c.boilingPoint !== undefined && c.inletTemperature >= c.boilingPoint) checks.push({ id: "single-phase", label: "single phase", status: "fail", value: "inlet at or above Tsat",
+    detail: `The inlet, ${kelvin(c.inletTemperature)}, is at or above the stated boiling point of ${kelvin(c.boilingPoint)}, so the liquid would boil before any heating. This single-phase model cannot represent that; lower the inlet temperature or check the boiling point at the operating pressure.` });
+  else if (!heated) checks.push({ id: "single-phase", label: "single phase", status: "ok", value: "no heating", detail: "No channel is heated, and the inlet is below the boiling point or none is set." });
   else if (c.boilingPoint === undefined) checks.push({ id: "single-phase", label: "single phase", status: "unknown", value: "boiling point not set", detail: "Set the saturation temperature at the operating pressure to check that no heated wall reaches it." });
   else {
     const margin = c.boilingPoint - estimate!.wall, reach = estimate!.reachesAt(c.boilingPoint - c.inletTemperature);
