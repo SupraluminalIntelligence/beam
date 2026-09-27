@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Wind tunnel: put an Ahmed body, the standard car-like test shape, in a 3D study and see streamlines flow over it, the drag and lift coefficients over time, and how the drag compares with the wind-tunnel measurement. New study › Wind tunnel · Ahmed body · 25° sets up the classic case at 40 m/s.
 - Build your own interface on Beam. The `beam` CLI and `@beam/sdk` read your workspaces, chats, messages, agent runs, pull requests, presence and inbox live, as JSON or as events, so a game, dashboard or terminal feed can show your team's work its own way. Apps connect with a code you approve, and Settings › Connected apps lists and revokes them. Read-only for now.
 - 3D simulation studies: a box domain with spheres, boxes and cylinders, meshed with snappyHexMesh and solved laminar or with k-ω SST turbulence on up to four cores. Results play back on slice planes and body walls in a 3D view.
 - Quitting or updating Beam no longer strands an agent's work. Runs in progress are stopped as if you pressed stop, and their edits are committed and pushed before the runner goes offline. Beam's window hides while this finishes, which takes up to a minute. A run that hadn't started yet waits for the next launch.

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultDomain3d, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
-import { domain3dFiles, parseVtkSurface, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses } from "./domain3d.ts";
+import { defaultDomain3d, defaultAhmedTunnel, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
+import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses } from "./domain3d.ts";
 import { runOpenFoam } from "./openfoam.ts";
 
 it("generates snappyHexMesh geometry, merged wall patches and turbulence fields",()=>{
@@ -19,6 +19,33 @@ it("generates snappyHexMesh geometry, merged wall patches and turbulence fields"
  expect(laminar["constant/turbulenceProperties"]).toContain("simulationType laminar;");
  expect(laminar["0/k"]).toBeUndefined();
  expect(domain3dProcesses(10_000)).toBe(1);expect(domain3dProcesses(100_000)).toBe(4);
+});
+it("meshes an Ahmed body from an STL and measures its loads and streamlines",()=>{
+ const files=domain3dFiles(defaultAhmedTunnel,4),stl=files["constant/triSurface/body_ahmed.stl"]!;
+ expect(files["system/snappyHexMeshDict"]).toContain('body_ahmed { type triSurfaceMesh; file "body_ahmed.stl"; }');
+ expect(stl.startsWith("solid body_ahmed")).toBe(true);expect(stl.match(/facet normal/g)?.length).toBe(148);
+ const control=files["system/controlDict"]!;
+ expect(control).toMatch(/forces \{ type forces; libs \(forces\); rho rhoInf; rhoInf 1.2; CofR \(0\.522 0 0\.19\d*\); patches \(bodyWall\);/);
+ expect(control).toMatch(/dragDir \(1 0 0\); pitchAxis \(0 1 0\); magUInf 40; lRef 1\.044; Aref 0\.1120\d*;/);
+ expect(files["0/U"]).toContain("ground { type noSlip; }");
+ const seeds=streamlineSeeds(defaultAhmedTunnel);
+ expect(seeds.length).toBe(63);expect(seeds.every(p=>p[0]<0&&!defaultAhmedTunnel.bodies.some(b=>insideBody(b,p))&&p[2]>0)).toBe(true);
+ expect(files["system/streamDict"]).toContain("seedSampleSet { type cloud; axis xyz; points (");
+ expect(domain3dSolveCommands(4,true).at(-1)).toMatch(/postProcess -dict system\/streamDict -latestTime .*\|\| true$/);
+ // A sideways inlet has no drag direction on +x: forces only, no coefficients or streamlines.
+ const side={...defaultAhmedTunnel,boundaries:defaultAhmedTunnel.boundaries.map(b=>b.type==="velocity-inlet"?{...b,velocity:[40,5,0] as [number,number,number]}:b)};
+ expect(domain3dFiles(side)["system/controlDict"]).not.toContain("forceCoeffs");expect(streamlineSeeds(side)).toEqual([]);
+ expect(domain3dFiles(defaultDomain3d)["system/controlDict"]).toContain("forceCoeffs");
+});
+it("reads OpenFOAM force and coefficient histories by column name",()=>{
+ const force="# Force\n# CofR : (0 0 0)\n#\n# Time            \ttotal_x total_y total_z\tpressure_x pressure_y pressure_z\tviscous_x viscous_y viscous_z\n0.01 1 2 3 4 5 6 7 8 9\n0.02 3 2 1 4 5 6 7 8 9\n";
+ expect(readDat(force)).toEqual([{Time:.01,total_x:1,total_y:2,total_z:3,pressure_x:4,pressure_y:5,pressure_z:6,viscous_x:7,viscous_y:8,viscous_z:9},{Time:.02,total_x:3,total_y:2,total_z:1,pressure_x:4,pressure_y:5,pressure_z:6,viscous_x:7,viscous_y:8,viscous_z:9}]);
+ expect(readDat("# Time Cd Cl\n0.1 0.3 0.1\n0.2 bad 0.1\n")).toEqual([{Time:.1,Cd:.3,Cl:.1}]);
+});
+it("reads streamline polylines from the VTK set writer",()=>{
+ const vtk="# vtk DataFile Version 2.0\ntrack0\nASCII\nDATASET POLYDATA\n\nPOINTS 5 float\n0 0 0 1 0 0 2 0 0 0 1 0 1 1 0\nLINES 2 7\n3 0 1 2\n2 3 4\n\nPOINT_DATA 5\nFIELD FieldData 2\np 1 5 float\n0 0 0 0 0\nU 3 5 float\n1 0 0 2 0 0 3 0 0 1 0 0 1 0 0\n";
+ const t=parseVtkSurface(vtk);
+ expect(t.counts).toEqual([3,2]);expect(t.indices).toEqual([0,1,2,3,4]);expect(t.fields["U"]?.values.length).toBe(15);
 });
 it("moves slice planes off grid faces by a negligible distance",()=>{
  const shifted=sliceOffset(defaultDomain3d,{normal:"z",offset:0});
@@ -61,6 +88,25 @@ describe.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("real 3D OpenFOAM mesh and
    expect(frames.length).toBe(4*fields.surfaces.reduce((n,s)=>n+s.points.length/3,0)*4);
    // Stagnation pressure 0.5 rho U^2 = 125 Pa bounds the wall maximum after the start-up transient.
    expect(fields.ranges.pressure[1]).toBeGreaterThan(50);
+  }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
+ },600_000); it("snaps an Ahmed body STL above a ground wall and reports loads and streamlines",async()=>{
+  // Coarse and short: this checks the pipeline, not the benchmark drag.
+  const config={...structuredClone(defaultAhmedTunnel),duration:.02,frames:4,refinements:[{name:"bodySurface",kind:"body",body:"ahmed",level:2,distance:0}]} as Domain3DCase;
+  const root=await mkdtemp(join(tmpdir(),"beam-foam3d-")),cwd=process.cwd(),name="beam-foam-0123456789abcdefa4a4";
+  try{
+   await import("node:fs/promises").then(fs=>Promise.all([fs.mkdir(join(root,"mesh")),fs.mkdir(join(root,"solve"))]));
+   process.chdir(join(root,"mesh"));await runOpenFoam({caseId:"c",revision:1,stage:"mesh",config},name);
+   expect(SimulationReport.parse(JSON.parse(await readFile("report.json","utf8"))).meshOk).toBe(true);
+   const view=Domain3DMeshView.parse(JSON.parse(await readFile("mesh-view.json","utf8")));
+   expect(view.surfaces.map(s=>s.name)).toEqual(["centreline","wake","midHeight","bodyWall","ground"]);
+   await copyFile("mesh.tar.gz",join(root,"solve","mesh-input.tar.gz"));
+   process.chdir(join(root,"solve"));await runOpenFoam({caseId:"c",revision:1,stage:"solve",config,meshJobId:"m"},name);
+   const forces=SimulationReport.parse(JSON.parse(await readFile("report.json","utf8"))).domain3d?.forces;
+   expect(forces?.cd).toBeGreaterThan(.1);expect(forces?.forceN[0]).toBeGreaterThan(0);expect(forces?.history.length).toBeGreaterThan(10);
+   const fields=Domain3DFields.parse(JSON.parse(await readFile("fields.json","utf8")));
+   expect(fields.streamlines?.lines.length).toBeGreaterThan(40);
+   // Flow over the roof is faster than the 40 m/s free stream.
+   expect(fields.streamlines?.range[1]).toBeGreaterThan(40);
   }finally{process.chdir(cwd);await rm(root,{recursive:true,force:true});}
  },600_000);
 });
