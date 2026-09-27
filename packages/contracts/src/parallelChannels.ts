@@ -104,20 +104,20 @@ export function parallelWallEstimate(c: ParallelChannelsCase, time = c.duration)
  * How buoyancy can move flow between channels, from which channels are heated and which way gravity points.
  * upflow: buoyancy aids the flow in every heated channel, more in one heated more strongly, so a heated channel can only lose flow to a channel heated more.
  * downflow: buoyancy opposes the flow in every heated channel, so any of them can lose flow, and a channel that slows heats further and slows more.
- * stacked (channel 1 lowest): in solves of two stacked channels, heating drew flow into a channel wherever it sat, so any heating can shift the split. Between two heated channels the lower one
- * won, even with a third of the flux of the one above it, so a heated channel can lose flow only to a heated channel below it.
+ * stacked (channel 1 lowest): in solves of two stacked channels, the lower one drew more of the flow whichever was heated, 62 % with only the upper one heated
+ * and 73 % with both. So any heating can shift the split, and every heated channel above the lowest can lose flow.
  * Returns whether the split can shift at all, and the heated channels that can lose flow.
  */
 export function parallelBuoyantShift(c: Pick<ParallelChannelsCase, "channels" | "gravity">) {
   const q = c.channels.map(ch => ch.heatFlux);
-  const starvable = q.map((qi, i) => qi > 0 && (c.gravity === "downflow" || c.gravity === "upflow" && q.some(qj => qj > qi) || c.gravity === "stacked" && q.slice(0, i).some(qj => qj > 0)));
+  const starvable = q.map((qi, i) => qi > 0 && (c.gravity === "downflow" || c.gravity === "upflow" && q.some(qj => qj > qi) || c.gravity === "stacked" && i > 0));
   const shifts = c.gravity === "upflow" ? q.some(qi => qi !== q[0]) : c.gravity !== "off" && q.some(qi => qi > 0);
   return { shifts, starvable };
 }
 const starveReason: Record<GravityOrientation, string> = {
   off: "", upflow: "flowing up, buoyancy draws more of the flow through a more strongly heated channel and less through a weaker one",
   downflow: "flowing down, warm fluid in a heated channel pushes against the flow, and a channel that slows heats further and slows more",
-  stacked: "stacked, heating draws flow into a channel, and a heated channel loses flow to a heated one below it",
+  stacked: "stacked, the lowest channel draws flow from the ones above it whenever any channel is heated",
 };
 
 const num = (n: number) => n !== 0 && (Math.abs(n) >= 1e4 || Math.abs(n) < 1e-2) ? n.toExponential(1).replace("e+", "e") : String(Number(n.toPrecision(3)));
