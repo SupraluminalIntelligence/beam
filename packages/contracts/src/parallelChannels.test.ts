@@ -45,8 +45,34 @@ it("flags buoyancy-driven cells, boiling walls and a run too short to reach stea
   expect(boil?.status).toBe("fail");
   expect(boil?.detail).toContain("61 °C");
   expect(check(mana, "run-length")?.status).toBe("warn");
-  expect(check(mana, "laminar")?.status).toBe("ok");
+  // Buoyancy can shift this device's split, so the even-split Re is information, not a bound.
+  expect(check(mana, "laminar")?.status).toBe("info");
   expect(check(mana, "viscosity")?.status).toBe("ok");
+});
+
+it("warns when buoyancy could push one channel's flow past laminar, and only when something can shift the split", () => {
+  // Four channels at an even-split Re of 1,380, one heated with gravity on: one carrying more than 36 % of the inflow would pass 2,000.
+  const four = { ...mana, channels: [7500, 0, 0, 0].map(heatFlux => ({ heatFlux })), cellsAcross: 8, cellsAlong: 40, velocity: 0.03 };
+  expect(ParallelChannelsCase.safeParse(four).success).toBe(true);
+  expect(check(four, "laminar")).toMatchObject({ status: "warn", value: "Re 1380" });
+  expect(check(four, "laminar")?.detail).toContain("more than 36.2 % of the inflow");
+  // Without buoyancy strong enough to shift the split, identical channels split evenly and the even-split Re holds: no heating, gravity off, no thermal expansion,
+  // or heating so slight that Ri is far below 0.1.
+  const faint = { ...four, channels: [1, 0, 0, 0].map(heatFlux => ({ heatFlux })) };
+  expect(check(faint, "buoyancy")?.value).toBe("Ri 4.6e-4");
+  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }, faint]) expect(check(even, "laminar")?.status).toBe("ok");
+  // The paper's device: all of its inflow through one channel would still be laminar, but a reversed neighbour can push more through it.
+  expect(check(mana, "laminar")?.detail).toContain("would give Re 789");
+});
+
+it("warns when only an even split keeps a heated wall below boiling and buoyancy could starve it", () => {
+  // At 0.2 W/cm² over 120 s an evenly fed wall settles about 37 K above the inlet, 4 K short of boiling; with no flow it would boil after about 40 s.
+  const slow = { ...mana, channels: [{ heatFlux: 2000 }, { heatFlux: 0 }], duration: 120 };
+  expect(check(slow, "single-phase")).toMatchObject({ status: "warn", value: "3.7 K below Tsat if even" });
+  expect(check(slow, "single-phase")?.detail).toContain("buoyancy can starve a heated channel");
+  // With gravity off, or no thermal expansion, buoyancy cannot shift the flow, so the steady estimate holds.
+  expect(check({ ...slow, gravity: "off" }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
+  expect(check({ ...slow, beta: 0 }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
 });
 
 it("fails the Boussinesq approximation once the density would change by 10 % or more", () => {

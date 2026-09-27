@@ -30,12 +30,20 @@ it("draws heated walls, flow direction and gravity before a solve, and one recta
 
 it("reports the flow split, the hottest wall against the boiling point and how much heat has left", () => {
   const html = renderToStaticMarkup(<ParallelMeasurements config={mana} report={report} />);
-  expect(html).toContain("channel 1 · heated</span><span>56.7 % · 0.85 cm²/s");
+  expect(html).toContain("channel 1 · heated</span><span>56.7 % · 0.85 cm²/s · Re 447");
   expect(html).toContain("78.7 °C");
   expect(html).toContain("above Tsat");
   expect(html).toContain("0.00952 % of 1050 W/m");
   expect(html).toContain("has not reached a thermal steady state");
   expect(renderToStaticMarkup(<ParallelMeasurements config={mana} report={null} />)).toContain("appear after a solve");
+});
+
+it("calls excess heat outflow unsteady, and flags a channel whose flow passes the laminar range", () => {
+  const releasing = { physicalTime: 30, parallel: { ...results, flows: [9e-4, -7.5e-4], heatCarriedOutW: 1300 } } as SimulationReport;
+  const html = renderToStaticMarkup(<ParallelMeasurements config={mana} report={releasing} />);
+  expect(html).toContain('<div class="sim-value sim-measure warn"><span>heat leaving</span><span>124 % of 1050 W/m</span></div>');
+  expect(html).toContain("giving back heat it stored earlier");
+  expect(html).toContain('<div class="sim-value sim-measure fail"><span>channel 1 · heated</span><span>600 % · 9 cm²/s · Re 4737</span></div>');
 });
 
 it("plots every channel's flow over time with an even-split reference", () => {
