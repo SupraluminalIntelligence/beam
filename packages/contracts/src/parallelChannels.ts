@@ -101,17 +101,20 @@ export function parallelWallEstimate(c: ParallelChannelsCase, time = c.duration)
 }
 
 /**
- * How buoyancy can move flow between channels, from which channels are heated and which way gravity points.
- * upflow: buoyancy aids the flow in every heated channel, more in one heated more strongly, so a heated channel can only lose flow to a channel heated more.
- * downflow: buoyancy opposes the flow in every heated channel, so any of them can lose flow, and a channel that slows heats further and slows more.
+ * How buoyancy can move flow between channels, from which way gravity points, how strongly each channel is heated, and ri, the Richardson number of the hottest channel.
+ * Wall temperature rises scale with heat flux, so the buoyancy driving a shift is strong enough, at Ri of 0.1 or more (the bound below which the gravity-off check calls
+ * forced convection dominant), when ri times the driving flux as a share of the largest reaches 0.1.
+ * upflow: buoyancy aids the flow in every heated channel, more in one heated more strongly, so the difference in heating drives a shift, and a heated channel
+ * can only lose flow to a channel heated more.
+ * downflow: buoyancy opposes the flow in each heated channel, driven by that channel's own heating, and a channel that slows heats further and slows more.
  * stacked (channel 1 lowest): in solves of two stacked channels, the lower one drew more of the flow whichever was heated, 62 % with only the upper one heated
- * and 73 % with both. So any heating can shift the split, and every heated channel above the lowest can lose flow.
+ * and 73 % with both. So heating anywhere can shift the split, and every heated channel above the lowest can lose flow.
  * Returns whether the split can shift at all, and the heated channels that can lose flow.
  */
-export function parallelBuoyantShift(c: Pick<ParallelChannelsCase, "channels" | "gravity">) {
-  const q = c.channels.map(ch => ch.heatFlux);
-  const starvable = q.map((qi, i) => qi > 0 && (c.gravity === "downflow" || c.gravity === "upflow" && q.some(qj => qj > qi) || c.gravity === "stacked" && i > 0));
-  const shifts = c.gravity === "upflow" ? q.some(qi => qi !== q[0]) : c.gravity !== "off" && q.some(qi => qi > 0);
+export function parallelBuoyantShift(c: Pick<ParallelChannelsCase, "channels" | "gravity">, ri: number) {
+  const q = c.channels.map(ch => ch.heatFlux), top = Math.max(...q), strong = (flux: number) => top > 0 && ri * flux / top >= 0.1;
+  const starvable = q.map((qi, i) => qi > 0 && (c.gravity === "upflow" ? strong(top - qi) : c.gravity === "downflow" ? strong(qi) : c.gravity === "stacked" && i > 0 && strong(top)));
+  const shifts = c.gravity === "upflow" ? strong(top - Math.min(...q)) : c.gravity !== "off" && strong(top);
   return { shifts, starvable };
 }
 const starveReason: Record<GravityOrientation, string> = {
@@ -133,14 +136,13 @@ export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   const u = parallelLayout(c).channelVelocity, dh = 2 * c.channelHeight, re = u * dh / c.nu, alpha = c.nu / c.pr;
   const estimate = parallelWallEstimate(c), dT = estimate ? estimate.wall - c.inletTemperature : 0, heated = c.channels.some(ch => ch.heatFlux > 0);
   const ri = G * c.beta * dT * dh / (u * u), where = estimate && estimate.transient < estimate.steady ? `by the end of the ${seconds(c.duration)} run` : "once steady";
-  // Identical channels split the flow about evenly unless buoyancy is strong enough to shift it: gravity on and Ri of 0.1 or more, the bound below which the gravity-off check
-  // calls forced convection dominant, with heating that favours some channels over others. Buoyancy can then push most of the flow through one channel,
+  // Identical channels split the flow about evenly unless buoyancy is strong enough to shift it. It can then push most of the flow through one channel,
   // or reverse a neighbour and push more than the inflow through it, so nothing known before the solve bounds any channel's Re.
-  const strong = c.gravity !== "off" && ri >= 0.1, shift = parallelBuoyantShift(c), imbalance = strong && shift.shifts, oneChannel = re * c.channels.length;
+  const shift = parallelBuoyantShift(c, ri), imbalance = shift.shifts, oneChannel = re * c.channels.length;
   const solved = "Results show each channel's Re, 2·Q/ν from its flow per metre of depth, and flag any above 2,000.";
   const checks: SetupCheck[] = [{ id: "laminar", label: "laminar flow", status: re > 2000 ? "fail" : !imbalance ? "ok" : oneChannel > 2000 ? "warn" : "info", value: `Re ${num(re)}`,
     detail: `Re = U·2h/ν in each channel with the flow split evenly (U ${num(u)} m/s). Flow between parallel plates stays laminar below about 2,000. ` + (!imbalance
-      ? "Without buoyancy strong enough to shift it (gravity on and Ri of 0.1 or more) and heating that favours some channels, identical channels split the flow about evenly, so each runs near this Re."
+      ? "Buoyancy here is too weak to shift the split: that takes gravity on and Ri of 0.1 or more, and flowing up, from the difference in heating between channels. So identical channels split the flow about evenly, and each runs near this Re."
       : oneChannel > 2000 ? `Buoyancy can shift the split, and a channel carrying more than ${num(100 * 2000 / oneChannel)} % of the inflow would pass 2,000. ${solved}`
       : `Buoyancy can shift the split: all of the inflow through one channel would give Re ${num(oneChannel)}, and a reversed neighbour can push more than the inflow through it. ${solved}`) }];
 
@@ -170,7 +172,7 @@ export function parallelSetupChecks(c: ParallelChannelsCase): SetupCheck[] {
   else {
     const margin = c.boilingPoint - estimate!.wall;
     // The steady value assumes an even split. Where buoyancy can take flow from a heated channel, the steady value no longer caps that channel's no-flow rise.
-    const hungry = strong ? parallelWallEstimate({ ...c, channels: c.channels.map((ch, i) => shift.starvable[i] ? ch : { heatFlux: 0 }) }) : null;
+    const hungry = parallelWallEstimate({ ...c, channels: c.channels.map((ch, i) => shift.starvable[i] ? ch : { heatFlux: 0 }) });
     const starved = margin > 0 && hungry !== null && c.inletTemperature + hungry.transient >= c.boilingPoint;
     const reach = (starved ? hungry : estimate)!.reachesAt(c.boilingPoint - c.inletTemperature);
     checks.push({ id: "single-phase", label: "single phase", status: margin <= 0 ? "fail" : starved ? "warn" : "ok", value: margin > 0 ? `${num(margin)} K below Tsat${starved ? " if even" : ""}` : `${num(-margin)} K above Tsat`,
