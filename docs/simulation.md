@@ -97,14 +97,33 @@ The web UI never launches processes. It and the agent tools (`list_simulations`,
 
 The local executor translates the reserved `beam:openfoam` manifest into a detached supervised worker. Its container has only the job directory mounted, no network, 2 CPUs, 2 GB RAM and a 256-process limit. Explicit inputs are checksum verified; explicit outputs are uploaded to the existing authenticated chat storage. Closing the pane or ending an agent turn does not cancel a job. Connector reconnection resumes reporting from receipts without resubmission. Cancel and timeout remove the associated Docker container. A lost supervisor is treated as an uncertain failed execution, never silently replayed; inspect the machine if Docker was unavailable during cleanup.
 
-Cases and artifacts are backend resources; runner handles and filesystem paths are execution details. A future remote executor can stage those inputs, submit to a durable server or scheduler, return a scheduler handle and implement inspect/cancel/readOutput. That remote backend is not implemented yet. The case schema contains versioned channel, cylinder and composable planar flow definitions; imported 3D CAD preparation remains separate work.
+Cases and artifacts are backend resources; runner handles and filesystem paths are execution details. A future remote executor can stage those inputs, submit to a durable server or scheduler, return a scheduler handle and implement inspect/cancel/readOutput. That remote backend is not implemented yet. The case schema contains versioned channel, cylinder, composable planar and 3-D box-domain flow definitions; imported 3D CAD preparation remains separate work.
+
+## 3D flow · box domain with primitive bodies
+
+Agents can create a `geometry: "domain3d"` study through the same `validate_simulation` → `save_simulation` → `run_simulation` flow, and the pane offers **New study → 3D flow · sphere · k-ω SST** as an example.
+
+- The fluid domain is an axis-aligned box. `domain.faces` maps `xMin`, `xMax`, `yMin`, `yMax`, `zMin` and `zMax` to named boundaries; several faces can share one (e.g. four `sides`).
+- Up to 8 bodies are subtracted: spheres (`centre`, `radius`), boxes (`min`, `max`) and capped cylinders (`start`, `end`, `radius`). Each needs a wall boundary distinct from the face boundaries; bodies can share one. Validation requires two background cells between bodies and the faces and one between bodies (bounding boxes), and at least four cells across each body at its surface level.
+- `turbulence` is explicit: `{model: "laminar"}` or `{model: "kOmegaSST", intensity, lengthScale}`. Inlet and initial k = 1.5 (U I)² and ω = √k / (Cμ^¼ L). Walls use `nutkWallFunction`, `kqRWallFunction` and `omegaWallFunction`. This is URANS through `pimpleFoam`; boundary layers are not meshed, so near-wall resolution depends on the surface refinement level only.
+- `meshSize` is the background hex size from `blockMesh`. `refinements` use snappyHexMesh levels 1–4 (size `meshSize / 2^level`): `{kind: "body", body, level, distance}` sets the body's surface level and refines a band `distance` metres around it; `{kind: "box", min, max, level}` refines a region such as a wake.
+- `slices` (1–3) are the planes sampled for playback, `{name, normal: "x"|"y"|"z", offset}`. Every wall is sampled too. A slice lying exactly on a grid face is moved by about 1/1000 of a cell.
+- `frames` ≤ 60. Velocities are `[x, y, z]` in m/s; pressures are gauge Pa.
+
+Mesh jobs run `blockMesh`, `snappyHexMesh -overwrite` (castellate and snap; no layers) and `createPatch` to merge body surfaces into their named walls. `checkMesh` must report "Mesh OK". `checkMesh -allGeometry -allTopology` also runs, but only as advisory output, because snapped meshes commonly carry concave-cell warnings that do not stop the solver. The report lists the actual cell count, cell types, the pre-mesh estimate and those advisory findings. `mesh-view.json` holds the snapped walls and the mesh cut by each slice. The polyMesh travels to the solve as `mesh.tar.gz` with its mesh key; the solve checks the archive entries and the key before using it.
+
+Solve jobs pick 1 process below 30,000 cells and 4 above (`decomposePar`, `mpirun -np 4 pimpleFoam -parallel`, `reconstructPar`). 3-D containers get 4 CPUs and 4 GB, keep the same isolation (no network, only the job directory mounted) and have a 4-hour deadline. A `surfaces` function object samples U and p at points on the slices and walls at every saved interval. `fields.json` lists those surfaces as triangulated points; `frames.bin` stores little-endian Float32 values ordered by frame, then surface, then point: `[Ux, Uy, Uz, p in Pa]`. If the requested frames would exceed 20 MB, saved times are evenly subsampled (the last is always kept), and the report states saved against requested frames. The report also includes max Courant, the maximum νt/ν from `fieldMinMax` for turbulent runs, and the MPI process count. `case.tar.gz` includes the final-time volume fields when it fits within 20 MB, and otherwise only the dictionaries and logs.
+
+The 3-D view (Three.js, loaded on demand) shows the declared bodies, slice planes and refinement boxes in Setup; the actual snapped walls and slice-cut cells in Mesh; and coloured slices and walls in Results, with speed, gauge pressure or x-velocity, and playback. Surface layers can be hidden individually.
+
+Limits: 120,000 background cells, a conservative 250,000-cell estimate before meshing and 300,000 actual cells, a 20 MB mesh archive, and 8 bodies. Not implemented: imported STL/STEP bodies, boundary layers, steady `simpleFoam`, forces and coefficients, full-volume visualisation, moving 3-D bodies, remote execution. A completed run is not a validated result. Mesh sensitivity, domain blockage and the suitability of wall functions at the achieved y+ remain unassessed.
 
 ## Verification
 
 ```sh
 pnpm test:backend
 pnpm --filter @beam/runner test
-BEAM_TEST_OPENFOAM=1 pnpm --filter @beam/runner exec vitest run src/compute/openfoam.test.ts
+BEAM_TEST_OPENFOAM=1 pnpm --filter @beam/runner exec vitest run src/compute/openfoam.test.ts src/compute/domain3d.test.ts
 pnpm --filter @beam/web build
 ```
 
