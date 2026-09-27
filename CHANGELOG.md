@@ -2,7 +2,9 @@
 
 What changed in Beam, newest first. The app shows this under Settings › What's new. Add a line under Unreleased with any user-visible change; a release renames Unreleased to its version and date.
 
-## 0.1.8 — 2026-09-26
+## Unreleased
+
+## 0.1.10 — 2026-09-26
 
 - Chats show live status in the sidebar, tabs and ⌘K: pulsing blue while an agent or job runs, half amber when an agent is waiting on you, green when a run finished and you haven't looked, ✕ when it failed, and a blue outline when someone mentions you.
 - Parallel-channel studies: two to four heated or unheated channels between an inlet and an outlet manifold, solved transient with buoyancy in the real orientation (stacked, or vertical with flow up or down). Results show how the flow divides between channels over time, each channel's exit temperature, the hottest heated wall against the boiling point, and how much of the heat has left the outlet. The default is the two-channel HFE-7100 device from Masrouri and Yagoobi (IJHMT 2026) without its EHD pumps: on real OpenFOAM the heated lower channel draws 57% of the flow at 5 s, within half a point on three meshes, and its walls pass 61 °C after about 2 s. Setup checks flag buoyancy, convection rolls in channels heated from below, boiling walls and a run too short to reach steady state. Agents set up and run the same study.
@@ -10,7 +12,13 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 - Mesh-independence studies for the heated channel: solve one setup on three meshes and Results shows each quantity's grid convergence index, observed order and extrapolated value (Celik et al. 2008). Agents run the same study with `mesh_convergence`. On real solves f·Re extrapolates to 96.03 against the exact 96.
 - Heated-channel results report what a heat-transfer engineer checks: flow-weighted bulk outlet temperature, mass and thermal balances from the solver's own face fluxes, f·Re against 96, and a local Nusselt number plot against the developed 7.54. Verified on real OpenFOAM solves: balances close to 1e-5 or better, f·Re lands within 1% of 96, and Nu reaches 7.77 at the end of a 1 mm HFE-7100 channel.
 - Heated-channel studies check their own assumptions before anything runs: gravity off (Richardson number), single phase (boiling point), viscosity units and entry lengths. The checks update as you edit Setup, show on the study card and in the Results checks, and agents see them too. Set the fluid's expansion coefficient and boiling point to turn on the first two.
+
+## 0.1.9 — 2026-09-26
+
 - PRs from Beam look like any other PR: ready for review instead of draft, titled and described by the agent that did the work, and committed under your own git name so GitHub shows your avatar. Commits fall back to Beam only on a machine with no git identity.
+
+## 0.1.8 — 2026-09-26
+
 - Open PRs sit above the composer with a state icon, number, branch, size and live CI. Click CI to see which checks failed, open their logs, or ask the agent to fix them. Click the branch to copy it or open it on GitHub. A pushed branch without a PR gets a Create PR button. In the chat, each run leaves a one-line record of where it pushed.
 - Invalid or inaccessible repo names no longer lock a thread while attaching a repo.
 - Beam for iPhone: read chats, answer agents, approve, react and steer from your phone, with push notifications for your inbox.
