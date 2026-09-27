@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkState, keepPolling, parsePrPage, parseRestPr, prPatch, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
+import { EXPIRED, checkState, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, summarizeChecks, type CheckItem, type RollupContext } from "./prStatus";
 
 const run = (name: string, status: string, conclusion: string | null = null): RollupContext => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://ci/${name}` });
 const status = (context: string, state: string): RollupContext => ({ __typename: "StatusContext", context, state, targetUrl: null });
@@ -94,5 +94,17 @@ describe("keepPolling", () => {
     expect(keepPolling("none", 4)).toBe(false);
     expect(keepPolling("passing", 0)).toBe(false);
     expect(keepPolling("failing", 0)).toBe(false);
+  });
+});
+
+describe("refusal", () => {
+  const headers = (h: Record<string, string> = {}) => ({ get: (k: string) => h[k.toLowerCase()] ?? null });
+  it("tells a dead token from a repo the token can't see, and from rate limiting", () => {
+    expect(refusal(401, headers())).toMatchObject({ kind: "expired", error: EXPIRED });
+    expect(refusal(403, headers()).kind).toBe("forbidden");
+    expect(refusal(404, headers()).kind).toBe("forbidden");
+    expect(refusal(403, headers({ "x-ratelimit-remaining": "0" })).kind).toBe("rate-limited");
+    expect(refusal(429, headers({ "retry-after": "60" })).kind).toBe("rate-limited");
+    expect(refusal(502, headers())).toEqual({ kind: "other", error: "GitHub answered 502" });
   });
 });

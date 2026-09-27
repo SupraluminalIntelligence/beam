@@ -1112,7 +1112,7 @@ body.resizing .side-grip{pointer-events:auto}
 .prrow .prnum{color:var(--ink);font-weight:600}.prrow .prnum:hover{text-decoration:underline;text-underline-offset:2px}
 .prrow .prrepo{color:var(--ink-3)}
 .pr-icon{width:15px;height:15px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
-.pr-icon.open{color:var(--add)}.pr-icon.draft,.pr-icon.branch{color:var(--ink-3)}.pr-icon.merged{color:var(--ok)}.pr-icon.closed{color:var(--bad)}
+.pr-icon.open{color:var(--add)}.pr-icon.draft,.pr-icon.branch,.pr-icon.unsynced{color:var(--ink-3)}.pr-icon.merged{color:var(--ok)}.pr-icon.closed{color:var(--bad)}
 .prrow .prbranchwrap{position:relative;flex:1;min-width:0;display:flex}
 .prrow .prbranch{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;color:var(--ink-2);padding:1px 6px;margin-left:-6px;border-radius:var(--r-1)}
 .prrow .prbranch:hover,.prrow .prbranch[aria-expanded="true"]{background:var(--surface-2);color:var(--ink)}
@@ -1125,6 +1125,7 @@ body.resizing .side-grip{pointer-events:auto}
 .landing .st{text-transform:uppercase;letter-spacing:var(--track-label);font-size:10px}.landing .st.closed{color:var(--bad)}
 .landing .add{color:var(--add)}.landing .del{color:var(--del)}.landing .err{color:var(--del)}
 .landing .hint{text-decoration:underline;text-underline-offset:2px}
+.prrow .prstale{flex:none;color:var(--warn);cursor:help}
 .prrow .add{color:var(--add)}.prrow .del{color:var(--del)}
 .prrow .ci{position:relative;flex:none}
 .cichip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:var(--r-1);background:var(--surface-2);padding:2px 8px;color:var(--ink-2);font:inherit}

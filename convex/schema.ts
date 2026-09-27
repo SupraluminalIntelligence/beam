@@ -9,6 +9,7 @@ export default defineSchema({
     username: v.optional(v.string()),
     githubToken: v.optional(v.string()),   // OAuth token from sign-in (repo scope); only read by github.ts actions, never returned to clients
     githubTokenScope: v.optional(v.string()),
+    githubRejectedToken: v.optional(v.string()), // githubToken as it was when GitHub answered 401; equal means dead until the next sign-in replaces it
     image: v.optional(v.string()),
     email: v.optional(v.string()),
     emailVerificationTime: v.optional(v.number()),

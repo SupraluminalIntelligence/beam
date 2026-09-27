@@ -99,6 +99,19 @@ export function prPatch(pr: PrSnapshot, now: number) {
   };
 }
 
+/**
+ * Why GitHub turned a read down. Expired means the token itself is dead (revoked, or pushed out by newer sign-ins);
+ * forbidden means this token can't see the repo, which another member's might; rate-limited clears on its own.
+ */
+export type Refusal = { error: string; kind: "expired" | "forbidden" | "rate-limited" | "other" };
+export const EXPIRED = "Beam's GitHub access has expired. Sign out of Beam and sign back in with GitHub to renew it.";
+export function refusal(status: number, headers: { get(name: string): string | null }): Refusal {
+  if (status === 401) return { error: EXPIRED, kind: "expired" };
+  if ((status === 403 || status === 429) && (headers.get("x-ratelimit-remaining") === "0" || headers.get("retry-after") !== null)) return { error: "GitHub is rate-limiting Beam. It will try again shortly.", kind: "rate-limited" };
+  if (status === 403 || status === 404) return { error: "GitHub refused Beam's access to this PR", kind: "forbidden" };
+  return { error: `GitHub answered ${status}`, kind: "other" };
+}
+
 const RestPr = z.object({ html_url: z.string().url(), number: z.number().int().positive() });
 /** A PR from GitHub's REST API (the one Create PR opened, or the first of a list when one already existed), validated. */
 export function parseRestPr(json: unknown): { url: string; number: number } | null {

@@ -1,12 +1,12 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import type { QueryCtx } from "./_generated/server";
+import type { ActionCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireChat } from "./lib";
 import { startSync } from "./changes";
-import { MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, type ChecksSummary, type PrSnapshot } from "./prStatus";
+import { EXPIRED, MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, type ChecksSummary, type PrSnapshot, type Refusal } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
 export const myToken = internalQuery({
@@ -44,27 +44,61 @@ export const myRepos = action({
 });
 
 
-/** A token that can read a change's PR: the person who created it, else any member with a token. */
-async function tokenFor(ctx: QueryCtx, c: Doc<"changes">): Promise<string | null> {
-  const creator = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", c.createdBy)).first();
-  if (creator?.githubToken) return creator.githubToken;
+type Candidate = { login: string; token: string };
+/**
+ * Tokens that might read a change's PR, in the order to try them: the person who created it, then the other members.
+ * A token GitHub has already rejected is left out until its owner signs in again; `expired` says one was.
+ */
+async function tokensFor(ctx: QueryCtx, c: Doc<"changes">): Promise<{ tokens: Candidate[]; expired: boolean }> {
   const members = await ctx.db.query("members").withIndex("by_workspace", (q) => q.eq("workspaceId", c.workspaceId)).collect();
-  for (const m of members) { const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", m.githubLogin)).first(); if (u?.githubToken) return u.githubToken; }
-  return null;
+  const logins = [...new Set([c.createdBy, ...members.map((m) => m.githubLogin)])];
+  const tokens: Candidate[] = [];
+  let expired = false;
+  for (const login of logins) {
+    const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+    if (!u?.githubToken) continue;
+    if (u.githubRejectedToken === u.githubToken) { expired = true; continue; }
+    tokens.push({ login, token: u.githubToken });
+  }
+  return { tokens, expired };
 }
 
 const NO_ACCESS = "No one in this workspace has given Beam GitHub access";
+
+/** GitHub answered 401 for this token. Only the token it answered for: a sign-in since then stored a new one. */
+export const markTokenRejected = internalMutation({
+  args: { login: v.string(), token: v.string() },
+  handler: async (ctx, { login, token }) => {
+    const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+    if (u?.githubToken === token) await ctx.db.patch(u._id, { githubRejectedToken: token });
+  },
+});
+
+/**
+ * Reads the PR with each candidate token in turn. A dead token is marked so later syncs skip it; a token that can't see
+ * the repo hands over to the next member's. The first refusal is the one reported: it is the creator's, when they have one.
+ */
+async function readPr(ctx: ActionCtx, repo: string, prNumber: number, access: { tokens: Candidate[]; expired: boolean }): Promise<PrSnapshot | Refusal> {
+  let first: Refusal | null = null;
+  for (const t of access.tokens) {
+    const pr = await fetchPr(repo, prNumber, t.token);
+    if (!("error" in pr)) return pr;
+    first ??= pr;
+    if (pr.kind === "expired") await ctx.runMutation(internal.github.markTokenRejected, { login: t.login, token: t.token });
+    else if (pr.kind !== "forbidden") break;
+  }
+  return first ?? { error: access.expired ? EXPIRED : NO_ACCESS, kind: access.expired ? "expired" : "other" };
+}
 
 /** Open changes with a PR, plus a token that can read each one (null when nobody's can, so the cron can say so). */
 export const openChangesWithTokens = internalQuery({
   args: {},
   handler: async (ctx) => {
     const open = await ctx.db.query("changes").withIndex("by_state", (q) => q.eq("state", "open")).collect();
-    const out: { id: Id<"changes">; repo: string; prNumber: number; token: string | null; gen: number }[] = [];
+    const out: { id: Id<"changes">; repo: string; prNumber: number; access: { tokens: Candidate[]; expired: boolean }; gen: number }[] = [];
     for (const c of open) {
       if (!c.prNumber) continue;
-      const token = await tokenFor(ctx, c);
-      out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, token, gen: c.syncGen ?? 0 });
+      out.push({ id: c._id, repo: c.repo, prNumber: c.prNumber, access: await tokensFor(ctx, c), gen: c.syncGen ?? 0 });
     }
     return out;
   },
@@ -76,7 +110,7 @@ export const changeForSync = internalQuery({
   handler: async (ctx, { changeId, gen }) => {
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open" || !c.prNumber || (c.syncGen ?? 0) !== gen) return null;
-    return { repo: c.repo, prNumber: c.prNumber, token: await tokenFor(ctx, c) };
+    return { repo: c.repo, prNumber: c.prNumber, access: await tokensFor(ctx, c) };
   },
 });
 
@@ -124,7 +158,7 @@ export const markSyncError = internalMutation({
 });
 
 /** The PR, its head commit and its checks, a page of checks per request. A later page failing keeps what the first ones read. */
-async function fetchPr(repo: string, prNumber: number, token: string): Promise<PrSnapshot | { error: string }> {
+async function fetchPr(repo: string, prNumber: number, token: string): Promise<PrSnapshot | Refusal> {
   const [owner, name] = repo.split("/");
   let first: PrSnapshot | null = null;
   const items: PrSnapshot["items"] = [];
@@ -135,15 +169,15 @@ async function fetchPr(repo: string, prNumber: number, token: string): Promise<P
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "beam" },
       body: JSON.stringify({ query: PR_QUERY, variables: { owner, name, number: prNumber, after } }),
     });
-    if (!res.ok) { if (first) break; return { error: res.status === 401 || res.status === 403 ? "GitHub refused Beam's access to this PR" : `GitHub answered ${res.status}` }; }
+    if (!res.ok) { if (first) break; return refusal(res.status, res.headers); }
     const parsed = parsePrPage(await res.json());
-    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); if (first) break; return { error: parsed.error }; }
+    if ("error" in parsed) { console.error("fetchPr", repo, prNumber, parsed.error); if (first) break; return { error: parsed.error, kind: "other" }; }
     first ??= parsed.pr;
     items.push(...parsed.pr.items);
     after = parsed.next;
     if (!after) break;
   }
-  return first ? { ...first, items } : { error: "no reply from GitHub" };
+  return first ? { ...first, items } : { error: "no reply from GitHub", kind: "other" };
 }
 
 /** Every few minutes: state, diff size and CI for every open PR. Keeps the change chips honest without anyone running anything. */
@@ -153,8 +187,7 @@ export const syncChanges = internalAction({
     const rows = await ctx.runQuery(internal.github.openChangesWithTokens, {});
     for (const r of rows) {
       try {
-        if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: NO_ACCESS }); continue; }
-        const pr = await fetchPr(r.repo, r.prNumber, r.token);
+        const pr = await readPr(ctx, r.repo, r.prNumber, r.access);
         // Both carry the generation read: a landing mid-fetch means this is about an older head.
         if ("error" in pr) await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: pr.error });
         else await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr, gen: r.gen });
@@ -169,13 +202,13 @@ export const syncChange = internalAction({
   handler: async (ctx, { changeId, gen, attempt }) => {
     const r = await ctx.runQuery(internal.github.changeForSync, { changeId, gen });
     if (!r) return;
-    if (!r.token) { await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: NO_ACCESS }); return; }
     let next: boolean;
     try {
-      const pr = await fetchPr(r.repo, r.prNumber, r.token);
+      const pr = await readPr(ctx, r.repo, r.prNumber, r.access);
       if ("error" in pr) {
         await ctx.runMutation(internal.github.markSyncError, { changeId, gen, error: pr.error });
-        next = attempt < 3; // a blip gets a few retries; a lasting refusal shouldn't poll for half an hour
+        // A blip gets a few retries. No usable token, or one GitHub won't take, waits for a sign-in and the 3-minute sync.
+        next = attempt < 3 && pr.kind !== "expired" && r.access.tokens.length > 0;
       } else {
         const checks = await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen });
         next = !!checks && keepPolling(checks as ChecksSummary["state"], attempt);
