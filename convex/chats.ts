@@ -2,9 +2,9 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { openChange, threadRepos } from "./changes";
 import { requireChat, requireMember } from "./lib";
-import { isLive } from "./runs";
+import { isLive, LIVE } from "./runs";
 import { followParticipant } from "./notifications";
-import { jobFinished } from "../packages/contracts/src/compute";
+import { JobState, jobFinished } from "../packages/contracts/src/compute";
 
 export const list = query({
   args: { workspaceId: v.id("workspaces") },
@@ -27,6 +27,8 @@ export function chatActivity(a: { asking: boolean; working: boolean; unread: ("c
   return "idle";
 }
 
+const OPEN_JOBS = JobState.options.filter((s) => !jobFinished(s));
+
 /** Live status square for every visible chat in a workspace, keyed by chat id. Idle chats are omitted. */
 export const activity = query({
   args: { workspaceId: v.id("workspaces") },
@@ -36,9 +38,10 @@ export const activity = query({
     const chats = all.filter((c) => c.state !== "deleted" && (!c.private || c.members.includes(u.githubLogin!)));
     const inbox = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", u.githubLogin!)).order("desc").take(100);
     const out: Record<string, ChatActivity> = {};
+    // Only live rows, looked up by state: reading each chat's whole history would grow forever and rerun this on every past run's update.
     for (const c of chats) {
-      const runs = (await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect()).filter((r) => isLive(r.state));
-      const jobs = (await ctx.db.query("computeJobs").withIndex("by_chat", (q) => q.eq("chatId", c._id)).collect()).filter((j) => !jobFinished(j.state));
+      const runs = (await Promise.all([...LIVE].map((state) => ctx.db.query("runs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
+      const jobs = (await Promise.all(OPEN_JOBS.map((state) => ctx.db.query("computeJobs").withIndex("by_chat_state", (q) => q.eq("chatId", c._id).eq("state", state)).collect()))).flat();
       const status = chatActivity({
         asking: runs.some((r) => (r.openRequests ?? []).length > 0) || jobs.some((j) => j.state === "awaiting-approval"),
         working: runs.length > 0 || jobs.length > 0,

@@ -15,6 +15,7 @@ import { People } from "./People";
 import { TabStrip } from "./TabStrip";
 import { NavigationControls } from "./NavigationControls";
 import { toast } from "./Toast";
+import { useChatActivity } from "../lib/chatStatus";
 
 export type Me = { id: Id<"users">; name: string; githubLogin: string; image: string | null; isAnonymous: boolean };
 export type ModalKind = null | { kind: "settings"; tab?: SettingsTab } | { kind: "agent"; id: Id<"agents"> } | { kind: "invite"; ws?: WorkspaceRow } | { kind: "newws" } | { kind: "addrepo"; ws?: WorkspaceRow } | { kind: "palette" };
@@ -62,6 +63,19 @@ export function Shell({ me, workspaces }: { me: Me; workspaces: WorkspaceRow[] }
     const t = setInterval(() => void focus({ workspaceId: wsId, chatId: (activeId as Id<"chats"> | null) ?? null }), 45_000);
     return () => clearInterval(t);
   }, [wsId, activeId, focus]);
+
+  // Looking at a chat reads its finished, failed and mention marks, so they don't return once you move on.
+  // Only while the window has focus: a chat left open on an unattended desk still gets its banner and push.
+  const readChat = useMutation(api.notifications.readChat);
+  const activity = useChatActivity(wsId);
+  const unseen = activeId ? activity[activeId] : undefined;
+  useEffect(() => {
+    if (!activeId || (unseen !== "done" && unseen !== "bad" && unseen !== "new")) return;
+    const read = () => { if (document.hasFocus()) void readChat({ chatId: activeId as Id<"chats"> }).catch(() => {}); };
+    read();
+    window.addEventListener("focus", read);
+    return () => window.removeEventListener("focus", read);
+  }, [activeId, unseen, readChat]);
 
   const newChat = useCallback(async (kind: "team" | "private") => {
     const id = await createChat({ workspaceId: wsId, isPrivate: kind === "private" });

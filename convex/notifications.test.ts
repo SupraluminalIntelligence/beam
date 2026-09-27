@@ -4,7 +4,7 @@ import type { Id } from "./_generated/dataModel";
 vi.mock("@convex-dev/auth/server", () => ({ getAuthUserId: async () => "user" }));
 import { create } from "./chats";
 import { send, startRun } from "./messages";
-import { claim, muted, setMuted, followParticipant, notifyRun, resolveInputNotifications, notifyMentions, reserve, finishDelivery } from "./notifications";
+import { claim, muted, readChat, setMuted, followParticipant, notifyRun, resolveInputNotifications, notifyMentions, reserve, finishDelivery } from "./notifications";
 function fixture(privateChat = false) {
   const tables: Record<string, any[]> = {
     runs: [{ _id: "run", chatId: "chat", agentId: "agent", dispatchedBy: "apek", runnerId: "george-machine" }],
@@ -22,7 +22,7 @@ function fixture(privateChat = false) {
     query: (table: string) => ({ withIndex: (_: string, fn: any) => {
       const filters: [string, any][] = []; const q = { eq: (k: string, v: any) => { filters.push([k,v]); return q; } }; fn(q);
       const rows = () => tables[table]!.filter((r) => filters.every(([k,v]) => r[k] === v));
-      return { collect: async () => rows(), first: async () => rows()[0] ?? null };
+      return { collect: async () => rows(), first: async () => rows()[0] ?? null, order: () => ({ take: async (n: number) => rows().reverse().slice(0, n) }) };
     } }),
   };
   return { tables, ctx: { db } as unknown as MutationCtx };
@@ -172,4 +172,18 @@ it("refuses another recipient, revoked chat access, and stale desktop alerts", a
   tables.members = members!;
   vi.advanceTimersByTime(10 * 60_000 + 1);
   expect(await call(reserve, ctx, { id: mine, token: "stale" })).toBe(false);
+});
+
+it("reading a chat clears its outcomes and mentions for you only, and leaves open input requests", async () => {
+  const { ctx, tables } = fixture();
+  tables.notifications = [
+    { _id: "n1", recipient: "apek", chatId: "chat", kind: "completed", readAt: null, deliveredAt: null },
+    { _id: "n2", recipient: "apek", chatId: "chat", kind: "mention", readAt: null, deliveredAt: 5 },
+    { _id: "n3", recipient: "apek", chatId: "chat", kind: "input", readAt: null, deliveredAt: null },
+    { _id: "n4", recipient: "apek", chatId: "other", kind: "failed", readAt: null, deliveredAt: null },
+    { _id: "n5", recipient: "george", chatId: "chat", kind: "completed", readAt: null, deliveredAt: null },
+  ];
+  await call(readChat, ctx, { chatId: "chat" });
+  expect(tables.notifications.filter((n) => n.readAt !== null).map((n) => n._id)).toEqual(["n1", "n2"]);
+  expect(tables.notifications[1].deliveredAt).toBe(5);
 });

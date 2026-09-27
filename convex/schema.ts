@@ -97,7 +97,7 @@ export default defineSchema({
     execution: v.optional(v.object({ model: v.string(), modelName: v.optional(v.string()), effort: v.string(), accountOwner: v.string(), accountEmail: v.union(v.string(), v.null()), accountPlan: v.union(v.string(), v.null()), connectionId: v.optional(v.string()), connectionName: v.optional(v.string()), machineName: v.optional(v.string()), accountIdentity: v.optional(v.string()) })),
     interruptRequestedAt: v.optional(v.number()),
     openRequests: v.optional(v.array(v.string())), // approval/input requests the agent is waiting on; drives the chat's "needs you" status
-  }).index("by_chat", ["chatId"]).index("by_runner_state", ["runnerId", "state"]).index("by_state", ["state"]),
+  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_runner_state", ["runnerId", "state"]).index("by_state", ["state"]),
   /** A change is one branch in one repo with its PR. A thread holds many, across repos and over time. */
   changes: defineTable({
     chatId: v.id("chats"), workspaceId: v.id("workspaces"), repo: v.string(), branch: v.string(), base: v.string(),
@@ -132,7 +132,7 @@ export default defineSchema({
     handle: v.optional(v.object({ backend: v.string(), id: v.string() })),
     log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())),
     outputs: v.array(v.id("computeAssets")),
-  }).index("by_chat", ["chatId"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]),
+  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]),
   computeAssets: defineTable({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
     author: v.string(), jobId: v.optional(v.id("computeJobs")),

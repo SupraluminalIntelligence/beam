@@ -11,7 +11,7 @@ import { canResume } from "../packages/contracts/src/execution";
 import { connectionStatuses } from "../packages/contracts/src/connections";
 import { applyConnectionUsage, UsageWindow } from "../packages/contracts/src/usage";
 
-const LIVE = new Set(["queued", "starting", "working", "landing"]);
+export const LIVE = new Set(["queued", "starting", "working", "landing"]);
 export const isLive = (state: string) => LIVE.has(state);
 
 export async function ownRun(ctx: QueryCtx | MutationCtx, token: string, runId: Id<"runs">) {

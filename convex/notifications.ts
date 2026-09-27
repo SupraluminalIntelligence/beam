@@ -71,6 +71,13 @@ export const read = mutation({ args: { id: v.id("notifications") }, handler: asy
   await requireChat(ctx, row.chatId);
   await ctx.db.patch(id, { readAt: Date.now(), deliveredAt: row.deliveredAt ?? Date.now() });
 } });
+/** Looking at a chat reads its outcomes and mentions. Input requests stay unread until someone answers them. */
+export const readChat = mutation({ args: { chatId: v.id("chats") }, handler: async (ctx, { chatId }) => {
+  const { u } = await requireChat(ctx, chatId);
+  const rows = await ctx.db.query("notifications").withIndex("by_recipient", (q) => q.eq("recipient", u.githubLogin!)).order("desc").take(100);
+  const now = Date.now();
+  for (const row of rows) if (row.chatId === chatId && row.readAt === null && row.kind !== "input") await ctx.db.patch(row._id, { readAt: now, deliveredAt: row.deliveredAt ?? now });
+} });
 /** One connected desktop claims the banner; the unread inbox remains available on all devices. */
 export const claim = mutation({ args: { id: v.id("notifications") }, handler: async (ctx, { id }) => {
   const user = await me(ctx), row = await ctx.db.get(id);
