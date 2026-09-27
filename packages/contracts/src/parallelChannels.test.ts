@@ -60,19 +60,35 @@ it("warns when buoyancy could push one channel's flow past laminar, and only whe
   // or heating so slight that Ri is far below 0.1.
   const faint = { ...four, channels: [1, 0, 0, 0].map(heatFlux => ({ heatFlux })) };
   expect(check(faint, "buoyancy")?.value).toBe("Ri 4.6e-4");
-  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }, faint]) expect(check(even, "laminar")?.status).toBe("ok");
+  // Nor does every channel heated alike, or nearly alike, with the flow going up, where buoyancy aids each channel about the same.
+  const alike = { ...four, gravity: "upflow" as const, channels: four.channels.map(() => ({ heatFlux: 7500 })) }, nearly = { ...alike, channels: [7500, 7500, 7500, 7499].map(heatFlux => ({ heatFlux })) };
+  for (const even of [{ ...four, channels: four.channels.map(() => ({ heatFlux: 0 })) }, { ...four, gravity: "off" as const }, { ...four, beta: 0 }, faint, alike, nearly]) expect(check(even, "laminar")?.status).toBe("ok");
+  // Uneven heating flowing up, any heating flowing down, and any heating stacked, even of the top channel alone, can shift it.
+  const top = { ...four, channels: [0, 0, 0, 7500].map(heatFlux => ({ heatFlux })) };
+  for (const shifted of [{ ...alike, channels: [7500, 7500, 7500, 5000].map(heatFlux => ({ heatFlux })) }, { ...alike, gravity: "downflow" as const }, top]) expect(check(shifted, "laminar")?.status).toBe("warn");
   // The paper's device: all of its inflow through one channel would still be laminar, but a reversed neighbour can push more through it.
   expect(check(mana, "laminar")?.detail).toContain("would give Re 789");
 });
 
 it("warns when only an even split keeps a heated wall below boiling and buoyancy could starve it", () => {
   // At 0.2 W/cm² over 120 s an evenly fed wall settles about 37 K above the inlet, 4 K short of boiling; with no flow it would boil after about 40 s.
-  const slow = { ...mana, channels: [{ heatFlux: 2000 }, { heatFlux: 0 }], duration: 120 };
-  expect(check(slow, "single-phase")).toMatchObject({ status: "warn", value: "3.7 K below Tsat if even" });
-  expect(check(slow, "single-phase")?.detail).toContain("buoyancy can starve a heated channel");
-  // With gravity off, or no thermal expansion, buoyancy cannot shift the flow, so the steady estimate holds.
-  expect(check({ ...slow, gravity: "off" }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
-  expect(check({ ...slow, beta: 0 }, "single-phase")).toMatchObject({ status: "ok", value: "3.7 K below Tsat" });
+  const slow = { ...mana, channels: [{ heatFlux: 2000 }, { heatFlux: 0 }], duration: 120 }, both = { ...slow, channels: [{ heatFlux: 2000 }, { heatFlux: 2000 }] };
+  const warned = { status: "warn", value: "3.7 K below Tsat if even" }, even = { status: "ok", value: "3.7 K below Tsat" };
+  // Stacked, the lower channel draws flow from the upper one whichever is heated, so a heated upper channel can lose flow.
+  // A trace of heat in the lower channel changes nothing.
+  const onlyTop = { ...slow, channels: [{ heatFlux: 0 }, { heatFlux: 2000 }] }, traceBelow = { ...slow, channels: [{ heatFlux: 1 }, { heatFlux: 2000 }] };
+  for (const upper of [both, onlyTop, traceBelow]) expect(check(upper, "single-phase")).toMatchObject(warned);
+  expect(check(onlyTop, "single-phase")?.detail).toContain("the lowest channel draws flow from the ones above it");
+  // Flowing down, buoyancy opposes the flow in a heated channel.
+  expect(check({ ...slow, gravity: "downflow" }, "single-phase")).toMatchObject(warned);
+  // Flowing up, it draws flow toward the more strongly heated channel, so only a weaker heated channel can lose flow.
+  expect(check({ ...both, gravity: "upflow", channels: [{ heatFlux: 1500 }, { heatFlux: 2000 }] }, "single-phase")).toMatchObject({ status: "warn" });
+  // A lone heated channel gains flow stacked lowest or flowing up; heated alike flowing up, the channels keep an even split; with gravity off, or no thermal
+  // expansion, buoyancy cannot shift the flow. The steady estimate holds in each. So does it when the channel that can lose flow is heated too weakly to boil
+  // within the run with no flow (0.07 W/cm² takes about 5 min).
+  // Flowing up, channels heated nearly alike keep an even split too.
+  const weakAbove = { ...slow, channels: [{ heatFlux: 2000 }, { heatFlux: 700 }] }, nearly = { ...both, gravity: "upflow" as const, channels: [{ heatFlux: 1999 }, { heatFlux: 2000 }] };
+  for (const kept of [slow, weakAbove, nearly, { ...slow, gravity: "upflow" as const }, { ...both, gravity: "upflow" as const }, { ...both, gravity: "off" as const }, { ...both, beta: 0 }]) expect(check(kept, "single-phase")).toMatchObject(even);
 });
 
 it("fails the Boussinesq approximation once the density would change by 10 % or more", () => {
