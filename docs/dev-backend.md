@@ -46,6 +46,10 @@ Guest sign-in works with no setup, but **guests cannot own a runner**. To run ag
    npx convex env set AUTH_GITHUB_SECRET <client secret>
    ```
 
+3. Sign in on port 5173: GitHub returns to `SITE_URL` (`http://localhost:5173`), so run `pnpm dev:isolated --web-only --port 5173` (or `--runner --port 5173`) while signing in. Guest sign-in works on any port.
+
+Beam's org-owned **Beam (dev)** OAuth app is set up for `adorable-cuttlefish-524`.
+
 Optional variables production has and a dev deployment can do without: `OPENROUTER_API_KEY` (features that call OpenRouter), `DEMO_EMAIL` and `DEMO_PASSWORD` (the app-review demo account).
 
 ## Several checkouts
