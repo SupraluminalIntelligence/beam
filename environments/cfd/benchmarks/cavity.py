@@ -3,10 +3,11 @@
 A unit square cavity whose lid moves at 1 m/s, nu = 0.01 m^2/s, solved to steady state with simpleFoam
 (laminar, incompressible, SIMPLEC) on three meshes refined by 2. The finest mesh's u-velocity along
 the vertical centreline is compared with the published table; the minimum velocity gets a grid
-convergence index. Serial.
+convergence index. Serial, or each mesh decomposed and solved with MPI.
 
     python /beam/benchmarks/cavity.py            # meshes 20, 40, 80
     python /beam/benchmarks/cavity.py --n 40,80,160
+    python /beam/benchmarks/cavity.py --processes 2   # decomposePar, mpirun simpleFoam -parallel, reconstructPar
 """
 from __future__ import annotations
 
@@ -89,14 +90,20 @@ def centreline(c: np.ndarray, u: np.ndarray, dx: float):
     return c[left, 1][ol], (u[left, 0][ol] + u[right, 0][orr]) / 2
 
 
-def solve(n: int) -> dict:
+def solve(n: int, processes: int = 1) -> dict:
     case = Path(f"cavity-{n}")
     for rel, text in case_files(n).items():
         (case / rel).parent.mkdir(parents=True, exist_ok=True)
         (case / rel).write_text(text)
     t0 = time.perf_counter()
     foam(case, "blockMesh")
-    log = foam(case, "simpleFoam")
+    if processes > 1:
+        (case / "system/decomposeParDict").write_text(HEADER.format(cls="dictionary", obj="decomposeParDict") + f"numberOfSubdomains {processes}; method scotch;")
+        foam(case, "decomposePar")
+        log = foam(case, "mpirun", "-n", str(processes), "simpleFoam", "-parallel")
+        foam(case, "reconstructPar", "-latestTime")
+    else:
+        log = foam(case, "simpleFoam")
     seconds = time.perf_counter() - t0
     converged = re.search(r"SIMPLE solution converged in (\d+) iterations", log)
     last = max((d for d in case.iterdir() if re.fullmatch(r"\d+", d.name) and d.name != "0"), key=lambda d: int(d.name))
@@ -125,10 +132,12 @@ def solve(n: int) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", default="20,40,80", help="cells across the cavity for each mesh; ratio must be constant")
-    sizes = [int(s) for s in ap.parse_args().n.split(",")]
+    ap.add_argument("--processes", type=int, default=1, help="MPI processes per solve")
+    args = ap.parse_args()
+    sizes = [int(s) for s in args.n.split(",")]
     runs = []
     for n in sizes:
-        r = solve(n)
+        r = solve(n, args.processes)
         runs.append(r)
         print(f"{n:4d}x{n:<4d} · u_min {r['u_min']:+.5f} at y {r['y_min']:.4f} · max |u - Ghia| {r['deviation']:.4f} · "
               f"{'converged' if r['converged'] else 'NOT converged'} in {r['iterations']} iterations · {r['seconds']:.1f} s", flush=True)
