@@ -49,6 +49,10 @@ export const EnvironmentJobSpec = z.object({
   inputs: z.array(z.object({ assetId: z.string().min(1).max(128), path: JobPath }).strict()).max(64),
   machine: MachineId,
   timeoutSeconds: z.number().int().min(1).max(86400),
+  /** Written to beam/parameters.json before the command runs. */
+  parameters: z.array(z.object({ name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/), value: z.union([z.number().finite(), z.string().max(200), z.boolean()]), unit: z.string().max(40) }).strict()).max(64).optional(),
+  /** The simulation version this job runs. */
+  simulation: z.object({ caseId: z.string().min(1).max(128), version: z.number().int().positive() }).strict().optional(),
 }).strict().superRefine((spec, ctx) => {
   if (JSON.stringify(spec).length > 48_000)
     ctx.addIssue({ code: "custom", message: "Job specification must be smaller than 48,000 characters" });
@@ -58,6 +62,8 @@ export const EnvironmentJobSpec = z.object({
     ctx.addIssue({ code: "custom", message: "A file path cannot also be a directory" });
   if (paths.some(p => p === "beam" || p === "beam/out" || p.startsWith("beam/out/")))
     ctx.addIssue({ code: "custom", message: "beam/out is reserved for the job's results" });
+  if (spec.parameters && paths.includes("beam/parameters.json"))
+    ctx.addIssue({ code: "custom", message: "beam/parameters.json is written from the job's parameters" });
 });
 export type EnvironmentJobSpec = z.infer<typeof EnvironmentJobSpec>;
 export const JobSpec = z.union([ProcessJobSpec, EnvironmentJobSpec]);

@@ -6,7 +6,7 @@ import { mkdir, readFile, realpath, stat, writeFile, rename } from "node:fs/prom
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "@beam/contracts";
+import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, parametersFile } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 
 export async function readJobFile(directory: string, path: string): Promise<Uint8Array> {
@@ -69,6 +69,10 @@ export class LocalExecutor implements ComputeExecutor {
         if (total !== input.size || (digest !== input.sha256 && base64 !== input.sha256)) throw new Error("Input snapshot checksum mismatch");
         const dest = join(root, "work", input.path);
         await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, bytes, { flag: "wx" });
+      }
+      if (spec.kind === "environment" && spec.parameters) {
+        const dest = join(root, "work", PARAMETERS_PATH);
+        await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, parametersFile(spec.parameters), { flag: "wx" });
       }
       const launch = spec.kind === "environment" ? await environmentProcess(spec, root) : spec.simulation ? foamProcess(spec, root) : spec;
       await writeFile(join(root, "spec.json"), JSON.stringify(launch));

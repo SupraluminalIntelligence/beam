@@ -231,6 +231,17 @@ class Results:
         meshio.write(str(self._path(rel)), meshio.Mesh(pts, [("tetra", tets)], point_data=arrays))
 
 
+def parameters(with_units: bool = False, path: str | os.PathLike = "beam/parameters.json") -> dict:
+    """The simulation version's parameters, which Beam writes before the command runs:
+    {name: value}, or {name: {"value": ..., "unit": ...}} with with_units=True. Empty outside a
+    simulation job, so a script also runs on its own with its defaults."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    return raw if with_units else {k: v["value"] for k, v in raw.items()}
+
+
 def gci(fine: float, medium: float, coarse: float, ratio: float) -> dict:
     """Three-mesh grid convergence index for a constant refinement ratio (Celik et al. 2008)."""
     e21, e32 = medium - fine, coarse - medium

@@ -68,7 +68,7 @@ describe.skipIf(!docker)("the fea environment on this computer", () => {
   it("runs a job to completion and publishes a valid manifest", async () => {
     const home = await mkdtemp(join(tmpdir(), "beam-env-")), executor = new LocalExecutor(home);
     try {
-      const spec: EnvironmentJobSpec = { version: 1, kind: "environment", title: "Cantilever", environment: { name: "fea", image }, command: "mpirun -n 2 python /beam/benchmarks/cantilever.py --nx 10,20,40", inputs: [], machine: "local", timeoutSeconds: 600 };
+      const spec: EnvironmentJobSpec = { version: 1, kind: "environment", title: "Cantilever", environment: { name: "fea", image }, command: "mpirun -n 2 python /beam/benchmarks/cantilever.py --nx 10,20,40", inputs: [], machine: "local", timeoutSeconds: 600, parameters: [{ name: "fillet_radius", value: 4, unit: "mm" }], simulation: { caseId: "sim", version: 2 } };
       const handle = await executor.submit("job1", spec, []);
       let status = await executor.inspect(handle);
       for (let i = 0; i < 600 && status.state === "running"; i++) { await new Promise(r => setTimeout(r, 500)); status = await executor.inspect(handle); }
@@ -77,6 +77,7 @@ describe.skipIf(!docker)("the fea environment on this computer", () => {
       expect(r.manifest?.checks.map(c => c.status)).toEqual(["pass", "pass", "pass", "pass"]);
       expect(r.manifest?.provenance.image).toBe(image);
       expect(r.files.length).toBeGreaterThan(8);
+      expect(JSON.parse(new TextDecoder().decode(await executor.readOutput(handle, "beam/parameters.json")))).toEqual({ fillet_radius: { value: 4, unit: "mm" } });
     } finally { await rm(home, { recursive: true, force: true }); }
   }, 360_000);
   it("keeps one machine per thread directory, runs commands in /work, and stops it", async () => {
