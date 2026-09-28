@@ -269,7 +269,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? `${nameOf(runs?.find(r => r._id === m.runId)?.dispatchedBy ?? "Unknown")}’s ${HARNESS_NAME[ag.harness]}` : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
-                {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · r{m.studyContext.revision}</div>}
+                {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · v{m.studyContext.revision}</div>}
                 {!m.simulationStudyId && !m.simulationId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
                 {m.simulationStudyId && <StudyCard id={m.simulationStudyId} chatId={chat._id} />}
