@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path/posix";
-import { JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
+import { CLOUD_COLLECT_WINDOW_SECONDS, CLOUD_LAUNCH_WINDOW_SECONDS, cloudMachineSeconds, JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 import { FileMissing, type ModalPort, type SandboxPort } from "./port.ts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
 
 export const JOB_DIR = "/tmp/beam-job";
 export const WORK = "/work";
-const LAUNCH_WINDOW_SECONDS = 600;
-/** How long a finished sandbox waits for Beam to collect its outputs. */
-const COLLECT_WINDOW_SECONDS = 3600;
 /** Modal's longest sandbox lifetime. */
 const MODAL_MAX_SECONDS = 24 * 3600;
 const LOG_BYTES = 16_000;
@@ -76,9 +73,9 @@ export class ModalExecutor implements ComputeExecutor {
     if (spec.kind !== "environment") throw new Error("Cloud machines run environment jobs. OpenFOAM study jobs run on the engineer's computer.");
     if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
     const shape = sandboxShape(spec.machine);
-    const lifetime = LAUNCH_WINDOW_SECONDS + spec.timeoutSeconds + COLLECT_WINDOW_SECONDS;
+    const lifetime = cloudMachineSeconds(spec.timeoutSeconds);
     if (lifetime > MODAL_MAX_SECONDS)
-      throw new Error(`Cloud jobs can run for at most ${Math.floor((MODAL_MAX_SECONDS - LAUNCH_WINDOW_SECONDS - COLLECT_WINDOW_SECONDS) / 360) / 10} hours`);
+      throw new Error(`Cloud jobs can run for at most ${Math.floor((MODAL_MAX_SECONDS - CLOUD_LAUNCH_WINDOW_SECONDS - CLOUD_COLLECT_WINDOW_SECONDS) / 360) / 10} hours`);
     if (inputs.length !== spec.inputs.length || inputs.some((input, n) => input.path !== spec.inputs[n]?.path) || inputs.reduce((n, i) => n + i.size, 0) > MAX_COMPUTE_INPUT_BYTES)
       throw new Error("Invalid input manifest");
 
@@ -88,7 +85,7 @@ export class ModalExecutor implements ComputeExecutor {
       command: ["bash", "-c", SUPERVISOR],
       env: {
         BEAM_COMMAND: spec.command, BEAM_TIMEOUT: String(spec.timeoutSeconds), BEAM_CORES: String(shape.cores),
-        BEAM_IMAGE: spec.environment.image, BEAM_JOB_DIR: JOB_DIR, BEAM_WORK: WORK, BEAM_LAUNCH_WINDOW: String(LAUNCH_WINDOW_SECONDS),
+        BEAM_IMAGE: spec.environment.image, BEAM_JOB_DIR: JOB_DIR, BEAM_WORK: WORK, BEAM_LAUNCH_WINDOW: String(CLOUD_LAUNCH_WINDOW_SECONDS),
       },
       cpu: shape.cpu, cpuLimit: shape.cpu, memoryMiB: shape.memoryMiB, memoryLimitMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
       timeoutMs: lifetime * 1000,

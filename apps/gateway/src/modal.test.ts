@@ -78,7 +78,7 @@ describe("ModalExecutor", () => {
     const handle = await executor.submit("job1", job({ inputs: [{ assetId: "a1", path: "case/mesh.msh" }] }), [input("case/mesh.msh", "https://store/mesh", mesh)]);
     const sandbox = modal.byName.get(sandboxName("job1"))!;
     expect(handle).toEqual({ backend: "modal-sandbox", id: sandbox.id });
-    expect(sandbox.spec).toMatchObject({ image: IMAGE, cpu: 4, cpuLimit: 4, memoryMiB: 16384, memoryLimitMiB: 16384, timeoutMs: (600 + 600 + 3600) * 1000 });
+    expect(sandbox.spec).toMatchObject({ image: IMAGE, cpu: 4, cpuLimit: 4, memoryMiB: 16384, memoryLimitMiB: 16384, timeoutMs: (300 + 600 + 1800) * 1000 });
     expect(sandbox.spec.env).toMatchObject({ BEAM_COMMAND: "python /beam/benchmarks/cantilever.py", BEAM_CORES: "4", BEAM_TIMEOUT: "600" });
     expect(dec(sandbox.files.get(`${WORK}/case/mesh.msh`)!)).toBe("mesh bytes");
     expect(sandbox.dirs).toContain(`${WORK}/case`);
@@ -107,7 +107,7 @@ describe("ModalExecutor", () => {
   it("rejects recipe jobs, local machines and lifetimes Modal cannot hold before creating anything", async () => {
     const modal = new FakeModal(), executor = new ModalExecutor(modal);
     await expect(executor.submit("j", job({ machine: "local" }), [])).rejects.toThrow(/does not run on Modal/);
-    await expect(executor.submit("j", job({ timeoutSeconds: 23 * 3600 }), [])).rejects.toThrow(/at most 22.8 hours/);
+    await expect(executor.submit("j", job({ timeoutSeconds: 24 * 3600 }), [])).rejects.toThrow(/at most 23.4 hours/);
     const recipe = { version: 1, kind: "process", title: "t", executable: "/bin/true", args: [], inputs: [], outputs: [], timeoutSeconds: 10 };
     await expect(executor.submit("j", recipe as never, [])).rejects.toThrow(/environment jobs/);
     expect(modal.creates).toBe(0);

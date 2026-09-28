@@ -137,7 +137,8 @@ export default defineSchema({
   simulationCases: defineTable({chatId:v.id("chats"),name:v.string(),config:v.any(),revision:v.number(),updatedAt:v.number(),updatedBy:v.string(),cardMessageId:v.optional(v.id("messages"))}).index("by_chat",["chatId"]),
   simulationRevisions: defineTable({studyId:v.id("simulationCases"),revision:v.number(),name:v.string(),config:v.any(),createdAt:v.number(),createdBy:v.string()}).index("by_study_revision",["studyId","revision"]),
   computeJobs: defineTable({
-    chatId: v.id("chats"), runnerId: v.id("runners"), backend: v.literal("local-process"),
+    /** Cloud jobs keep the runner they were submitted from; the gateway, not that runner, runs them. */
+    chatId: v.id("chats"), runnerId: v.id("runners"), backend: v.union(v.literal("local-process"), v.literal("modal-sandbox")),
     requestedBy: v.string(), sourceRunId: v.optional(v.id("runs")), requestKey: v.string(),
     spec: v.any(), state: v.union(...["awaiting-approval", "queued", "preparing", "running", "publishing", "succeeded", "failed", "cancelled"].map(s => v.literal(s))),
     createdAt: v.number(), updatedAt: v.number(), startedAt: v.optional(v.number()), endedAt: v.optional(v.number()),
@@ -147,7 +148,11 @@ export default defineSchema({
     outputs: v.array(v.id("computeAssets")),
     /** Environment jobs: the ResultsManifest (packages/contracts/src/results.ts), or null when the job wrote none. */
     results: v.optional(v.object({ manifest: v.any(), unpublished: v.array(v.object({ path: v.string(), reason: v.string() })) })),
-  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]),
+    /** Cloud jobs: the machine's rate, the most approval authorized, and what was metered. Reserved while the job may still spend. */
+    billing: v.optional(v.object({ centsPerHour: v.number(), authorizedCents: v.number(), spentCents: v.number(), reserved: v.boolean() })),
+  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]),
+  /** A workspace's cloud compute allowance. Reservations hold each approved job's authorized amount until it settles. */
+  computeBudgets: defineTable({ workspaceId: v.id("workspaces"), allowanceCents: v.number(), reservedCents: v.number(), spentCents: v.number(), updatedAt: v.number(), updatedBy: v.string() }).index("by_workspace", ["workspaceId"]),
   computeAssets: defineTable({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
     author: v.string(), jobId: v.optional(v.id("computeJobs")),
