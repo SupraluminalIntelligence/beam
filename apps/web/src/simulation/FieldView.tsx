@@ -6,16 +6,14 @@ import { errorMessage, formatQuantity, type ResultField, type ResultView } from 
 import { load, nice, type Loaded, type Output } from "./fieldData";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { wakeColor } from "./WakeViewer";
+import { fieldGradient, fieldLut } from "./palette";
 
 type Component = "magnitude" | 0 | 1 | 2;
 type Three = { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera; controls: OrbitControls; mesh: Mesh; wire: LineSegments | null };
 
 /** Above this many triangles, reading a value follows a click rather than every mouse move, and the mesh overlay is off. */
 const HOVER_TRIANGLES = 150_000;
-const lut = (diverging: boolean) => Array.from({ length: 256 }, (_, i) => (wakeColor(i / 255, diverging).match(/\d+/g) ?? ["0", "0", "0"]).map(v => Number(v) / 255));
-const PALETTES = { sequential: lut(false), diverging: lut(true) };
-const gradient = (diverging: boolean) => `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map(t => wakeColor(t, diverging)).join(", ")})`;
+const PALETTES = { sequential: fieldLut(false), diverging: fieldLut(true) };
 const AXIS = ["x", "y", "z"] as const;
 
 /**
@@ -102,7 +100,7 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
     renderer.domElement.setAttribute("role", "img");
     renderer.domElement.setAttribute("aria-label", `${field.label}: interactive 3D view. Drag to orbit, right-drag to pan, scroll to zoom.`);
     const scene = new Scene();
-    scene.add(new HemisphereLight(0xffffff, 0x445566, 1.6));
+    scene.add(new HemisphereLight(0xffffff, 0x8899aa, 1.6));
     const key = new DirectionalLight(0xffffff, 1.6); key.position.set(2, -3, 4); scene.add(key);
     const camera = new PerspectiveCamera(35, 1, 0.005, 50);
     camera.up.set(0, 0, 1);
@@ -246,7 +244,7 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
     <div className="field-legend">
       {shown && range ? <>
         <span>{label}</span>
-        <span>{formatQuantity(symmetric !== null ? -symmetric : range.lo, unit)}</span><i style={{ background: gradient(range.diverging) }} /><span>{formatQuantity(symmetric !== null ? symmetric : range.hi, unit)}{clip ? " · clipped" : ""}</span>
+        <span>{formatQuantity(symmetric !== null ? -symmetric : range.lo, unit)}</span><i style={{ background: fieldGradient(range.diverging) }} /><span>{formatQuantity(symmetric !== null ? symmetric : range.hi, unit)}{clip ? " · clipped" : ""}</span>
       </> : <span>No colouring</span>}
       <span className="field-readout">{probe ? `${label} ${formatQuantity(probe.value, unit)}` : hover ? "Hover to read a value" : "Click to read a value"}</span>
     </div>
