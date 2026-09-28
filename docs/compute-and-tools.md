@@ -35,6 +35,39 @@ This does **not** guarantee execution across host reboot or power loss. A stale/
 
 Current limits: native macOS/Linux local execution (Windows via a Linux/WSL runner), 24-hour deadline, 64 inputs, 20 MB per file, 100 MB total input, 16 result files, 48,000-character specification, and the latest 16,000 log characters. This is a foundation for small local jobs, not yet a large CFD data pipeline. Job/asset retention and storage garbage collection need an explicit future retention policy.
 
+## Large outputs in R2
+
+An environment job's result files of 20 MB or less go to Convex storage. A larger file its manifest names (or a preview buffer its manifest's previews describe) goes to Cloudflare R2 when the deployment has a bucket configured, up to 5 GiB per file and 20 GiB per job. Without a bucket, or past a cap, the file stays on the machine and Results says why.
+
+Convex only signs requests; it never reads or writes an object. The runner asks `compute.startLargeOutput`, runs S3's CreateMultipartUpload itself, streams the file from disk in 64 MiB parts (asking `compute.largeOutputUrls` for each part's URL just before sending it, and computing the SHA-256 on the way), completes the upload, then records it with `compute.recordLargeOutput`. Each call checks the runner owns the job, the job is publishing, and the published manifest names the file at that size. A failed upload is aborted and retried on the next pass; a recorded one is not uploaded again. Objects live at `jobs/<jobId>/<path>`. Viewers get a 15-minute download link from `compute.outputUrl`, which checks they can read the chat; the 3D view loads preview buffers the same way. Only executors that keep outputs on a local disk (`ComputeExecutor.localPath`, the runner's) upload large outputs so far; cloud jobs still report large files as not kept.
+
+### Configure R2 for a deployment
+
+1. Cloudflare dashboard → R2 → Create bucket (for example `beam-results`). Note the account ID shown on the R2 overview page.
+2. R2 → Manage API tokens → Create API token: permission **Object Read & Write**, applied to that bucket only. Copy the access key ID and secret access key; the secret is shown once.
+3. Set the variables on the deployment yourself (the secret never goes in a file or a chat):
+   ```sh
+   npx convex env set R2_ACCOUNT_ID <account id>
+   npx convex env set R2_ACCESS_KEY_ID <access key id>
+   npx convex env set R2_SECRET_ACCESS_KEY <secret access key>
+   npx convex env set R2_BUCKET beam-results
+   # optional: another S3-compatible endpoint instead of https://<account>.r2.cloudflarestorage.com
+   npx convex env set R2_ENDPOINT https://…
+   ```
+   Add `--prod` for production. Convex reads them on each call, so no redeploy is needed.
+4. Bucket → Settings → CORS policy: allow `GET` (and `HEAD`) from the web app's origins so the 3D view can fetch preview buffers, and allow no `PUT`: the runner is not a browser and needs no CORS. For example:
+   ```json
+   [{ "AllowedOrigins": ["https://<your web app origin>", "http://localhost:5173"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3600 }]
+   ```
+5. Bucket → Settings → Object lifecycle rules: add "Abort incomplete multipart uploads" after 1 day, so an upload interrupted by a runner that never comes back stops costing storage.
+6. Check the bucket from your shell with the same signer Beam uses (it uploads a 70 MB object in parts, downloads it through a signed link, compares SHA-256, and deletes it):
+   ```sh
+   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=beam-results \
+     node --experimental-strip-types scripts/r2-check.mjs
+   ```
+
+Nothing deletes objects yet: a retention policy for job outputs is still to come.
+
 ## Extending to compute servers / HPC
 
 The chosen direction is the [compute plane](decisions/2026-09-27-compute-plane.md): a gateway implementing this interface for Modal and EC2, pre-built tool images, and results in object storage.

@@ -46,7 +46,17 @@ describe("loading a field preview", () => {
   });
   it("says when a buffer stayed on the machine for being too large", async () => {
     const outputs = publish(files()).filter(o => !o.path.endsWith("u.f32"));
-    await expect(load(field, outputs, ["beam/out/preview/part.u.f32"], new AbortController().signal)).rejects.toThrow("stayed on the machine");
+    const kept = [{ path: "beam/out/preview/part.u.f32", reason: "larger than 20 MB; kept on the machine, since large-output storage is not configured" }];
+    await expect(load(field, outputs, kept, new AbortController().signal)).rejects.toThrow("was not uploaded (larger than 20 MB; kept on the machine, since large-output storage is not configured)");
+  });
+  it("fetches a buffer in large-output storage through a short-lived URL", async () => {
+    const outputs = publish(files()).map(o => o.path.endsWith("u.f32") ? { ...o, url: null, storage: "r2" as const } : o);
+    const resolve = vi.fn(async (o: { path: string }) => `https://storage.test/${o.path.replace("beam/out/", "")}`);
+    const d = await load(field, outputs, [], new AbortController().signal, resolve);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve.mock.calls[0]![0]).toMatchObject({ path: "beam/out/preview/part.u.f32" });
+    expect(d.arrays.get("u")!.length).toBe(9);
+    await expect(load(field, outputs, [], new AbortController().signal)).rejects.toThrow("preview/part.u.f32 was not published");
   });
 });
 

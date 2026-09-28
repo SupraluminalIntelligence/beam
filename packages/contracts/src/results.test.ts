@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { checkCounts, collectResults, compareQuantities, FieldPreview, headlineQuantities, MAX_RESULT_FILES, previewByteLengths, resultPaths, ResultsManifest, SeriesData, TableData } from "./results";
+import { checkCounts, collectResults, compareQuantities, FieldPreview, headlineQuantities, MAX_RESULT_FILES, previewByteLengths, ResultRejected, resultPaths, ResultsManifest, SeriesData, TableData } from "./results";
 import { ExecutorUnavailable } from "./compute";
 
 // Written by environments/base/beam_out from `cantilever.py --nx 10,20,40` in the fea image.
@@ -84,6 +84,27 @@ describe("collecting results", () => {
     const read = async (p: string) => { if (p.endsWith("f0.txt")) throw new Error("Job files must be regular files of 20 MB or less"); return enc(p.endsWith("manifest.json") ? JSON.stringify({ version: 1, files: manyFiles.files.slice(0, 1) }) : "x"); };
     expect((await collectResults(read)).unpublished[0]!.reason).toBe("larger than 20 MB; kept on the machine");
     expect((await collectResults(read, { oversize: "not kept" })).unpublished[0]!.reason).toBe("larger than 20 MB; not kept");
+  });
+  it("hands a file over the size limit to the large-output store, with the length a preview gives its buffers", async () => {
+    const preview = { version: 1, kind: "surface", vertices: 3, triangles: 1, positions: "preview/p.positions.f32", indices: "preview/p.indices.u32", arrays: [] };
+    const manifest = { version: 1, fields: [{ name: "p", label: "p", full: "fields/p.vtu", preview: "preview/p.json", cells: 1, arrays: [] }], files: manyFiles.files.slice(0, 1) };
+    const big = new Set(["beam/out/fields/p.vtu", "beam/out/preview/p.positions.f32", "beam/out/f0.txt"]);
+    const read = async (p: string) => {
+      if (big.has(p)) throw new Error("Job files must be regular files of 20 MB or less");
+      return enc(p.endsWith("manifest.json") ? JSON.stringify(manifest) : p.endsWith("p.json") ? JSON.stringify(preview) : "x".repeat(12));
+    };
+    const calls: [string, number | undefined][] = [];
+    const large = async (path: string, expected: number | undefined) => {
+      calls.push([path, expected]);
+      return path.endsWith("f0.txt") ? { published: false as const, reason: "larger than 20 MB; kept on the machine, since large-output storage is not configured" } : { published: true as const };
+    };
+    const published: string[] = [];
+    const r = await collectResults(read, { onFile: async f => { published.push(f.path); }, large });
+    expect(calls).toEqual([["beam/out/fields/p.vtu", undefined], ["beam/out/preview/p.positions.f32", 36], ["beam/out/f0.txt", undefined]]);
+    expect(published).toEqual(["beam/out/manifest.json", "beam/out/preview/p.json", "beam/out/preview/p.indices.u32"]);
+    expect(r.unpublished).toEqual([{ path: "beam/out/f0.txt", reason: "larger than 20 MB; kept on the machine, since large-output storage is not configured" }]);
+    const rejecting = async () => { throw new ResultRejected("preview/p.positions.f32 is 40 bytes; its preview says 36"); };
+    await expect(collectResults(read, { large: rejecting })).rejects.toBeInstanceOf(ResultRejected);
   });
   it("passes an unreachable provider through, so the job is retried rather than failed", async () => {
     const read = async (p: string) => { if (p.endsWith("f0.txt")) throw new ExecutorUnavailable("Modal did not answer"); return enc(p.endsWith("manifest.json") ? JSON.stringify({ version: 1, files: manyFiles.files.slice(0, 1) }) : "x"); };

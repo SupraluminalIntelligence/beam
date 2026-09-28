@@ -10,6 +10,7 @@ import { extractTerminalLinks } from "../vendor/t3code/terminalLinks";
 import { normalizePreviewUrl } from "../vendor/t3code/previewUrl";
 import { Select } from "./Select";
 import { toast } from "./Toast";
+import { formatBytes, OutputLink } from "./OutputLink";
 
 export function JobCard({ id, chatId }: { id: Id<"computeJobs">; chatId: Id<"chats"> }) {
   const job = useQuery(api.compute.get, { id });
@@ -83,7 +84,7 @@ export function ComputeJob({ id, login, chatId }: { id: Id<"computeJobs">; login
     {job.results?.unpublished.length ? <p className="compute-notice">Not published: {job.results.unpublished.map(u=>`${u.path} (${u.reason})`).join(", ")}</p> : null}
     <div className="workspace-section-heading"><h3>Logs</h3><small>Latest 16,000 characters</small></div><pre className="compute-log" aria-label="Job log">{job.log ? <JobLog text={job.log} chatId={chatId} /> : (finished ? "No output was written." : "Waiting for output…")}</pre>
     {job.error && <p role="alert" className="compute-error">{job.error}</p>}
-    {job.outputs.length > 0 && <section><h3>Results</h3>{job.outputs.map(o=><div key={o.id}><a className="compute-result" href={o.url ?? undefined} target="_blank" rel="noreferrer" download={o.path.split("/").at(-1)}><span>{o.path}</span><small>{Math.ceil(o.size/1024)} KB · Download ↗</small></a>{cadFormat(o.path) && <button className="btn ghost" onClick={()=>ui.openCad(chatId,{kind:"result",jobId:id,assetId:o.id})}>Open in CAD Viewer ↗</button>}</div>)}</section>}
+    {job.outputs.length > 0 && <section><h3>Results</h3>{job.outputs.map(o=><div key={o.id}><OutputLink className="compute-result" jobId={id} output={o}><span>{o.path}</span><small>{formatBytes(o.size)}{o.storage === "r2" ? " · large-output storage" : ""} · Download ↗</small></OutputLink>{cadFormat(o.path) && o.storage !== "r2" && <button className="btn ghost" onClick={()=>ui.openCad(chatId,{kind:"result",jobId:id,assetId:o.id as Id<"computeAssets">})}>Open in CAD Viewer ↗</button>}</div>)}</section>}
     {!finished && <button className="btn" disabled={busy || !!job.cancelRequestedAt} onClick={()=>void action(()=>cancel({id}))}>{job.cancelRequestedAt ? "Cancelling…" : "Cancel job"}</button>}
   </div>;
 }

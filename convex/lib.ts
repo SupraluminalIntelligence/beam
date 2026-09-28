@@ -1,6 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, type ObjectType, type PropertyValidators } from "convex/values";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 export async function me(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
@@ -63,3 +63,6 @@ export const readableQuery = <A extends PropertyValidators, R>(def: { args: A; h
   query({ args: def.args, handler: plainErrors(def.handler) });
 export const readableMutation = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: MutationCtx, args: ObjectType<A>) => Promise<R> }) =>
   mutation({ args: def.args, handler: plainErrors(def.handler) });
+/** A public action whose errors reach its caller as written. */
+export const readableAction = <A extends PropertyValidators, R>(def: { args: A; handler: (ctx: ActionCtx, args: ObjectType<A>) => Promise<R> }) =>
+  action({ args: def.args, handler: plainErrors(def.handler) });

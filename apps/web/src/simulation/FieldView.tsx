@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useAction } from "convex/react";
 import { BufferAttribute, BufferGeometry, DirectionalLight, DoubleSide, HemisphereLight, LineBasicMaterial, LineSegments, Mesh, MeshStandardMaterial, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer, WireframeGeometry } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { formatQuantity, type ResultField, type ResultView } from "@beam/contracts";
+import { errorMessage, formatQuantity, type ResultField, type ResultView } from "@beam/contracts";
 import { load, nice, type Loaded, type Output } from "./fieldData";
+import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 import { wakeColor } from "./WakeViewer";
 
 type Component = "magnitude" | 0 | 1 | 2;
@@ -20,14 +23,15 @@ const AXIS = ["x", "y", "z"] as const;
  * (exaggerated, and labelled so), stepped through its saved frames. Hovering reads the value at the
  * nearest vertex.
  */
-export default function FieldView({ field, view, outputs, kept }: { field: ResultField; view: ResultView | undefined; outputs: Output[]; kept: string[] }) {
+export default function FieldView({ jobId, field, view, outputs, kept }: { jobId: Id<"computeJobs">; field: ResultField; view: ResultView | undefined; outputs: Output[]; kept: { path: string; reason: string }[] }) {
   const host = useRef<HTMLDivElement>(null), three = useRef<Three | null>(null);
   const [data, setData] = useState<Loaded | null>(null), [error, setError] = useState<string | null>(null);
-  const urls = outputs.filter(o => o.path.startsWith("beam/out/preview/")).map(o => o.url).join("|");
+  const sign = useAction(api.compute.outputUrl);
+  const urls = outputs.filter(o => o.path.startsWith("beam/out/preview/")).map(o => o.url ?? `${o.storage}:${o.path}`).join("|");
   useEffect(() => {
     const abort = new AbortController();
     setData(null); setError(null);
-    load(field, outputs, kept, abort.signal).then(setData, e => { if (!abort.signal.aborted) setError((e as Error).message); });
+    load(field, outputs, kept, abort.signal, async o => (await sign({ id: jobId, path: o.path })).url).then(setData, e => { if (!abort.signal.aborted) setError(errorMessage(e)); });
     return () => abort.abort();
   }, [field.preview, urls]);
 

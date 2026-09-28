@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Large results: a job's result files over 20 MB (up to 5 GiB each) are now uploaded to the team's Cloudflare R2 storage when the deployment has it configured, instead of staying on the computer that ran the job. Download them from Results or the job's page, and the 3D view loads large previews too. Without R2, those files stay on the machine as before, and Results says why.
 - 3D results: a simulation's results now draw its 3D fields in the app. Colour by any array or vector component, deform by displacement (exaggerated, and labelled so), clip the colour range to the 2nd–98th percentile so a singular peak does not wash out the rest, step through saved frames, look along an axis, show the mesh, and hover to read a value. The full data stays one click away for ParaView.
 - Agents can now also run flow in the built-in **cfd** environment (OpenFOAM 2512), alongside **fea**. Both environments find a simulation's parameters and write results from whatever folder the command runs in. Install either once with the `docker pull` command the agent gives you.
 - Fixed: mentioning Claude after it had left background commands running in its previous turn sometimes ended the run at once, with no reply.

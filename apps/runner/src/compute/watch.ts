@@ -5,12 +5,14 @@ import { reconcileJob } from "@beam/compute";
 import { api } from "../../../../convex/_generated/api.js";
 import { beamHome } from "../config.ts";
 import { LocalExecutor } from "./local.ts";
+import { largeOutputPublisher } from "./largeOutput.ts";
 
 export { reconcileJob, uploadBytes } from "@beam/compute";
 
 /** Reconciliation runs independently of watchRuns. No agent or app session owns these jobs. */
 export function watchCompute(client: ConvexClient, token: string, executor: ComputeExecutor = new LocalExecutor(join(beamHome(), "compute"))) {
   let stopped = false, working = false;
+  const large = largeOutputPublisher(client, token, executor);
   const reconcile = async () => {
     if (working || stopped) return;
     working = true;
@@ -24,7 +26,7 @@ export function watchCompute(client: ConvexClient, token: string, executor: Comp
         if (!(await client.mutation(api.compute.claim, { token, id: job._id }))) return;
         job.state = "preparing";
       }
-      await reconcileJob(client, token, executor, job);
+      await reconcileJob(client, token, executor, job, large ? { large } : {});
     } catch (e) {
       // fetch reports only "fetch failed"; the reason (a reset socket, a timeout) is its cause.
       const cause = (e as { cause?: { code?: string; message?: string } }).cause;
