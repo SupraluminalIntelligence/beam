@@ -1,5 +1,8 @@
 import { z } from "zod";
 export * from "./compute.ts";
+export * from "./environments.ts";
+export * from "./machines.ts";
+export * from "./results.ts";
 export { HARNESS_INFO } from "./harnessInfo.ts";
 export * from "./simulation.ts";
 export * from "./usage.ts";

@@ -77,7 +77,7 @@ Every job writes `beam/out/manifest.json` plus the files it names. The kinds are
 | Checks | `check` | pass, review, fail or not evaluated, with value, criterion and stage |
 | Files | `geometry`, `image`, `file` | CAD, pictures, raw solver output |
 
-The browser never receives a volume: the environment turns fields into bounded surfaces, lines and points (about 25 MB, 500k triangles, 120 steps) and says when it subsampled. Full data stays in R2 as VTKHDF. Matching across versions uses output name plus unit, which is what makes Compare, overlays and sweeps work without per-physics code. The manifest only grows, like the Worlds API.
+The browser never receives a volume: the environment turns fields into bounded surfaces, lines and points (about 25 MB, 500k triangles, 120 steps) and says when it subsampled. Full data stays in R2 as VTKHDF. Matching across versions uses output name plus unit, which is what makes Compare, overlays and sweeps work without per-physics code. The manifest only grows, like the Worlds API. Contracts: `packages/contracts/src/results.ts` (manifest, preview, plot and table files), `environments.ts` (`env.json`, digest-pinned images), `machines.ts` (the machine list) and `EnvironmentJobSpec` in `compute.ts`; tests parse real `beam_out` output.
 
 ## Agent tools
 

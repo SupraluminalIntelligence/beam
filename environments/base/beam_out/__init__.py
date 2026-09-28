@@ -168,10 +168,21 @@ class Results:
 
     # files and views -------------------------------------------------------------------------
     def file(self, path, *, label=None, kind="file"):
-        p = Path(path)
-        if not p.exists():
+        """Publish a file (kind: "file", "geometry" or "image"). A file outside beam/out is copied to beam/out/files/."""
+        import shutil
+
+        if kind not in ("file", "geometry", "image"):
+            raise ValueError('kind must be "file", "geometry" or "image"')
+        p = Path(path).resolve()
+        if not p.is_file():
             raise FileNotFoundError(path)
-        self.m["files"].append({"path": str(p), "label": label or p.name, "kind": kind, "bytes": p.stat().st_size})
+        root = self.root.resolve()
+        if root not in p.parents:
+            dest = self._path(f"files/{_slug(p.name)}")
+            if _rank() == 0:
+                shutil.copyfile(p, dest)
+            p = dest.resolve()
+        self.m["files"].append({"path": p.relative_to(root).as_posix(), "label": label or p.name, "kind": kind, "bytes": p.stat().st_size})
 
     def view(self, name, **layout):
         """A named arrangement, e.g. view("Stress", field="solid", color="von_mises", plot="residuals")."""
