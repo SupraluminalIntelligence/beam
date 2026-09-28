@@ -97,6 +97,8 @@ See [notifications and typing](docs/notifications-and-typing.md) for completion 
 
 See [tools, browser, and local compute](docs/compute-and-tools.md) for the Engineering pane, durable job lifecycle, T3 Code reuse, and the future remote/HPC executor boundary.
 
+See [compute plane](docs/decisions/2026-09-27-compute-plane.md) for how agents will run physics tools on allocated cloud compute (Modal, EC2), its vocabulary, and the [architecture](design/beam-compute-plane.html).
+
 See [CAD Viewer](docs/cad-viewer.md) for local model inspection, supported formats, artifact integration, and the CAD/CFD extension boundary.
 
 ## License
