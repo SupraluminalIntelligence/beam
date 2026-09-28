@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { psQuote, windowsTerminalScript } from "./terminal";
 
+// PowerShell cold start on a fresh CI runner can exceed vitest's 5 s default.
 it.skipIf(process.platform !== "win32")("PowerShell preserves executable paths, profile paths and login arguments", async () => {
   const root = await mkdtemp(join(tmpdir(), "beam-terminal-"));
   try {
@@ -19,4 +20,4 @@ it.skipIf(process.platform !== "win32")("PowerShell preserves executable paths, 
     expect(value.home).toBe(home);
     expect(value.path).toContain(".local\\bin");
   } finally { await rm(root, { recursive: true, force: true }); }
-});
+}, 30_000);
