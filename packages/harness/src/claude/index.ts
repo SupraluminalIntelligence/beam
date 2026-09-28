@@ -1,5 +1,6 @@
 import { claudeRateLimitUpdate, claudeUsage, usageUnavailable, type HarnessStatus, type RunEvent, type UsageLimits } from "@beam/contracts";
 import { createSdkMcpServer, query, tool, type PermissionMode, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import type { HarnessAdapter, Session, StartSession } from "../adapter.ts";
 import { which } from "../path.ts";
@@ -78,6 +79,8 @@ class ClaudeSession implements Session {
   private text = "";
   private stopped = false;
   private turnOpen = false;   // the model is inside a turn (between its first frame and the result)
+  private readonly unanswered = new Set<string>();   // uuids of our sends that no result has answered yet
+  private echoes = false;     // this CLI echoes a send's uuid on the result that answers it
   private readonly input: StartSession;
 
   /** `bin` is the user's installed `claude`; the SDK's own copy is not shipped inside the packaged app. */
@@ -205,6 +208,13 @@ class ClaudeSession implements Session {
       }
       case "result": {
         this.beginTurn();
+        const r = m as { user_message_uuid?: string; queued_turn_count?: number };
+        if (r.user_message_uuid && this.unanswered.delete(r.user_message_uuid)) this.echoes = true;
+        if (r.queued_turn_count === 0) this.unanswered.clear();
+        // A turn the CLI started itself, such as a notification that a background task from an earlier run
+        // stopped, answers none of our sends while one waits behind it. Ending the Beam turn here would close
+        // the session before the model reads the message. Only on evidence, so an older CLI still ends turns.
+        if (!r.user_message_uuid && this.unanswered.size > 0 && (this.echoes || (r.queued_turn_count ?? 0) > 0)) { this.text = ""; return; }
         const text = this.text.trim() || (m.subtype === "success" ? m.result : "");
         if (text) this.emit({ type: "content.final", runId, messageId: `t${this.turn}` as never, text });
         if (m.subtype !== "success") this.emit({ type: "error", runId, message: `${m.subtype}${"errors" in m && Array.isArray(m.errors) ? ": " + m.errors.join("; ") : ""}`, fatal: false });
@@ -230,7 +240,9 @@ class ClaudeSession implements Session {
   async send(text: string, messageId: string) {
     if (this.turn === 0 && !this.turnOpen) this.beginTurn();
     else this.emit({ type: "steer.received", runId: this.input.runId as never, messageId: messageId as never });
-    this.inbox.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, session_id: this.sessionId ?? "" } as unknown as SDKUserMessage);
+    const uuid = randomUUID();
+    this.unanswered.add(uuid);
+    this.inbox.push({ type: "user", uuid, message: { role: "user", content: text }, parent_tool_use_id: null, session_id: this.sessionId ?? "" } as unknown as SDKUserMessage);
   }
   async interrupt() { try { await this.q.interrupt(); } catch {} }
   async respond(requestId: string, decision: string) {

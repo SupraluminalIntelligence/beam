@@ -22,7 +22,8 @@ async function setup(permissionMode: "auto" | "ask" | "plan" | "allowlist", resu
   const events: RunEvent[] = [];
   void (async () => { for await (const event of session.events) events.push(event); })();
   const check = (name: string, input: Record<string, unknown>, requestId: string) => options.canUseTool!(name, input, { requestId, signal: new AbortController().signal, toolUseID: requestId });
-  return { session, options, events, check };
+  const sent = vi.mocked(query).mock.calls.at(-1)![0].prompt as AsyncIterable<{ uuid: string }>;
+  return { session, options, events, check, stream, sent: sent[Symbol.asyncIterator]() };
 }
 
 describe("Claude permissions", () => {
@@ -68,5 +69,31 @@ describe("Claude probe usage", () => {
     const s = await probe({ email: "a@b.c", subscriptionType: "pro" }, async () => { throw new Error("gone"); });
     expect(s.auth).toBe("authenticated");
     expect(s.usage?.unavailable).toBe("failed");
+  });
+});
+
+describe("Claude turns", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const result = (extra: Record<string, unknown>) => ({ type: "result", subtype: "success", result: "", ...extra }) as never;
+  it("does not end the turn on a turn the CLI started itself while our message waits", async () => {
+    const { session, events, stream, sent } = await setup("auto", { sessionId: "previous" });
+    await session.send("Read the results", "m1");
+    const { uuid } = (await sent.next()).value;
+    // Background tasks from the previous run stopped: the CLI answers their notification first.
+    stream.push(result({ queued_turn_count: 1 }));
+    await settle();
+    expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(0);
+    stream.push(result({ user_message_uuid: uuid, queued_turn_count: 0, result: "Here are the results" }));
+    await settle();
+    expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(events).toContainEqual(expect.objectContaining({ type: "content.final", text: "Here are the results" }));
+  });
+  it("ends turns as before with a CLI that neither echoes sends nor counts its queue", async () => {
+    const { session, events, stream, sent } = await setup("auto");
+    await session.send("Hello", "m1");
+    await sent.next();
+    stream.push(result({ result: "Hi" }));
+    await settle();
+    expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
   });
 });
