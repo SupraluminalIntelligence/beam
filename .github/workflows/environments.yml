@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [fea]
+        environment: [fea, cfd]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -105,7 +105,7 @@ jobs:
     needs: build
     strategy:
       matrix:
-        environment: [fea]
+        environment: [fea, cfd]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
