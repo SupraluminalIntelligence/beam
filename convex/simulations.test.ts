@@ -49,6 +49,14 @@ it("saves each change as the next version, refuses stale edits, and saves nothin
   expect(sim.versions.map((v:any)=>v.version)).toEqual([1,2]);
   expect(sim.versions[1]).toMatchObject({note:"Wider fillet",changes:["fillet_radius: 2 mm → 4 mm","~ solve.py"]});
 });
+it("shows a derived version's changes against the version it came from, as a sweep saves them",async()=>{
+  const {ctx}=fixture();const {id}=await save(ctx);
+  await save(ctx,{id,version:1,from:1,setup:setup("a1",4)});
+  await save(ctx,{id,version:2,from:1,setup:setup("a1",8)});
+  await expect(save(ctx,{id,version:3,from:7,setup:setup("a1",9)})).rejects.toThrow("No v7");
+  const sim=await call(get,ctx,{id});
+  expect(sim.versions.map((v:any)=>[v.version,v.from,v.changes])).toEqual([[1,null,[]],[2,1,["fillet_radius: 2 mm → 4 mm"]],[3,1,["fillet_radius: 2 mm → 8 mm"]]]);
+});
 it("only snapshots files staged in this chat, and plan mode cannot save",async()=>{
   await expect(save(fixture().ctx,{setup:setup("foreign")})).rejects.toThrow("not in this chat");
   await expect(save(fixture("plan").ctx)).rejects.toThrow("Plan mode");

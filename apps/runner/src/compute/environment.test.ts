@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { BUILT_IN_ENVIRONMENTS, type EnvironmentJobSpec } from "@beam/contracts";
-import { closeLocalMachine, collectResults, environmentProcess, execOnLocalMachine, machineContainer, openLocalMachine } from "./environment.ts";
+import { closeLocalMachine, collectResults, environmentProcess, execOnLocalMachine, jobScript, machineContainer, openLocalMachine } from "./environment.ts";
 import { LocalExecutor } from "./local.ts";
 
 // A real manifest written by beam_out in the fea image (packages/contracts/src/fixtures/cantilever).
@@ -29,6 +29,25 @@ async function results(overrides: Record<string, Uint8Array | Error> = {}) {
     return f;
   };
 }
+
+describe("the job's script", () => {
+  const run = async (command: string) => {
+    const work = await mkdtemp(join(tmpdir(), "beam-script-"));
+    try {
+      const r = await promisify(execFile)("bash", ["-c", jobScript(command)], { cwd: work, env: { ...process.env, BEAM_WORK: work } }).then(o => ({ code: 0, ...o }), (e: { code: number; stdout: string; stderr: string }) => e);
+      return { code: r.code, stdout: r.stdout, stderr: r.stderr.replaceAll(work, "/work") };
+    } finally { await rm(work, { recursive: true, force: true }); }
+  };
+  it("keeps the command's exit status and output", async () => {
+    expect(await run("echo hi; false")).toMatchObject({ code: 1, stdout: "hi\n", stderr: "" });
+  });
+  it("says where results went when a manifest was written under another directory", async () => {
+    const r = await run("mkdir -p case/beam/out && echo {} > case/beam/out/manifest.json && cd case");
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("Beam reads results only from /work/beam/out, but the manifest was written to:\n/work/case/beam/out/manifest.json");
+    expect((await run("mkdir -p beam/out && echo {} > beam/out/manifest.json")).stderr).toBe("");
+  });
+});
 
 describe("collecting results from beam/out", () => {
   it("publishes the manifest and exactly the files it names, preview buffers included", async () => {

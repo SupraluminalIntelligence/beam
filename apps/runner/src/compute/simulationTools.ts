@@ -32,8 +32,8 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     if (!v?.setup) throw new Error(`No files v${version} of this simulation`);
     return v.setup;
   };
-  const save = (a: { id?: string | undefined; version?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
-    client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.note ? { note: a.note } : {}) });
+  const save = (a: { id?: string | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
+    client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
   const run = (id: string, version: number, machine: string, requestKey: string) =>
     client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey });
 
@@ -67,19 +67,20 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     },
     {
       name: "sweep",
-      description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. Unavailable in plan mode.",
+      description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. Unavailable in plan mode.",
       schema: { id: z.string(), version: z.number().int().positive(), parameter: z.string(), values: z.array(z.union([z.number().finite(), z.string(), z.boolean()])).min(1).max(32), machine: MachineId.default("local"), requestKey: z.string().min(1).max(120) },
       run: async a => {
         writable();
-        const id = String(a["id"]), sim = await find(id), base = await versionOf(id, Number(a["version"]));
+        const id = String(a["id"]), sim = await find(id), from = Number(a["version"]), base = await versionOf(id, from);
         const setups = sweepSetups(base, String(a["parameter"]), a["values"] as (number | string | boolean)[]);
         let current = sim.version;
         const rows = [];
         for (const [i, setup] of setups.entries()) {
           const value = (a["values"] as unknown[])[i];
-          const saved = await save({ id, version: current, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` });
-          current = saved.version;
-          rows.push({ value, version: saved.version, jobId: await run(id, saved.version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`) });
+          // The base's own value runs the base version rather than saving a copy of it.
+          const version = JSON.stringify(setup) === JSON.stringify(base) ? from
+            : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
+          rows.push({ value, version, jobId: await run(id, version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`) });
         }
         return JSON.stringify({ parameter: a["parameter"], runs: rows, next: "Follow the jobs with get_job, then compare_versions with their job IDs." });
       },

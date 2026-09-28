@@ -104,7 +104,7 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
         const manifest = job.results?.manifest ? ResultsManifest.parse(job.results.manifest) : null;
         return JSON.stringify({
           state: job.state,
-          ...(manifest ? { headline: headlineQuantities(manifest), checkCounts: checkCounts(manifest), results: manifest } : { results: null, note: "The job wrote no beam/out/manifest.json." }),
+          ...(manifest ? { headline: headlineQuantities(manifest), checkCounts: checkCounts(manifest), results: manifest } : { results: null, note: "The job wrote no /work/beam/out/manifest.json. If it wrote one under another directory, the end of its log (get_job) says where." }),
           files: job.outputs.map(o => ({ path: o.path, bytes: o.size, url: o.url })),
           keptOnMachine: job.results?.unpublished ?? [],
         });

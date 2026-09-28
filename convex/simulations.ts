@@ -20,9 +20,9 @@ const busy = ["queued", "starting", "working", "landing"];
 async function versionsOf(ctx: Ctx, id: Id<"simulationCases">) {
   const rows = await ctx.db.query("simulationRevisions").withIndex("by_study_revision", q => q.eq("studyId", id)).collect();
   return rows.sort((a, b) => a.revision - b.revision).map((r, i, all) => {
-    const setup = r.setup ? FilesSetup.parse(r.setup) : null, prior = i ? all[i - 1] : null;
+    const setup = r.setup ? FilesSetup.parse(r.setup) : null, prior = (r.from !== undefined ? all.find(x => x.revision === r.from) : null) ?? (i ? all[i - 1] : null);
     return {
-      version: r.revision, name: r.name, createdAt: r.createdAt, createdBy: r.createdBy, note: r.note ?? null,
+      version: r.revision, name: r.name, createdAt: r.createdAt, createdBy: r.createdBy, note: r.note ?? null, from: prior?.revision ?? null,
       setup, config: r.config ?? null,
       changes: setup && prior?.setup ? setupChanges(FilesSetup.parse(prior.setup), setup) : [],
     };
@@ -86,7 +86,8 @@ async function ensureCard(ctx: MutationCtx, sim: Doc<"simulationCases">, author:
   await ctx.db.patch(sim.chatId, { lastMessageAt: Date.now() });
 }
 
-type SaveFiles = { id?: Id<"simulationCases"> | undefined; version?: number | undefined; name: string; setup: unknown; note?: string | undefined };
+/** version is the latest the caller read (a stale one is refused); from is the version this setup was derived from, when not the latest (a sweep). */
+type SaveFiles = { id?: Id<"simulationCases"> | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: unknown; note?: string | undefined };
 /** Create a files simulation, or save the next version of one. An unchanged setup and name saves nothing. */
 async function saveFiles(ctx: MutationCtx, chatId: Id<"chats">, login: string, a: SaveFiles, run: Doc<"runs"> | null) {
   const setup = FilesSetup.parse(a.setup), name = a.name.trim(), note = a.note?.trim().slice(0, 500) || undefined;
@@ -105,7 +106,9 @@ async function saveFiles(ctx: MutationCtx, chatId: Id<"chats">, login: string, a
     await ensureCard(ctx, prior, author, run?._id ?? null);
     if (prior.name === name && latest?.setup && JSON.stringify(FilesSetup.parse(latest.setup)) === JSON.stringify(setup)) return { id: a.id, version: prior.revision, unchanged: true };
     const version = prior.revision + 1;
-    await ctx.db.insert("simulationRevisions", { studyId: a.id, revision: version, name, config: null, setup, ...(note ? { note } : {}), createdAt: now, createdBy: login });
+    if (a.from !== undefined && !(Number.isInteger(a.from) && a.from >= 1 && a.from <= prior.revision)) throw new Error(`No v${a.from} of this simulation`);
+    const from = a.from !== undefined && a.from !== prior.revision ? { from: a.from } : {};
+    await ctx.db.insert("simulationRevisions", { studyId: a.id, revision: version, name, config: null, setup, ...(note ? { note } : {}), ...from, createdAt: now, createdBy: login });
     await ctx.db.patch(a.id, { name, revision: version, updatedAt: now, updatedBy: login });
     return { id: a.id, version, unchanged: false };
   }
@@ -142,7 +145,7 @@ async function agentRun(ctx: MutationCtx, token: string, runId: Id<"runs">) {
   if (!agent || agent.permissionMode === "plan") throw new Error("Plan mode cannot save or run simulations");
   return { run, agent };
 }
-const saveArgs = { id: v.optional(v.id("simulationCases")), version: v.optional(v.number()), name: v.string(), setup: v.any(), note: v.optional(v.string()) };
+const saveArgs = { id: v.optional(v.id("simulationCases")), version: v.optional(v.number()), from: v.optional(v.number()), name: v.string(), setup: v.any(), note: v.optional(v.string()) };
 const runArgs = { id: v.id("simulationCases"), version: v.number(), machine: v.string(), requestKey: v.string() };
 
 export const saveVersionForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), ...saveArgs }, handler: async (ctx, a) => {

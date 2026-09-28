@@ -139,7 +139,7 @@ export default defineSchema({
   /** Simulations (packages/contracts/src/simulations.ts). kind absent = recipe: the studies that came first. A files simulation has config null. */
   simulationCases: defineTable({chatId:v.id("chats"),name:v.string(),config:v.any(),revision:v.number(),updatedAt:v.number(),updatedBy:v.string(),cardMessageId:v.optional(v.id("messages")),kind:v.optional(v.union(v.literal("recipe"),v.literal("files"))),workspaceId:v.optional(v.id("workspaces"))}).index("by_chat",["chatId"]),
   /** Versions. A files version has config null and its FilesSetup in setup. */
-  simulationRevisions: defineTable({studyId:v.id("simulationCases"),revision:v.number(),name:v.string(),config:v.any(),createdAt:v.number(),createdBy:v.string(),setup:v.optional(v.any()),note:v.optional(v.string())}).index("by_study_revision",["studyId","revision"]),
+  simulationRevisions: defineTable({studyId:v.id("simulationCases"),revision:v.number(),name:v.string(),config:v.any(),createdAt:v.number(),createdBy:v.string(),setup:v.optional(v.any()),note:v.optional(v.string()),from:v.optional(v.number())}).index("by_study_revision",["studyId","revision"]),
   computeJobs: defineTable({
     chatId: v.id("chats"), runnerId: v.id("runners"), backend: v.literal("local-process"),
     requestedBy: v.string(), sourceRunId: v.optional(v.id("runs")), requestKey: v.string(),
