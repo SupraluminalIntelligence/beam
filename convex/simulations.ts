@@ -175,3 +175,18 @@ export const saveParameters = mutation({ args: { id: v.id("simulationCases"), ve
   const setup = FilesSetup.parse(row.setup);
   return saveFiles(ctx, sim.chatId, u.githubLogin!, { id: a.id, version: a.version, name: sim.name, setup: { ...setup, parameters: Parameters.parse(a.parameters) }, note: a.note }, null);
 } });
+
+/** Several jobs' full results, for comparing versions. Jobs must belong to the simulation. */
+export const results = query({ args: { id: v.id("simulationCases"), jobIds: v.array(v.id("computeJobs")) }, handler: async (ctx, a) => {
+  const sim = await ctx.db.get(a.id); if (!sim) return null;
+  await requireChat(ctx, sim.chatId);
+  if (a.jobIds.length > 8) throw new Error("Compare up to 8 jobs");
+  const versions = await versionsOf(ctx, a.id);
+  return Promise.all(a.jobIds.map(async jobId => {
+    const job = await ctx.db.get(jobId);
+    const view = job && job.chatId === sim.chatId ? jobView(job) : null;
+    if (!job || !view || (view.simulationVersion?.caseId !== a.id && view.simulation?.caseId !== a.id)) throw new Error("Job is not part of this simulation");
+    const manifest = job.results?.manifest ? ResultsManifest.safeParse(job.results.manifest) : null;
+    return { jobId, version: view.version, state: job.state, manifest: manifest?.success ? manifest.data : null, setup: versions.find(x => x.version === view.version)?.setup ?? null };
+  }));
+} });

@@ -209,6 +209,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .workspace-tab{display:flex;align-items:center;flex:none;border-right:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap;font-size:12px}
 .workspace-tab.selected{color:var(--ink);background:rgba(128,128,128,.08);box-shadow:inset 0 2px var(--ink)}
 .workspace-tab button{padding:9px}
+.workspace-tab button:first-child{max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .workspace-content{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;overflow:hidden}
 .workspace-surface{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .workspace-surface[hidden]{display:none}

@@ -5,6 +5,7 @@ import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { dayLabel, firstMention, hhmm, hueClass } from "../lib/format";
 import { ui, useUi } from "../lib/ui";
 import { StudyCard, StudyContext } from "../simulation/Study";
+import { SimulationCard } from "../simulation/Simulations";
 import { JobCard } from "./Compute";
 import { useSmoothText } from "../lib/smooth";
 import { Markdown } from "./Markdown";
@@ -268,10 +269,11 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
               <div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? `${nameOf(runs?.find(r => r._id === m.runId)?.dispatchedBy ?? "Unknown")}’s ${HARNESS_NAME[ag.harness]}` : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
-                {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · r{m.studyContext.revision}</div>}
-                {!m.simulationStudyId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
+                {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · v{m.studyContext.revision}</div>}
+                {!m.simulationStudyId && !m.simulationId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
                 {m.simulationStudyId && <StudyCard id={m.simulationStudyId} chatId={chat._id} />}
+                {m.simulationId && <SimulationCard id={m.simulationId} chatId={chat._id} />}
                 {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
                 {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings", tab: "machines" })}>Settings</button></div>}
                 {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}
