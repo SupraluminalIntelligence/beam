@@ -1,11 +1,12 @@
 import { foamProcess, stopFoamContainer } from "./openfoam.ts";
+import { environmentProcess, stopJobContainer } from "./environment.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile, rename } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { JobPath, ProcessJobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "@beam/contracts";
+import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 
 export async function readJobFile(directory: string, path: string): Promise<Uint8Array> {
@@ -39,8 +40,8 @@ export class LocalExecutor implements ComputeExecutor {
     return await json(join(this.root(handle), "launch.json")) ? handle : null;
   }
   async cancelSubmission(jobId: string) { await this.cancel({ backend: this.backend, id: jobId }); }
-  async submit(jobId: string, raw: ProcessJobSpec, inputs: ComputeInput[]): Promise<ExecutionHandle> {
-    const spec = ProcessJobSpec.parse(raw);
+  async submit(jobId: string, raw: JobSpec, inputs: ComputeInput[]): Promise<ExecutionHandle> {
+    const spec = JobSpec.parse(raw);
     if (process.platform === "win32") throw new Error("Run the compute runner inside WSL on Windows");
     const handle = { backend: this.backend, id: jobId }, root = this.root(handle);
     await mkdir(root, { recursive: true });
@@ -69,7 +70,8 @@ export class LocalExecutor implements ComputeExecutor {
         const dest = join(root, "work", input.path);
         await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, bytes, { flag: "wx" });
       }
-      await writeFile(join(root, "spec.json"), JSON.stringify(spec.simulation ? foamProcess(spec, root) : spec));
+      const launch = spec.kind === "environment" ? await environmentProcess(spec, root) : spec.simulation ? foamProcess(spec, root) : spec;
+      await writeFile(join(root, "spec.json"), JSON.stringify(launch));
       const child = spawn(process.execPath, [fileURLToPath(new URL("./worker.mjs", import.meta.url)), root], {
         detached: true, stdio: "ignore", env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       });
@@ -90,8 +92,9 @@ export class LocalExecutor implements ComputeExecutor {
     if (!launch) throw new Error("Local execution receipt is missing; the job will not be replayed");
     if (Date.now() - (status?.heartbeatAt ?? launch.at) > 90_000) {
       await this.cancel(handle);
-      const stored = await json(join(root, "spec.json")) as { simulation?: unknown } | null;
+      const stored = await json(join(root, "spec.json")) as { simulation?: unknown; environment?: string } | null;
       if (stored?.simulation) await stopFoamContainer(root).catch(() => {});
+      if (stored?.environment) await stopJobContainer(root).catch(() => {});
       return { state: "failed", log: status?.log ?? "", error: "Local supervisor stopped responding. Inspect the machine before submitting a new job; this execution was not replayed.", exitCode: null };
     }
     return { state: "running", log: status?.log ?? "" };

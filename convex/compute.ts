@@ -5,12 +5,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireChat, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
-import { JobPath, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
+import { JobPath, JobSpec, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
+import { ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES } from "../packages/contracts/src/simulation";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
-const summary = ({ spec, log, ...job }: Doc<"computeJobs">) => ({ ...job, title: ProcessJobSpec.parse(spec).title, simulation: ProcessJobSpec.parse(spec).simulation ?? null });
+const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: s.kind === "process" ? s.simulation ?? null : null, environment: s.kind === "environment" ? s.environment.name : null }; };
+/** An environment job publishes at most this many files from beam/out. */
+const MAX_RESULT_FILES = 128;
 
 async function chatAccess(ctx: Ctx, chatId: Id<"chats">, login: string) {
   const chat = await ctx.db.get(chatId);
@@ -39,7 +42,8 @@ async function targetAccess(ctx: Ctx, chatId: Id<"chats">, runnerId: Id<"runners
 }
 
 async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId: Id<"runners">; requestedBy: string; sourceRunId?: Id<"runs">; requestKey: string; spec: unknown; needsApproval: boolean }) {
-  const spec = ProcessJobSpec.parse(input.spec);
+  const spec = JobSpec.parse(input.spec);
+  if (spec.kind === "environment" && spec.machine !== "local") throw new Error(`The ${spec.machine} machine is not available yet; submit this job to "local"`);
   if (!input.requestKey.trim() || input.requestKey.length > 160) throw new Error("Invalid request key");
   await chatAccess(ctx, input.chatId, input.requestedBy);
   const existing = await ctx.db.query("computeJobs").withIndex("by_request", q => q.eq("chatId", input.chatId).eq("requestedBy", input.requestedBy).eq("requestKey", input.requestKey)).first();
@@ -48,7 +52,7 @@ async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId:
     return existing._id;
   }
   const target = await targetAccess(ctx, input.chatId, input.runnerId, input.requestedBy);
-  if(spec.simulation){
+  if(spec.kind==="process"&&spec.simulation){
     if(!target.openfoam?.ready) throw new Error(target.openfoam?.message ?? "Update this runner to enable OpenFOAM");
     if(target.openfoam.image!==spec.simulation.image)throw new Error("Runner has a different OpenFOAM runtime; update and re-probe it");
     const sim=spec.simulation, model=await ctx.db.get(sim.caseId as Id<"simulationCases">);
@@ -80,7 +84,7 @@ async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId:
     backend: "local-process", spec, state: input.needsApproval ? "awaiting-approval" : "queued",
     createdAt: now, updatedAt: now, log: "", error: null, outputs: [],
   });
-  if(spec.simulation) await ensureStudyCard(ctx,spec.simulation.caseId as Id<"simulationCases">,input.requestedBy);
+  if(spec.kind==="process"&&spec.simulation) await ensureStudyCard(ctx,spec.simulation.caseId as Id<"simulationCases">,input.requestedBy);
   else await ctx.db.insert("messages", { chatId: input.chatId, author: input.requestedBy, kind: "text", text: `Compute job: ${spec.title}`, runId: input.sourceRunId ?? null, computeJobId: id, reactions: [] });
   await ctx.db.patch(input.chatId, { lastMessageAt: now });
   return id;
@@ -216,7 +220,7 @@ async function detail(ctx: Ctx, job: Doc<"computeJobs">) {
     const asset = await ctx.db.get(id);
     return asset ? { id, path: asset.path, size: asset.size, sha256: asset.sha256, url: await ctx.storage.getUrl(asset.storageId) } : null;
   }));
-  return { ...job, spec: ProcessJobSpec.parse(job.spec), runnerName: runner?.name ?? "Runner", runnerOnline: !!runner?.online && runner.lastSeen > Date.now() - 90_000, outputs: outputs.filter(o => o !== null) };
+  return { ...job, spec: JobSpec.parse(job.spec), runnerName: runner?.name ?? "Runner", runnerOnline: !!runner?.online && runner.lastSeen > Date.now() - 90_000, outputs: outputs.filter(o => o !== null) };
 }
 export const get = query({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => {
   const job = await ctx.db.get(id); if (!job) return null;
@@ -253,7 +257,7 @@ export const claim = readableMutation({ args: { token: v.string(), id: v.id("com
 export const inputs = readableQuery({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   await chatAccess(ctx, job.chatId, job.requestedBy);
-  return Promise.all(ProcessJobSpec.parse(job.spec).inputs.map(async input => {
+  return Promise.all(JobSpec.parse(job.spec).inputs.map(async input => {
     const asset = await ctx.db.get(input.assetId as Id<"computeAssets">);
     if (!asset || asset.chatId !== job.chatId) throw new Error("Missing input asset");
     const url = await ctx.storage.getUrl(asset.storageId); if (!url) throw new Error("Input has expired");
@@ -280,8 +284,9 @@ export const report = readableMutation({ args: { token: v.string(), id: v.id("co
   if (a.handle && (a.handle.backend !== job.backend || (job.handle && job.handle.id !== a.handle.id))) throw new Error("Execution handle mismatch");
   const state = job.cancelRequestedAt && jobFinished(a.state) ? "cancelled" : a.state;
   if (state === "succeeded") {
-    const assets = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
-    if (ProcessJobSpec.parse(job.spec).outputs.some(p => !assets.some(a => a?.path === p))) throw new Error("Outputs are not yet published");
+    const spec = JobSpec.parse(job.spec), assets = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
+    if (spec.kind === "process" && spec.outputs.some(p => !assets.some(a => a?.path === p))) throw new Error("Outputs are not yet published");
+    if (spec.kind === "environment" && !job.results) throw new Error("Results are not yet published");
   }
   await ctx.db.patch(job._id, { state, log: a.log.slice(-16000), error: a.error?.slice(0,2000) ?? null, updatedAt: Date.now(), ...(a.handle ? { handle: a.handle } : {}), ...(a.exitCode !== undefined ? { exitCode: a.exitCode } : {}), ...(jobFinished(state) ? { endedAt: Date.now() } : {}) });
 } });
@@ -348,9 +353,24 @@ export const publishOutput = readableMutation({ args: { token: v.string(), id: v
   const { job } = await workerAccess(ctx, a.token, a.id);
   const published = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
   const prior = published.find(p => p?.path === a.path); if (prior) return prior._id;
-  if (job.state !== "publishing" || job.cancelRequestedAt || !ProcessJobSpec.parse(job.spec).outputs.includes(a.path)) throw new Error("Output was not requested");
+  const spec = JobSpec.parse(job.spec);
+  const requested = spec.kind === "process" ? spec.outputs.includes(a.path) : a.path.startsWith(`${RESULTS_ROOT}/`) && job.outputs.length < MAX_RESULT_FILES;
+  if (job.state !== "publishing" || job.cancelRequestedAt || !requested) throw new Error("Output was not requested");
   const id = await asset(ctx, job.chatId, job.requestedBy, a.storageId, a.path, job._id);
   await ctx.db.patch(job._id, { outputs: [...job.outputs, id], updatedAt: Date.now() }); return id;
+} });
+/** An environment job's results: the validated manifest, after every file it names was published or listed as too large. */
+export const publishResults = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), manifest: v.any(), unpublished: v.array(v.object({ path: v.string(), reason: v.string() })) }, handler: async (ctx, a) => {
+  const { job } = await workerAccess(ctx, a.token, a.id);
+  if (JobSpec.parse(job.spec).kind !== "environment") throw new Error("Only environment jobs publish results");
+  if (job.state !== "publishing" || job.cancelRequestedAt) throw new Error("Job is not publishing");
+  const manifest = a.manifest === null ? null : ResultsManifest.parse(a.manifest);
+  if (manifest) {
+    const published = new Set((await Promise.all(job.outputs.map(id => ctx.db.get(id)))).map(asset => asset?.path));
+    if (!published.has(`${RESULTS_ROOT}/manifest.json`)) throw new Error("Publish beam/out/manifest.json first");
+  }
+  if (a.unpublished.length > MAX_RESULT_FILES || a.unpublished.some(u => !u.path.startsWith(`${RESULTS_ROOT}/`))) throw new Error("Invalid unpublished list");
+  await ctx.db.patch(job._id, { results: { manifest, unpublished: a.unpublished.map(u => ({ path: u.path, reason: u.reason.slice(0, 200) })) }, updatedAt: Date.now() });
 } });
 export const hasOutput = readableQuery({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);

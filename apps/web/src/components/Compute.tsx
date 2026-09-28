@@ -76,8 +76,11 @@ export function ComputeJob({ id, login, chatId }: { id: Id<"computeJobs">; login
     {!finished && !job.runnerOnline && <p className="compute-notice">Runner disconnected. This is the last reported state; the job may still be running locally. Updates resume when the runner reconnects.</p>}
     {job.cancelRequestedAt && !finished && <p role="status">Cancellation requested · waiting for the runner.</p>}
     <div className="compute-facts"><span>Submitted by <b>{job.requestedBy}</b></span><span>Runtime limit <b>{job.spec.timeoutSeconds}s</b></span><span>Input snapshot <b>{job.spec.inputs.length} files</b></span></div>
-    <pre className="compute-command">{job.spec.executable}{job.spec.args.map(a=>` ${JSON.stringify(a)}`).join("")}</pre>
-    <details><summary>Input snapshot and requested results</summary><ul>{job.spec.inputs.map(i=><li key={i.path}>Input: {i.path} <small>({i.assetId})</small></li>)}{job.spec.outputs.map(p=><li key={p}>Output: {p}</li>)}</ul></details>
+    {job.spec.kind === "environment"
+      ? <><div className="compute-facts"><span>Environment <b>{job.spec.environment.name}</b></span><span>Machine <b>{job.spec.machine}</b></span></div><pre className="compute-command">{job.spec.command}</pre></>
+      : <pre className="compute-command">{job.spec.executable}{job.spec.args.map(a=>` ${JSON.stringify(a)}`).join("")}</pre>}
+    <details><summary>Input snapshot and requested results</summary><ul>{job.spec.inputs.map(i=><li key={i.path}>Input: {i.path} <small>({i.assetId})</small></li>)}{job.spec.kind === "environment" ? <li>Results: whatever the job writes under beam/out, as its manifest describes · <small>{job.spec.environment.image}</small></li> : job.spec.outputs.map(p=><li key={p}>Output: {p}</li>)}</ul></details>
+    {job.results?.unpublished.length ? <p className="compute-notice">Kept on the machine: {job.results.unpublished.map(u=>`${u.path} (${u.reason})`).join(", ")}</p> : null}
     <div className="workspace-section-heading"><h3>Logs</h3><small>Latest 16,000 characters</small></div><pre className="compute-log" aria-label="Job log">{job.log ? <JobLog text={job.log} chatId={chatId} /> : (finished ? "No output was written." : "Waiting for output…")}</pre>
     {job.error && <p role="alert" className="compute-error">{job.error}</p>}
     {job.outputs.length > 0 && <section><h3>Results</h3>{job.outputs.map(o=><div key={o.id}><a className="compute-result" href={o.url ?? undefined} target="_blank" rel="noreferrer" download={o.path.split("/").at(-1)}><span>{o.path}</span><small>{Math.ceil(o.size/1024)} KB · Download ↗</small></a>{cadFormat(o.path) && <button className="btn ghost" onClick={()=>ui.openCad(chatId,{kind:"result",jobId:id,assetId:o.id})}>Open in CAD Viewer ↗</button>}</div>)}</section>}

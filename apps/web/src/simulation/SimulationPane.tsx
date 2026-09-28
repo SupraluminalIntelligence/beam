@@ -59,7 +59,7 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
   const activeJob=caseJobs.find(j=>!jobFinished(j.state));
   const activeDetail=useQuery(api.compute.get,activeJob&&activeJob._id!==jobId?{id:activeJob._id}:"skip");
   const progressDetail=activeJob?activeJob._id===jobId?job:activeDetail:null;
-  const detail=job?.spec.simulation;
+  const detail=job?.spec.kind==="process"?job.spec.simulation:undefined;
   const [assets,setAssets]=useState<{id:string;report:SimulationReport|null;meshView:PlanarMeshView|null;fields:SimulationFields|null;wake:{fields:WakeFields;frames:Float32Array;geometry:Float32Array|null}|null;volume:{meshView:Domain3DMeshView|null;fields:Domain3DFields|null;frames:Float32Array|null}|null;error:string}|null>(null);
   const reportAsset=job?.outputs.find(o=>o.path==="report.json"), fieldAsset=job?.outputs.find(o=>o.path==="fields.json"), frameAsset=job?.outputs.find(o=>o.path==="frames.bin");
   const geometryAsset=job?.outputs.find(o=>o.path==="geometry.bin");

@@ -62,3 +62,32 @@ it("does not launch a cancelled job that has no execution receipt",async()=>{
  expect(s.executor.submit).not.toHaveBeenCalled();expect(s.job.state).toBe("cancelled");
  expect(s.executor.cancelSubmission).toHaveBeenCalledWith("job");
 });
+
+it("publishes an environment job's manifest and the files it names, then records its results",async()=>{
+  const s=setup();
+  s.job.spec={version:1,kind:"environment",title:"Env",environment:{name:"fea",image:"ghcr.io/x/y@sha256:"+"a".repeat(64)},command:"true",inputs:[],machine:"local",timeoutSeconds:60};
+  const manifest={version:1,series:[{name:"s",label:"s",data:"series/s.json",points:1,x:{label:"x"},y:{lines:["a"]}}],checks:[{id:"c",label:"c",status:"pass",stage:"post"}]};
+  const files:Record<string,string>={"beam/out/manifest.json":JSON.stringify(manifest),"beam/out/series/s.json":JSON.stringify({x:[1],lines:[{name:"a",values:[2]}]})};
+  vi.mocked(s.executor.readOutput).mockImplementation(async(_h,path)=>{if(!(path in files))throw new Error("ENOENT: no such file");return new TextEncoder().encode(files[path]);});
+  const paths:string[]=[];let results:unknown;
+  const mutate=s.client.mutation.getMockImplementation()!;
+  s.client.mutation.mockImplementation(async(ref:never,args:Record<string,unknown>)=>{
+    const name=getFunctionName(ref);
+    if(name==="compute:publishOutput"){paths.push(String(args["path"]));return;}
+    if(name==="compute:publishResults"){results=args;return;}
+    return mutate(ref,args);
+  });
+  s.client.query.mockImplementation(async(ref:never)=>{const name=getFunctionName(ref);if(name==="compute:pending")return [s.job];if(name==="compute:hasOutput")return false;throw new Error(name);});
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({storageId:"blob"}))));
+  await s.run();
+  expect(paths).toEqual(["beam/out/manifest.json","beam/out/series/s.json"]);
+  expect(results).toMatchObject({manifest:{checks:[{id:"c",status:"pass"}]},unpublished:[]});
+  expect(s.job.state).toBe("succeeded");
+});
+it("fails an environment job whose manifest is invalid, naming the problem",async()=>{
+  const s=setup();
+  s.job.spec={version:1,kind:"environment",title:"Env",environment:{name:"fea",image:"ghcr.io/x/y@sha256:"+"a".repeat(64)},command:"true",inputs:[],machine:"local",timeoutSeconds:60};
+  vi.mocked(s.executor.readOutput).mockResolvedValue(new TextEncoder().encode('{"version":1,"checks":[{"id":"c","label":"c","status":"maybe","stage":"post"}]}'));
+  await s.run();
+  expect(s.job.state).toBe("failed");expect(s.job.error).toContain("manifest.json is invalid");
+});
