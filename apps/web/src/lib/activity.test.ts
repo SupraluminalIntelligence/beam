@@ -46,3 +46,19 @@ it("keeps unfamiliar commands concise and does not classify quoted command names
   expect(activitySummary([step("python script.py", "bash")]).text).toBe("Run shell command");
   expect(activitySummary([step("pnpm test", "bash"), step("git diff --stat", "bash")]).text).toBe("Run tests · Review code changes");
 });
+
+it("reads Claude's saved MCP calls without the raw tool name or JSON", () => {
+  const exec = step('mcp__beam__machine_exec {"command":"cd /work && python -c \\"\\nimport dolfinx, …', "mcp__beam__machine_exec");
+  expect(activityLabel(exec)).toBe('cd /work && python -c " import dolfinx, …');
+  const open = step('mcp__beam__machine_open {"environment":"ghcr.io/supraluminalintelligence/beam-env-f…', "mcp__beam__machine_open");
+  expect(activityLabel(step('mcp__beam__machine_open {"environment":"fea"}', "mcp__beam__machine_open"))).toBe("Open fea machine");
+  expect(activitySummary([step("mcp__beam__environment_list {}", "mcp__beam__environment_list"), open]).text).toBe("List environments · Open machine");
+  expect(activitySummary([exec, exec]).text).toBe("Run on machine ×2");
+  expect(activityLabel(step('mcp__github__create_issue {"title":"x"}', "mcp__github__create_issue"))).toBe('github · create_issue {"title":"x"}');
+});
+
+it("labels the harness's machine steps and Codex's bare Beam names", () => {
+  expect(activitySummary([step("cd /work && python run.py", "machine")]).text).toBe("Run on machine");
+  expect(activityLabel(step("machine_exec"))).toBe("Run on machine");
+  expect(activityLabel(step("Open fea machine"))).toBe("Open fea machine");
+});

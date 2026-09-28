@@ -6,7 +6,7 @@ import { agentName, isLive, ownerOf } from "../lib/agents";
 import { api, type Doc, type Id } from "../lib/convex";
 import { useMe, usePeople } from "../lib/hooks";
 
-export const STEP_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam" };
+export const STEP_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam", machine: "exec", tool: "tool" };
 export const stepText = (kind: string, summary: string) => ["read", "edit", "write", "search", "web", "agent"].includes(kind) ? summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : summary;
 
 export type Run = Doc<"runs"> & { runnerName: string };

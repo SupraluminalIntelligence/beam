@@ -24,8 +24,26 @@ export function describeTool(name: string, input: Record<string, unknown>, cwd: 
     case "mcp__beam__attach_repo": return { kind: "beam", summary: `Attach ${String(i["repo"] ?? "")} to this chat` };
     case "mcp__beam__list_repos": return { kind: "beam", summary: "List the workspace's repos" };
     case "mcp__beam__describe_change": return { kind: "beam", summary: `Describe the change: ${short(String(i["title"] ?? ""), 70)}` };
-    default: return { kind: name.toLowerCase(), summary: `${name} ${short(JSON.stringify(i), 60)}` };
+    // A command on the chat's machine reads like a shell step; the kind says where it ran.
+    case "mcp__beam__machine_exec": return { kind: "machine", summary: short(String(i["command"] ?? "").replace(/\s+/g, " ").trim()) };
+    case "mcp__beam__machine_open": return { kind: "beam", summary: `Open ${environmentName(i["environment"])} machine` };
+    case "mcp__beam__machine_close": return { kind: "beam", summary: "Stop the machine" };
+    case "mcp__beam__job_submit": return { kind: "beam", summary: `Submit job: ${short(String(i["title"] ?? ""), 70)}` };
+    default: {
+      // Other Beam tools keep their bare name; the app knows how to say each one.
+      if (name.startsWith("mcp__beam__")) return { kind: "beam", summary: name.slice("mcp__beam__".length) };
+      const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+      if (mcp) return { kind: "tool", summary: `${mcp[1]} · ${mcp[2]} ${short(JSON.stringify(i), 60)}` };
+      return { kind: name.toLowerCase(), summary: `${name} ${short(JSON.stringify(i), 60)}` };
+    }
   }
+}
+
+/** "fea", or a pinned image such as ghcr.io/…/beam-env-fea@sha256:… → "fea". */
+export function environmentName(env: unknown): string {
+  const s = String(env ?? "").trim();
+  if (!/[/@:]/.test(s)) return s || "a";
+  return s.split("@")[0]!.split("/").pop()!.split(":")[0]!.replace(/^beam-env-/, "") || s;
 }
 
 /** Does a tool call match an "always allow" entry? Entries are tool names ("Edit") or Bash command prefixes ("git status"). */
