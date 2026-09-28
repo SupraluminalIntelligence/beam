@@ -82,7 +82,7 @@ export interface ComputeExecutor {
   recover(jobId: string): Promise<ExecutionHandle | null>;
   /** Persist cancellation by Beam job ID, including a submission racing before its handle is saved. */
   cancelSubmission(jobId: string): Promise<void>;
-  submit(jobId: string, spec: ProcessJobSpec, inputs: ComputeInput[]): Promise<ExecutionHandle>;
+  submit(jobId: string, spec: JobSpec, inputs: ComputeInput[]): Promise<ExecutionHandle>;
   inspect(handle: ExecutionHandle): Promise<ExecutionStatus>;
   cancel(handle: ExecutionHandle): Promise<void>;
   readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array>;

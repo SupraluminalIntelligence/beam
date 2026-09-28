@@ -138,6 +138,8 @@ export default defineSchema({
     handle: v.optional(v.object({ backend: v.string(), id: v.string() })),
     log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())),
     outputs: v.array(v.id("computeAssets")),
+    /** Environment jobs: the ResultsManifest (packages/contracts/src/results.ts), or null when the job wrote none. */
+    results: v.optional(v.object({ manifest: v.any(), unpublished: v.array(v.object({ path: v.string(), reason: v.string() })) })),
   }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]),
   computeAssets: defineTable({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),

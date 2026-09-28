@@ -6,7 +6,7 @@ Structures and heat in solids. Read this before writing a setup.
 
 FEniCSx (dolfinx 0.11, basix, ufl), PETSc 3.25 with MUMPS, MPICH 5, gmsh 4.15, meshio, pyvista 0.49 on VTK 9.7 (off-screen), numpy, scipy, matplotlib. Exact versions: `/beam/packages.json`.
 
-Python is `/opt/conda/bin/python`. Run in parallel with `mpirun -n <cores> python script.py`; `nproc` reports the cores this machine has.
+Python is `/opt/conda/bin/python`. Run in parallel with `mpirun -n $BEAM_CORES python script.py`: Beam sets `BEAM_CORES` to the cores worth using on this machine. Your working directory is `/work`; there is no network.
 
 ## Writing results
 

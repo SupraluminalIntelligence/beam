@@ -81,7 +81,7 @@ The browser never receives a volume: the environment turns fields into bounded s
 
 ## Agent tools
 
-`environment_list`, `machine_open`, `machine_exec`, `machine_sync`, `job_estimate`, `job_submit`, `job_status`, `job_logs`, `job_cancel`, `results_list`, `results_read`, `view_publish`, `render_view`. They go through Convex like today's simulation tools, so approvals, chat membership and private-chat rules apply.
+`environment_list`, `machine_open`, `machine_exec`, `machine_close`, `job_submit` and `results_read` are built (local machine; `apps/runner/src/compute/environmentTools.ts`), alongside the existing `get_job`, `list_jobs` and `cancel_job`. A local machine mounts the thread directory, so it needs no sync. Still to come: `machine_sync` (cloud machines), `job_estimate`, `view_publish`, `render_view`. They go through Convex like today's simulation tools, so approvals, chat membership and private-chat rules apply.
 
 ## Build order
 
