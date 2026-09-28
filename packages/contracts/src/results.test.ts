@@ -64,3 +64,18 @@ it("compares versions by name and unit, never converting units", () => {
   expect(c.onlyBefore.map((q) => q.name)).toEqual(["mass", "old"]);
   expect(c.onlyAfter.map((q) => `${q.name} ${q.unit}`)).toEqual(["mass kg"]);
 });
+
+it("formats numbers with SI prefixes where they read naturally", async () => {
+  const { formatQuantity } = await import("./results");
+  expect(formatQuantity(1.905790435e-4, "m")).toBe("190.6 µm");
+  expect(formatQuantity(0.00042, "m")).toBe("420 µm");
+  expect(formatQuantity(3001609, "Pa")).toBe("3.002 MPa");
+  expect(formatQuantity(165e6, "Pa")).toBe("165 MPa");
+  expect(formatQuantity(-0.213043, "m/s")).toBe("-0.213 m/s");
+  expect(formatQuantity(300.1, "K")).toBe("300.1 K");
+  expect(formatQuantity(139587, "1")).toBe("139,587");
+  expect(formatQuantity(2.4e9, "1")).toBe("2.4e9");
+  expect(formatQuantity(4.7391, "s")).toBe("4.739 s");
+  expect(formatQuantity(0.0123, "s")).toBe("12.3 ms");
+  expect(formatQuantity(Number.NaN, "m")).toBe("—");
+});

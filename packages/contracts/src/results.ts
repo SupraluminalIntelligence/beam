@@ -208,3 +208,27 @@ export function compareQuantities(before: Pick<ResultsManifest, "quantities">, a
   }
   return { matched, onlyBefore: [...old.values()], onlyAfter };
 }
+
+const PREFIXES: [string, number][] = [["G", 1e9], ["M", 1e6], ["k", 1e3], ["", 1], ["m", 1e-3], ["µ", 1e-6], ["n", 1e-9]];
+/** SI prefixes that read naturally for each base unit (km is fine, kK is not). */
+const PREFIXABLE: Record<string, string[]> = {
+  m: ["k", "", "m", "µ", "n"], Pa: ["G", "M", "k", ""], N: ["M", "k", "", "m"], W: ["G", "M", "k", "", "m"], J: ["G", "M", "k", "", "m"],
+  s: ["", "m", "µ"], Hz: ["G", "M", "k", ""], V: ["k", "", "m"], A: ["k", "", "m", "µ"],
+};
+/** A number with its unit, as a person reads it: 4 significant digits, SI prefixes where they read naturally. */
+export function formatQuantity(value: number, unit: string, digits = 4): string {
+  if (!Number.isFinite(value)) return "—";
+  const plain = (v: number) => {
+    const a = Math.abs(v);
+    if (Number.isInteger(v) && a < 1e6) return v.toLocaleString("en-US");
+    if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(digits - 1).replace(/\.?0+e/, "e").replace("e+", "e");
+    return String(Number(v.toPrecision(digits)));
+  };
+  const allowed = PREFIXABLE[unit];
+  if (allowed && value !== 0) {
+    const a = Math.abs(value);
+    const pick = PREFIXES.filter(([p]) => allowed.includes(p)).find(([, f]) => a >= f) ?? PREFIXES.filter(([p]) => allowed.includes(p)).at(-1)!;
+    return `${plain(value / pick[1])} ${pick[0]}${unit}`;
+  }
+  return unit && unit !== "1" ? `${plain(value)} ${unit}` : plain(value);
+}

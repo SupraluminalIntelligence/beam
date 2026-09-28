@@ -1,3 +1,4 @@
+import { SimulationView } from "../simulation/Simulations";
 import { lazy, Suspense, Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { emptyPanel, ui, useUi } from "../lib/ui";
@@ -20,7 +21,7 @@ const tools = [
 ];
 const MIN_TOOL_WIDTH = 340;
 const MIN_CHAT_WIDTH = 480;
-const label = (id: string) => tools.find(t=>t.id===id)?.label ?? (id.startsWith("job:") ? `Job · ${id.slice(-6)}` : "Tool");
+const label = (id: string) => tools.find(t=>t.id===id)?.label ?? (id.startsWith("job:") ? `Job · ${id.slice(-6)}` : id.startsWith("sim:") ? "Simulation" : "Tool");
 
 /** Shared presentation shell. Durable resources and executions are owned outside it. */
 export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: string }) {
@@ -68,7 +69,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     <div className="workspace-content">
       {panel.active === null && <div className="workspace-launcher"><span className="workspace-eyebrow">TOOLS</span><h2>Open a tool</h2><p>Keep your work beside the conversation.</p>{["General","Engineering"].map(group=><section key={group}><h3>{group}</h3>{tools.filter(t=>t.group===group).map(t=><button key={t.id} disabled={t.upcoming} onClick={()=>activate(t.id)} title={t.upcoming ? `${t.label} integration is coming next` : t.detail}><span className="tool-icon">{t.icon}</span><span><b>{t.label}</b><small>{t.detail}</small></span><span className="tool-action">{t.upcoming?"Coming next":"↗"}</span></button>)}</section>)}</div>}
       {panel.tabs.map(id=><div key={id} className="workspace-surface" hidden={panel.active!==id}><ToolBoundary>
-        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id==="cfd" ? <Suspense fallback={<div className="workspace-empty">Loading Simulation…</div>}><SimulationPane key={chatId} chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : null}
+        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id==="cfd" ? <Suspense fallback={<div className="workspace-empty">Loading Simulation…</div>}><SimulationPane key={chatId} chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : id.startsWith("sim:") ? <SimulationView key={id} id={id.slice(4) as Id<"simulationCases">} chatId={chatId} /> : null}
       </ToolBoundary></div>)}
     </div>
   </aside>;
