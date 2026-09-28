@@ -22,7 +22,8 @@ A Supraluminal Intelligence desktop app where a team and their coding agents sha
 | `packages/reducer` | Pure fold of run events into a chat view. |
 | `packages/worlds` | `@beam/worlds`, the Beam Worlds SDK: live resources, events, actions and view models for interfaces built on Beam. |
 | `apps/cli` | `beam` CLI: connect an app, read and follow resources, act, or serve the API as JSON lines. |
-| `apps/gateway` | Compute gateway: the only holder of Beam's cloud credentials. Runs environment jobs on Modal Sandboxes. |
+| `apps/gateway` | Compute gateway: the only holder of Beam's cloud credentials. Claims cloud jobs from Convex and runs them on Modal Sandboxes within the workspace budget. |
+| `packages/compute` | The reconcile step shared by the runner and the gateway: launch a job once, inspect it, publish its results. |
 | `convex/` | Shared plane: schema, auth, queries, mutations. |
 
 ## Run

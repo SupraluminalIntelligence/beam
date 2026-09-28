@@ -64,9 +64,15 @@ importers:
 
   apps/gateway:
     dependencies:
+      '@beam/compute':
+        specifier: workspace:*
+        version: link:../../packages/compute
       '@beam/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      convex:
+        specifier: ^1.43.0
+        version: 1.45.0(react@19.2.8)
       modal:
         specifier: 0.10.1
         version: 0.10.1

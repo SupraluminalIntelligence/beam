@@ -312,7 +312,8 @@ it("releases what a finished cloud job did not spend, and records its provenance
   await call(report,ctx,{token:GATEWAY,id,state:"succeeded",log:"",error:null,exitCode:0});
   expect(job()).toMatchObject({state:"succeeded",billing:{spentCents:2,reserved:false}});
   expect(budget()).toMatchObject({reservedCents:0,spentCents:2});
-  expect((await call(get,ctx,{id})).provenance).toMatchObject({environment:cloudSpec.environment,command:cloudSpec.command,machine:"chat",backend:"modal-sandbox",exitCode:0,outputs:[{path:"beam/out/manifest.json",sha256:"hash",size:4}]});
+  const detail=await call(get,ctx,{id});expect(detail.runnerName).toBe("Chat machine · 4 cores");
+  expect(detail.provenance).toMatchObject({environment:cloudSpec.environment,command:cloudSpec.command,machine:"chat",backend:"modal-sandbox",exitCode:0,outputs:[{path:"beam/out/manifest.json",sha256:"hash",size:4}]});
 });
 it("reserves an approval-gated cloud job only when approved, and releases it on cancel",async()=>{
   const {ctx,tables,budget,job}=cloudFixture();tables.agents![0].permissionMode="ask";

@@ -244,7 +244,9 @@ async function detail(ctx: Ctx, job: Doc<"computeJobs">) {
     return asset ? { id, path: asset.path, size: asset.size, sha256: asset.sha256, url: await ctx.storage.getUrl(asset.storageId) } : null;
   }));
   const spec = JobSpec.parse(job.spec), published = outputs.filter(o => o !== null);
-  return { ...job, spec, runnerName: runner?.name ?? "Runner", runnerOnline: !!runner?.online && runner.lastSeen > Date.now() - 90_000, outputs: published, provenance: await provenance(ctx, job, spec, published) };
+  // A cloud job runs on its machine, not on the runner it was submitted from.
+  const cloud = spec.kind === "environment" && job.backend !== "local-process" ? MACHINES[spec.machine].label : null;
+  return { ...job, spec, runnerName: cloud ?? runner?.name ?? "Runner", runnerOnline: cloud ? true : !!runner?.online && runner.lastSeen > Date.now() - 90_000, outputs: published, provenance: await provenance(ctx, job, spec, published) };
 }
 /**
  * Where an environment job's results came from, from Beam's own records rather than anything the job

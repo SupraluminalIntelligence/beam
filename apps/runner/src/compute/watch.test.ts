@@ -91,3 +91,10 @@ it("fails an environment job whose manifest is invalid, naming the problem",asyn
   await s.run();
   expect(s.job.state).toBe("failed");expect(s.job.error).toContain("manifest.json is invalid");
 });
+it("frees the machine only once the job's outcome is recorded",async()=>{
+  const s=setup();const release=vi.fn(async()=>{});s.executor.release=release;
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({storageId:"blob"}))));
+  vi.mocked(s.executor.inspect).mockResolvedValueOnce({state:"running",log:""});s.job.state="running";
+  await s.run();expect(release).not.toHaveBeenCalled();
+  await s.run();expect(s.job.state).toBe("succeeded");expect(release).toHaveBeenCalledWith(s.job.handle);
+});
