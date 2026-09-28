@@ -114,6 +114,11 @@ export interface ComputeExecutor {
   cancel(handle: ExecutionHandle): Promise<void>;
   readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array>;
   /**
+   * The absolute path of an output on this computer, so a file too large to read into memory can be
+   * streamed from disk in parts. Optional: only an executor whose jobs write to a local disk has one.
+   */
+  localPath?(handle: ExecutionHandle, path: string): Promise<string>;
+  /**
    * Frees the machine once the job's outcome is recorded in Beam, resolving with when this call stopped it
    * (ms since the epoch), or undefined when it had already stopped. Optional: a local process has nothing to hold.
    */

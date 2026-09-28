@@ -50,7 +50,7 @@ Guest sign-in works with no setup, but **guests cannot own a runner**. To run ag
 
 Beam's org-owned **Beam (dev)** OAuth app is set up for `adorable-cuttlefish-524`.
 
-Optional variables production has and a dev deployment can do without: `OPENROUTER_API_KEY` (features that call OpenRouter), `DEMO_EMAIL` and `DEMO_PASSWORD` (the app-review demo account).
+Optional variables production has and a dev deployment can do without: `OPENROUTER_API_KEY` (features that call OpenRouter), `DEMO_EMAIL` and `DEMO_PASSWORD` (the app-review demo account), and `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` and optional `R2_ENDPOINT` (large job outputs; without them, files over 20 MB stay on the machine). To configure R2, see [Large outputs in R2](compute-and-tools.md#large-outputs-in-r2); give a dev deployment its own bucket or token rather than production's.
 
 ## Several checkouts
 

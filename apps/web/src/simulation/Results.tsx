@@ -4,12 +4,13 @@ import { formatQuantity, ResultsManifest, SeriesData, TableData, type ResultChec
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { Plot, type PlotLine } from "./Plot";
+import { formatBytes, OutputLink, type JobOutput } from "../components/OutputLink";
 import "./results.css";
 
 // three.js loads only when a job has a 3D field.
 const FieldView = lazy(() => import("./FieldView"));
 
-type Output = { path: string; size: number; url: string | null };
+type Output = JobOutput;
 const MAX_JSON = 2 * 1024 * 1024;
 const MARK: Record<ResultCheck["status"], string> = { pass: "✓", review: "!", fail: "✕", "not-evaluated": "–" };
 
@@ -17,8 +18,8 @@ const MARK: Record<ResultCheck["status"], string> = { pass: "✓", review: "!", 
 function useJson<T>(url: string | null | undefined, size: number, parse: (v: unknown) => T) {
   const [state, setState] = useState<{ data: T | null; error: string | null }>({ data: null, error: null });
   useEffect(() => {
-    if (!url) { setState({ data: null, error: "Not published" }); return; }
     if (size > MAX_JSON) { setState({ data: null, error: "Too large to show here; download it" }); return; }
+    if (!url) { setState({ data: null, error: "Not published" }); return; }
     const abort = new AbortController();
     fetch(url, { signal: abort.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(v => setState({ data: parse(v), error: null }), e => { if (!abort.signal.aborted) setState({ data: null, error: (e as Error).message }); });
@@ -106,11 +107,11 @@ export function ResultsView({ jobId }: { jobId: Id<"computeJobs"> }) {
     {m.quantities.length > 0 && <section className="results-block"><h4>Numbers</h4><Numbers quantities={m.quantities} /></section>}
     {plotGroups(m.series).map(g => <PlotGroup key={g.map(s => s.name).join()} series={g} outputs={outputs} />)}
     {m.tables.map(t => <Table key={t.name} label={t.label} output={outputs.find(o => o.path === `beam/out/${t.data}`)} />)}
-    {m.fields.map(f => { const view = m.views.find(v => v.field === f.name), full = outputs.find(o => o.path === `beam/out/${f.full}`); return <section key={f.name} className="results-block"><h4>{view?.name ?? f.label}{full?.url ? <a className="field-full" href={full.url} download={f.full.split("/").at(-1)}>Full data ({f.full.split(".").at(-1)})</a> : null}</h4>
-      <Suspense fallback={<p className="results-empty">Loading the 3D view…</p>}><FieldView field={f} view={view} outputs={outputs} kept={job.results?.unpublished.map(u => u.path) ?? []} /></Suspense>
+    {m.fields.map(f => { const view = m.views.find(v => v.field === f.name), full = outputs.find(o => o.path === `beam/out/${f.full}`); return <section key={f.name} className="results-block"><h4>{view?.name ?? f.label}{full && (full.url || full.storage === "r2") ? <OutputLink className="field-full" jobId={jobId} output={full}>Full data ({f.full.split(".").at(-1)}, {formatBytes(full.size)})</OutputLink> : null}</h4>
+      <Suspense fallback={<p className="results-empty">Loading the 3D view…</p>}><FieldView jobId={jobId} field={f} view={view} outputs={outputs} kept={job.results?.unpublished ?? []} /></Suspense>
     </section>; })}
     {(files.length > 0 || (job.results?.unpublished.length ?? 0) > 0) && <section className="results-block"><h4>Files</h4><ul className="results-files">
-      {files.map(o => <li key={o.path}><a href={o.url ?? undefined} target="_blank" rel="noreferrer" download={o.path.split("/").at(-1)}>{o.path.replace(/^beam\/out\//, "")}</a> <small>{formatQuantity(o.size, "1")} bytes</small></li>)}
+      {files.map(o => <li key={o.path}><OutputLink jobId={jobId} output={o}>{o.path.replace(/^beam\/out\//, "")}</OutputLink> <small>{formatBytes(o.size)}</small></li>)}
       {job.results?.unpublished.map(u => <li key={u.path} className="kept">{u.path.replace(/^beam\/out\//, "")} <small>{u.reason}</small></li>)}
     </ul></section>}
   </div>;
