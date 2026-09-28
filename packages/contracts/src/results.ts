@@ -81,8 +81,9 @@ export const StepKind = z.enum(["time", "iteration", "load-step", "frequency", "
 export const PREVIEW_LIMITS = { triangles: 500_000, steps: 120, bytes: 25 * 1024 * 1024 } as const;
 /**
  * The browser's copy of a field: a triangulated surface with per-vertex arrays, as little-endian
- * Float32 (positions, arrays) and Uint32 (indices) files. A stepped array stores `saved` frames,
- * frame-major, then vertex, then component.
+ * Float32 (positions, arrays) and Uint32 (indices) files, triangles wound outward. A stepped array
+ * stores `saved` frames, frame-major, then vertex, then component; `values` holds the saved frames'
+ * values, spread over the `total` the run wrote (older previews list every value and saved the first).
  */
 export const FieldPreview = z.object({
   version: z.literal(1),

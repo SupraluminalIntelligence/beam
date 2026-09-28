@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { formatQuantity, ResultsManifest, SeriesData, TableData, type ResultCheck, type ResultQuantity, type ResultSeries } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { Plot, type PlotLine } from "./Plot";
 import "./results.css";
+
+// three.js loads only when a job has a 3D field.
+const FieldView = lazy(() => import("./FieldView"));
 
 type Output = { path: string; size: number; url: string | null };
 const MAX_JSON = 2 * 1024 * 1024;
@@ -103,7 +106,9 @@ export function ResultsView({ jobId }: { jobId: Id<"computeJobs"> }) {
     {m.quantities.length > 0 && <section className="results-block"><h4>Numbers</h4><Numbers quantities={m.quantities} /></section>}
     {plotGroups(m.series).map(g => <PlotGroup key={g.map(s => s.name).join()} series={g} outputs={outputs} />)}
     {m.tables.map(t => <Table key={t.name} label={t.label} output={outputs.find(o => o.path === `beam/out/${t.data}`)} />)}
-    {m.fields.length > 0 && <section className="results-block"><h4>3D</h4><p className="results-empty">{m.fields.map(f => `${f.label} (${f.arrays.map(a => a.name).join(", ")})`).join(" · ")}. The 3D view is next; download the full data to open it in ParaView.</p></section>}
+    {m.fields.map(f => { const view = m.views.find(v => v.field === f.name), full = outputs.find(o => o.path === `beam/out/${f.full}`); return <section key={f.name} className="results-block"><h4>{view?.name ?? f.label}{full?.url ? <a className="field-full" href={full.url} download={f.full.split("/").at(-1)}>Full data ({f.full.split(".").at(-1)})</a> : null}</h4>
+      <Suspense fallback={<p className="results-empty">Loading the 3D view…</p>}><FieldView field={f} view={view} outputs={outputs} kept={job.results?.unpublished.map(u => u.path) ?? []} /></Suspense>
+    </section>; })}
     {(files.length > 0 || (job.results?.unpublished.length ?? 0) > 0) && <section className="results-block"><h4>Files</h4><ul className="results-files">
       {files.map(o => <li key={o.path}><a href={o.url ?? undefined} target="_blank" rel="noreferrer" download={o.path.split("/").at(-1)}>{o.path.replace(/^beam\/out\//, "")}</a> <small>{formatQuantity(o.size, "1")} bytes</small></li>)}
       {job.results?.unpublished.map(u => <li key={u.path} className="kept">{u.path.replace(/^beam\/out\//, "")} <small>{u.reason}</small></li>)}
