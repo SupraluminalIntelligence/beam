@@ -13,7 +13,7 @@ import time
 import modal
 
 IMAGE_REF = sys.argv[1] if len(sys.argv) > 1 and modal.is_local() else os.environ.get(
-    "BEAM_SPIKE_IMAGE", "ghcr.io/apekshik/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b")
+    "BEAM_SPIKE_IMAGE", "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b")
 app = modal.App("beam-spike-scaling")
 image = modal.Image.from_registry(IMAGE_REF).entrypoint([])
 

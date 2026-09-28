@@ -9,7 +9,7 @@
 - `environments/fea`: FEniCSx 0.11, PETSc 3.25 with MUMPS, MPICH 5, gmsh 4.15, pyvista 0.49 / VTK 9.7, on micromamba over Ubuntu 24.04. One solve of `base/environment.yml` + `fea/environment.yml`, frozen per architecture in `fea/lock/` (`./lock.sh fea` regenerates). 4.5 GB. Builds in 65–100 s on an M3 Pro; amd64 under emulation 137 s.
 - `environments/base/beam_out`: writes `beam/out/manifest.json` with numbers (units, references, uncertainty), checks, plots, tables and 3D fields (full VTU plus a surface preview as Float32/Uint32 buffers), rank 0 only.
 - `environments/fea/benchmarks/cantilever.py`: a clamped steel beam under a 1 kN tip load, three meshes, compared with Timoshenko beam theory, with a grid convergence index.
-- Published multi-arch: `ghcr.io/apekshik/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b` (public). The org copy `ghcr.io/supraluminalintelligence/beam-env-fea` is private until the org allows public packages.
+- Published multi-arch and public: `ghcr.io/supraluminalintelligence/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b`. The spike ran from an identical copy under `ghcr.io/apekshik/` while the org still disallowed public packages.
 
 ## Results
 
@@ -44,7 +44,7 @@ On Modal, adding processes beyond 8 made the 2M-unknown solve slower. Likely cau
 4. **UCX under gVisor.** MPICH's default UCX transport prints `UCX ERROR scandir(/sys/class/net)` on Modal. The image uses the `ofi` transport (`MPIR_CVAR_CH4_NETMOD=ofi`), which is also the fastest locally.
 5. **h5py** resolved to a non-MPI build beside MPI HDF5; dropped (VTU output does not need it).
 6. **Modal re-imports the job's module in the container**, so module-level `sys.argv` failed and the Function crash-looped. The gateway must not rely on module-level arguments.
-7. **GitHub org policy** blocks public packages; the public copy lives under the personal namespace for now.
+7. **GitHub org policy** blocked public packages. It now allows them, and the org image is public.
 
 ## What it changes in the design
 

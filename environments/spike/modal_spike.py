@@ -19,7 +19,7 @@ import modal
 
 # Modal re-imports this module inside the container, where there are no arguments: keep a default.
 IMAGE_REF = sys.argv[1] if len(sys.argv) > 1 and modal.is_local() else os.environ.get(
-    "BEAM_SPIKE_IMAGE", "ghcr.io/apekshik/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b")
+    "BEAM_SPIKE_IMAGE", "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b")
 image = modal.Image.from_registry(IMAGE_REF).entrypoint([])
 app = modal.App("beam-spike")
 report: dict = {"image": IMAGE_REF}
