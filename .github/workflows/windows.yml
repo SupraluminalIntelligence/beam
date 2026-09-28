@@ -1,0 +1,75 @@
+name: Windows desktop
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Stable version to finish publishing (empty means build only)
+        required: false
+        type: string
+      source_sha:
+        description: Exact merged commit used by the macOS release
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ inputs.release_version || github.ref }}
+  cancel-in-progress: false
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+      - name: Validate release source
+        if: inputs.release_version != ''
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          WORKFLOW_REF: ${{ github.ref }}
+        shell: pwsh
+        run: |
+          if ($env:WORKFLOW_REF -ne 'refs/heads/main') { throw 'Release workflow must run from main' }
+          if ($env:SOURCE_SHA -notmatch '^[0-9a-f]{40}$') { throw 'An exact source SHA is required' }
+          git merge-base --is-ancestor $env:SOURCE_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Release source must be merged into main' }
+          $version = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
+          if ($version -ne $env:RELEASE_VERSION) { throw 'Release version differs from checkout' }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec convex codegen --system-udfs --typecheck disable
+      - run: pnpm typecheck
+      - run: pnpm --filter @beam/desktop --filter @beam/harness test
+      - run: pnpm --filter @beam/web exec vitest run src/lib/providerSetup.test.ts
+      - run: pnpm --filter @beam/runner exec vitest run src/shutdown.test.ts
+      - run: node --test scripts/release-windows.test.mjs
+      - run: pnpm --filter @beam/desktop dist:win
+      - run: node scripts/smoke-windows.mjs
+      - name: Test an installed Windows upgrade
+        run: node scripts/test-windows-update.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beam-windows-x64
+          path: |
+            apps/desktop/release/*-setup.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
+            apps/desktop/release/windows-smoke.png
+      - name: Verify and publish the complete release
+        if: inputs.release_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.BEAM_RELEASE_TOKEN }}
+          BEAM_RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if (-not $env:GH_TOKEN) { throw 'Configure BEAM_RELEASE_TOKEN with Contents write access to beam-releases' }
+          node scripts/release-windows.mjs --publish

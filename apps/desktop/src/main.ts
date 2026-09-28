@@ -1,3 +1,4 @@
+import { openTerminal, psQuote } from "./terminal";
 import { showNotification } from "./notifications";
 import { app, BrowserWindow, dialog, ipcMain, shell, Notification, clipboard } from "electron";
 import { installPreviewHost } from "./preview";
@@ -14,6 +15,7 @@ import { basename, join } from "node:path";
  * so its pairing code comes to us on stdout and the signed-in renderer approves it without a click.
  */
 let runner: ChildProcess | null = null;
+if (process.platform === "win32") app.setAppUserModelId("ai.supraluminal.beam");
 
 /**
  * Development only: several checkouts can run side by side (see CONTRIBUTING.md, "Several checkouts at once").
@@ -48,8 +50,9 @@ function setupUpdates() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on("checking-for-update", () => setUpdate({ state: update.state === "none" ? "checking" : update.state, message: null }));
-  autoUpdater.on("update-available", (info) => setUpdate({ state: "available", version: info.version, percent: 0 }));
-  autoUpdater.on("update-not-available", () => setUpdate({ state: "none", version: null }));
+  const busy = () => ["downloading", "ready", "installing"].includes(update.state);
+  autoUpdater.on("update-available", (info) => { if (!busy()) setUpdate({ state: "available", version: info.version, percent: 0 }); });
+  autoUpdater.on("update-not-available", () => { if (!busy()) setUpdate({ state: "none", version: null }); });
   autoUpdater.on("download-progress", (p) => setUpdate({ state: "downloading", percent: Math.round(p.percent) }));
   autoUpdater.on("update-downloaded", (info) => setUpdate({ state: "ready", version: info.version, percent: 100 }));
   autoUpdater.on("error", updateFailed);
@@ -95,7 +98,8 @@ function startRunner() {
   const entry = packaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
   const child = runner = spawn(process.execPath, packaged ? [entry, "start", "--app"] : ["--experimental-strip-types", "--no-warnings", entry, "start", "--app"], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    windowsHide: true,
     cwd: packaged ? app.getPath("home") : join(__dirname, "..", "..", ".."),
   });
   const push = (s: string) => { runnerLog.push(s); if (runnerLog.length > 200) runnerLog.shift(); win?.webContents.send("beam:runnerLog", s); if (process.env["BEAM_DEV"]) console.log(`[runner] ${s}`); };
@@ -136,14 +140,17 @@ function stopRunner(): Promise<void> {
     const kill = setTimeout(() => { child.kill("SIGKILL"); }, RUNNER_GRACE_MS);
     child.once("exit", () => { clearTimeout(kill); resolve(); });
   });
-  child.kill("SIGTERM");
+  // Windows kill(SIGTERM) terminates immediately. IPC lets the runner land its work first.
+  if (child.connected) child.send({ type: "beam:shutdown" }, () => {});
+  else if (process.platform !== "win32") child.kill("SIGTERM");
   return runnerExit;
 }
 
 function createWindow() {
   win = new BrowserWindow({
     width: 1380, height: 860, minWidth: 900, minHeight: 600,
-    titleBarStyle: "hiddenInset", trafficLightPosition: { x: 14, y: 14 },
+    ...(process.platform === "win32" ? { icon: join(__dirname, "icon.png") } : {}),
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
     backgroundColor: "#0F1214",
     webPreferences: { preload: join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, webviewTag: true, backgroundThrottling: false },
   });
@@ -152,35 +159,33 @@ function createWindow() {
   win.webContents.on("did-fail-load", (_e, code, desc, url) => console.log(`[renderer] failed to load ${url}: ${code} ${desc}`));
   if (process.env["BEAM_DEV"]) void win.loadURL(`http://localhost:${devPort}`);
   else void win.loadFile(join(__dirname, "web", "index.html"));
-  win.on("close", (event) => { if (!quitting) { event.preventDefault(); win?.hide(); } });
+  win.on("close", (event) => {
+    if (!quitting) {
+      event.preventDefault();
+      if (process.platform === "darwin") win?.hide();
+      else app.quit();
+    }
+  });
   win.on("closed", () => { win = null; });
 }
 
-ipcMain.handle("beam:openTerminalWith", async (_e, command: string) => {
-  if (process.platform === "darwin") {
-    const script = `tell application "Terminal" to do script ${JSON.stringify(command)}\ntell application "Terminal" to activate`;
-    spawn("osascript", ["-e", script]);
-  } else {
-    await shell.openExternal("about:blank"); // TODO: win32/linux terminal handoff
-  }
+ipcMain.handle("beam:openTerminalWith", async (event, command: string) => {
+  if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
+  if (typeof command !== "string" || command.length > 8192) throw new Error("Invalid command");
+  await openTerminal(command);
 });
 
 ipcMain.handle("beam:signInConnection", async (event, value: { harness: string; id: string }) => {
   if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame) throw new Error("Invalid sender");
   if (!["codex", "claude"].includes(value?.harness) || !/^(default|[0-9a-f-]{36})$/.test(value.id)) throw new Error("Invalid profile");
   const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
-  const args = [process.execPath, ...(app.isPackaged ? [] : ["--experimental-strip-types", "--no-warnings"]), entry, "connection-login", JSON.stringify(value)];
+  // Separate validated values survive Windows PowerShell's legacy native argument quoting.
+  const args = [process.execPath, ...(app.isPackaged ? [] : ["--experimental-strip-types", "--no-warnings"]), entry, "connection-login", value.harness, value.id];
   const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
-  let terminal: ChildProcess;
-  if (process.platform === "win32") {
-    const psQuote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
-    terminal = spawn("powershell.exe", ["-NoExit", "-Command", `$env:ELECTRON_RUN_AS_NODE='1'; & ${args.map(psQuote).join(" ")}`], { detached: true, stdio: "ignore" });
-  } else {
-    const command = `ELECTRON_RUN_AS_NODE=1 ${args.map(quote).join(" ")}`;
-    if (process.platform === "darwin") terminal = spawn("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(command)}\ntell application "Terminal" to activate`]);
-    else terminal = spawn("x-terminal-emulator", ["-e", "sh", "-c", command], { detached: true, stdio: "ignore" });
-  }
-  await new Promise<void>((resolve, reject) => { terminal.once("error", () => reject(new Error("Could not open a terminal for provider sign-in."))); terminal.once("spawn", () => { terminal.unref(); resolve(); }); });
+  const command = process.platform === "win32"
+    ? `$env:ELECTRON_RUN_AS_NODE='1'; & ${args.map(psQuote).join(" ")}`
+    : `ELECTRON_RUN_AS_NODE=1 ${args.map(quote).join(" ")}`;
+  await openTerminal(command);
 });
 
 const previewChildren = new Set<ChildProcess>();
@@ -251,7 +256,7 @@ ipcMain.handle("beam:update:install", () => {
     // Squirrel closes windows BEFORE app.before-quit. Allow that close instead of
     // hiding the window and cancelling the update.
     quitting = true;
-    try { autoUpdater.quitAndInstall(false, true); }
+    try { autoUpdater.quitAndInstall(process.platform === "win32", true); }
     catch (error) { updateFailed(error instanceof Error ? error : new Error(String(error))); }
   }));
 });

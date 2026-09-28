@@ -3,7 +3,7 @@ import { ConvexClient } from "convex/browser";
 import { hostname } from "node:os";
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import { adapters, which, profileEnv, hydratePathFromLoginShell } from "@beam/harness";
+import { adapters, which, profileEnv, hydratePathFromLoginShell, cliInvocation } from "@beam/harness";
 import { api } from "../../../convex/_generated/api.js";
 import { machineName, readConfig } from "./config.ts";
 import { probeProfiles, manageProfiles, profileFor } from "./profiles.ts";
@@ -71,11 +71,13 @@ if (cmd === "share-resource") {
 }
 
 if (cmd === "connection-login") {
-  const { harness, id } = z.object({ harness: z.enum(["codex", "claude"]), id: z.string() }).parse(JSON.parse(argv[1] ?? "null"));
+  const { harness, id } = z.object({ harness: z.enum(["codex", "claude"]), id: z.string() }).parse(
+    argv[2] ? { harness: argv[1], id: argv[2] } : JSON.parse(argv[1] ?? "null"));
   await hydratePathFromLoginShell();
   const bin = await which(harness); if (!bin) throw new Error(`Install ${harness} first`);
   const profile = await profileFor(harness, id);
-  const child = spawn(bin, harness === "codex" ? ["login"] : ["auth", "login"], { env: profileEnv(harness, profile), stdio: "inherit" });
+  const command = cliInvocation(bin, harness === "codex" ? ["login"] : ["auth", "login"], profileEnv(harness, profile));
+  const child = spawn(command.bin, command.args, { env: command.env, stdio: "inherit" });
   child.on("exit", code => process.exit(code ?? 1));
   child.on("error", () => process.exit(1));
 }
@@ -90,6 +92,14 @@ if (cmd === "login") { await login({ ...(opt("--name") ? { name: opt("--name")! 
 if (cmd === "logout") { const { rm } = await import("node:fs/promises"); const { beamHome } = await import("./config.ts"); await rm(`${beamHome()}/runner.json`, { force: true }); console.log("logged out"); process.exit(0); }
 
 if (cmd === "start") {
+  // Install before pairing/probing: quitting an unpaired desktop must also stop its runner.
+  let stopFromDesktop: () => void = () => { process.exit(0); };
+  if (flag("--app") && process.send) {
+    process.on("message", message => {
+      if (message && typeof message === "object" && "type" in message && message.type === "beam:shutdown") stopFromDesktop();
+    });
+    process.on("disconnect", () => stopFromDesktop());
+  }
   let cfg = await readConfig();
   if (!cfg) { await login({ ...(opt("--name") ? { name: opt("--name")! } : {}), fromApp: flag("--app") }); cfg = (await readConfig())!; }
   const client = new ConvexClient(cfg.convexUrl);
@@ -130,5 +140,6 @@ if (cmd === "start") {
     bye: () => { clearInterval(heartbeat); clearInterval(reprobing); return client.mutation(api.runners.bye, { token, runnerId }); },
     exit: (code) => process.exit(code),
   });
+  stopFromDesktop = () => { void shutdown(); };
   process.on("SIGINT", () => void shutdown()); process.on("SIGTERM", () => void shutdown());
 }

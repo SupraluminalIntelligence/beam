@@ -96,7 +96,7 @@ export function LocalAccounts({ profiles, setProfiles, onChange }: { profiles: P
         const configDir = await b?.pickFolder(); if (!configDir) return;
         setBusy(true); try { await done(await b!.connections!({ action: "add", harness: profileHarness, name: profileName, configDir })); toast("Profile connected. Sign in with the provider CLI using this profile directory if needed."); } catch (e) { toast((e as Error).message); } finally { setBusy(false); }
       }}>Use profile folder…</button><button className="btn ghost" disabled={busy} onClick={() => setAdding(false)}>Cancel</button></div>
-      <div className="row connection-note"><span className="hint">Sign in opens Terminal with the provider’s login. Credentials stay on this machine.</span></div>
+      <div className="row connection-note"><span className="hint">Sign in opens {b?.platform === "win32" ? "PowerShell" : "Terminal"} with the provider’s login. Credentials stay on this machine.</span></div>
     </>}
   </section>;
 }
