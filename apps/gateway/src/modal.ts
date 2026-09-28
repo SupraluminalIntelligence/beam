@@ -90,7 +90,7 @@ export class ModalExecutor implements ComputeExecutor {
         BEAM_COMMAND: spec.command, BEAM_TIMEOUT: String(spec.timeoutSeconds), BEAM_CORES: String(shape.cores),
         BEAM_IMAGE: spec.environment.image, BEAM_JOB_DIR: JOB_DIR, BEAM_WORK: WORK, BEAM_LAUNCH_WINDOW: String(LAUNCH_WINDOW_SECONDS),
       },
-      cpu: shape.cpu, memoryMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
+      cpu: shape.cpu, cpuLimit: shape.cpu, memoryMiB: shape.memoryMiB, memoryLimitMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
       timeoutMs: lifetime * 1000,
       tags: { beamJob: jobId, environment: spec.environment.name, machine: spec.machine },
     });
@@ -136,6 +136,7 @@ export class ModalExecutor implements ComputeExecutor {
     return failed(`The command exited with code ${code}.`, log, Number.isFinite(code) ? code : null);
   }
 
+  /** Returns once Modal confirms the sandbox has stopped, so a cancelled job is known to have stopped spending. */
   async cancel(handle: ExecutionHandle) { await (await this.sandbox(handle))?.terminate(); }
 
   async readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array> {

@@ -30,7 +30,7 @@ class FakeSandbox implements SandboxPort {
   async size(path: string) { return (await this.readBytes(path)).length; }
   async writeBytes(data: Uint8Array, path: string) { this.alive(); this.files.set(path, data); }
   async makeDirectory(path: string) { this.alive(); this.dirs.add(path); }
-  async terminate() { this.terminated = true; this.stopped ??= 143; }
+  async terminate() { this.terminated = true; this.stopped ??= 143; return this.stopped; }
   finish(code: number, log = "") { this.files.set(`${JOB_DIR}/log`, enc(log)); this.files.set(`${JOB_DIR}/exit`, enc(String(code))); }
   private alive() { if (this.stopped !== null) throw new Error("sandbox has stopped"); }
 }
@@ -78,7 +78,7 @@ describe("ModalExecutor", () => {
     const handle = await executor.submit("job1", job({ inputs: [{ assetId: "a1", path: "case/mesh.msh" }] }), [input("case/mesh.msh", "https://store/mesh", mesh)]);
     const sandbox = modal.byName.get(sandboxName("job1"))!;
     expect(handle).toEqual({ backend: "modal-sandbox", id: sandbox.id });
-    expect(sandbox.spec).toMatchObject({ image: IMAGE, cpu: 4, memoryMiB: 16384, timeoutMs: (600 + 600 + 3600) * 1000 });
+    expect(sandbox.spec).toMatchObject({ image: IMAGE, cpu: 4, cpuLimit: 4, memoryMiB: 16384, memoryLimitMiB: 16384, timeoutMs: (600 + 600 + 3600) * 1000 });
     expect(sandbox.spec.env).toMatchObject({ BEAM_COMMAND: "python /beam/benchmarks/cantilever.py", BEAM_CORES: "4", BEAM_TIMEOUT: "600" });
     expect(dec(sandbox.files.get(`${WORK}/case/mesh.msh`)!)).toBe("mesh bytes");
     expect(sandbox.dirs).toContain(`${WORK}/case`);
@@ -173,6 +173,14 @@ describe("ModalExecutor", () => {
     await expect(executor.readOutput(handle, "../etc/passwd")).rejects.toThrow();
     sandbox.files.set(`${WORK}/big.vtu`, new Uint8Array(20 * 1024 * 1024 + 1));
     await expect(executor.readOutput(handle, "big.vtu")).rejects.toThrow(/20 MB or less/);
+  });
+
+  it("cancel returns only once the sandbox has stopped", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    const handle = await executor.submit("job1", job(), []);
+    await executor.cancel(handle);
+    expect(modal.byName.get(sandboxName("job1"))!.terminated).toBe(true);
+    expect(await executor.inspect(handle)).toMatchObject({ state: "failed" });
   });
 
   it("releases the sandbox once results are collected", async () => {

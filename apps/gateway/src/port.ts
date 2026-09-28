@@ -15,7 +15,8 @@ export interface SandboxPort {
   size(path: string): Promise<number>;
   writeBytes(data: Uint8Array, path: string): Promise<void>;
   makeDirectory(path: string): Promise<void>;
-  terminate(): Promise<void>;
+  /** Resolves once Modal reports the sandbox stopped, with its exit code. */
+  terminate(): Promise<number>;
 }
 
 export interface SandboxSpec {
@@ -23,8 +24,11 @@ export interface SandboxSpec {
   image: string;
   command: string[];
   env: Record<string, string>;
+  /** Requests and hard limits are both set: Modal bills the higher of requested and used. */
   cpu: number;
+  cpuLimit: number;
   memoryMiB: number;
+  memoryLimitMiB: number;
   gpu?: string;
   timeoutMs: number;
   tags: Record<string, string>;
@@ -63,7 +67,7 @@ function wrap(sandbox: Sandbox): SandboxPort {
     size: path => file(path, async () => (await sandbox.filesystem.stat(path)).size),
     writeBytes: (data, path) => sandbox.filesystem.writeBytes(data, path),
     makeDirectory: path => sandbox.filesystem.makeDirectory(path, { createParents: true }),
-    terminate: () => sandbox.terminate(),
+    terminate: () => sandbox.terminate({ wait: true }),
   };
 }
 
@@ -80,7 +84,7 @@ export function modalPort(appName = "beam-compute", client = new ModalClient()):
       try {
         const sandbox = await client.sandboxes.create(await theApp(), client.images.fromRegistry(spec.image), {
           name: spec.name, command: spec.command, env: spec.env, tags: spec.tags,
-          cpu: spec.cpu, memoryMiB: spec.memoryMiB, ...(spec.gpu ? { gpu: spec.gpu } : {}),
+          cpu: spec.cpu, cpuLimit: spec.cpuLimit, memoryMiB: spec.memoryMiB, memoryLimitMiB: spec.memoryLimitMiB, ...(spec.gpu ? { gpu: spec.gpu } : {}),
           timeoutMs: spec.timeoutMs, blockNetwork: true,
         });
         return { sandbox: wrap(sandbox), created: true };
