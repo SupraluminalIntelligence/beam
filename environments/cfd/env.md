@@ -10,7 +10,7 @@ OpenFOAM's commands are on the PATH in login shells (`bash -l`), which is how ma
 
 ## Writing results
 
-Import `from beam_out import out, gci` in Python after the solve. Parse what you need from the time directories (use `writeFormat ascii`) or function-object output, then record numbers with units (`out.quantity`), checks (`out.check`), plots (`out.series`) and tables (`out.table`), and call `out.write()`. Results go to `beam/out/`.
+Import `from beam_out import out, gci` in Python after the solve. Parse what you need from the time directories (use `writeFormat ascii`) or function-object output, then record numbers with units (`out.quantity`), checks (`out.check`), plots (`out.series`) and tables (`out.table`), and call `out.write()`. Results go to `$BEAM_WORK/beam/out/`, and Beam reads only `$BEAM_WORK/beam/out/manifest.json`. A simulation version's parameters are in `$BEAM_WORK/beam/parameters.json`; read them with `beam_out.parameters()` (`{}` outside a simulation job, so keep defaults). `$BEAM_WORK` is `/work`, the job root: `beam/` is always there, even when your command changes directory first, so use `beam_out` or absolute paths for it, not paths relative to the current directory.
 
 Every result needs checks: residuals or steady state, continuity errors, mesh sensitivity on at least three meshes (`gci`), and comparison with a correlation, a textbook value or a measurement where one exists. Say which assumptions (laminar, incompressible, isothermal, 2-D) were not checked.
 

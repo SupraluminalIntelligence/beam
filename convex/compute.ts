@@ -11,17 +11,19 @@ import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPat
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
-const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: s.kind === "process" ? s.simulation ?? null : null, environment: s.kind === "environment" ? s.environment.name : null }; };
+export const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: s.kind === "process" ? s.simulation ?? null : null, environment: s.kind === "environment" ? s.environment.name : null, simulationVersion: s.kind === "environment" ? s.simulation ?? null : null }; };
+/** Studies were the first simulations. Installed apps and runners understand only recipe simulations, so the study functions return only those. */
+export const isRecipe = (s: Doc<"simulationCases">) => (s.kind ?? "recipe") === "recipe";
 /** An environment job publishes at most this many files from beam/out. */
 const MAX_RESULT_FILES = 128;
 
-async function chatAccess(ctx: Ctx, chatId: Id<"chats">, login: string) {
+export async function chatAccess(ctx: Ctx, chatId: Id<"chats">, login: string) {
   const chat = await ctx.db.get(chatId);
   const members = chat && await ctx.db.query("members").withIndex("by_workspace", q => q.eq("workspaceId", chat.workspaceId)).collect();
   if (!chat || chat.state === "deleted" || !members?.some(m => m.githubLogin === login) || (chat.private && !chat.members.includes(login))) throw new Error("Chat access revoked");
   return chat;
 }
-async function runAccess(ctx: Ctx, token: string, runId: Id<"runs">) {
+export async function runAccess(ctx: Ctx, token: string, runId: Id<"runs">) {
   const result = await ownRun(ctx, token, runId);
   await chatAccess(ctx, result.run.chatId, result.run.dispatchedBy);
   return result;
@@ -41,7 +43,7 @@ async function targetAccess(ctx: Ctx, chatId: Id<"chats">, runnerId: Id<"runners
   return runner;
 }
 
-async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId: Id<"runners">; requestedBy: string; sourceRunId?: Id<"runs">; requestKey: string; spec: unknown; needsApproval: boolean }) {
+export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId: Id<"runners">; requestedBy: string; sourceRunId?: Id<"runs">; requestKey: string; spec: unknown; needsApproval: boolean }) {
   const spec = JobSpec.parse(input.spec);
   if (spec.kind === "environment" && spec.machine !== "local") throw new Error(`The ${spec.machine} machine is not available yet; submit this job to "local"`);
   if (!input.requestKey.trim() || input.requestKey.length > 160) throw new Error("Invalid request key");
@@ -85,6 +87,7 @@ async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId:
     createdAt: now, updatedAt: now, log: "", error: null, outputs: [],
   });
   if(spec.kind==="process"&&spec.simulation) await ensureStudyCard(ctx,spec.simulation.caseId as Id<"simulationCases">,input.requestedBy);
+  else if(spec.kind==="environment"&&spec.simulation) { /* The simulation's card shows its jobs. */ }
   else await ctx.db.insert("messages", { chatId: input.chatId, author: input.requestedBy, kind: "text", text: `Compute job: ${spec.title}`, runId: input.sourceRunId ?? null, computeJobId: id, reactions: [] });
   await ctx.db.patch(input.chatId, { lastMessageAt: now });
   return id;
@@ -95,7 +98,7 @@ export const submit = mutation({ args: { chatId: v.id("chats"), runnerId: v.id("
   return enqueue(ctx, { ...a, requestedBy: u.githubLogin!, needsApproval: false });
 } });
 export const simulationCases = query({args:{chatId:v.id("chats")},handler:async(ctx,{chatId})=>{
-  await requireChat(ctx,chatId);return ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",chatId)).collect();
+  await requireChat(ctx,chatId);return (await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",chatId)).collect()).filter(isRecipe);
 }});
 /** One durable chat card per study. Existing cases acquire a card when first opened. */
 async function ensureStudyCard(ctx:MutationCtx,id:Id<"simulationCases">,login:string,sourceRunId?:Id<"runs">){
@@ -114,7 +117,7 @@ async function saveCase(ctx:MutationCtx,chatId:Id<"chats">,login:string,a:{id?:I
   if(!name||name.length>100)throw new Error("Use a study name of 1–100 characters");
   if(a.id){
     const prior=await ctx.db.get(a.id);
-    if(!prior||prior.chatId!==chatId)throw new Error("Study unavailable");
+    if(!prior||prior.chatId!==chatId||!isRecipe(prior))throw new Error("Study unavailable");
     if(prior.revision!==a.revision)throw new Error("Another edit changed this study. Reload before saving.");
     await ensureStudyCard(ctx,a.id,login,sourceRunId);await rememberRevision(ctx,prior);
     if(prior.name===name&&JSON.stringify(SimulationCase.parse(prior.config))===JSON.stringify(config))return{id:a.id,revision:prior.revision};
@@ -122,7 +125,8 @@ async function saveCase(ctx:MutationCtx,chatId:Id<"chats">,login:string,a:{id?:I
     await ctx.db.patch(a.id,{name,config,revision,updatedBy:login,updatedAt});
     await rememberRevision(ctx,{...prior,name,config,revision,updatedAt,updatedBy:login});return{id:a.id,revision};
   }
-  const id=await ctx.db.insert("simulationCases",{chatId,name,config,revision:1,updatedBy:login,updatedAt:Date.now()});
+  const chat=await ctx.db.get(chatId);
+  const id=await ctx.db.insert("simulationCases",{chatId,name,config,revision:1,updatedBy:login,updatedAt:Date.now(),kind:"recipe",...(chat?{workspaceId:chat.workspaceId}:{})});
   await rememberRevision(ctx,(await ctx.db.get(id))!);await ensureStudyCard(ctx,id,login,sourceRunId);
   await ctx.db.patch(chatId,{activeStudyId:id});if(sourceRunId)await ctx.db.patch(sourceRunId,{studyId:id});
   return{id,revision:1};
@@ -139,15 +143,15 @@ async function selectStudy(ctx:MutationCtx,chatId:Id<"chats">,id:Id<"simulationC
   if(id)await ensureStudyCard(ctx,id,login,sourceRunId);
 }
 export const selectSimulation=mutation({args:{chatId:v.id("chats"),caseId:v.union(v.id("simulationCases"),v.null())},handler:async(ctx,a)=>{const {u}=await requireChat(ctx,a.chatId);await selectStudy(ctx,a.chatId,a.caseId,u.githubLogin!);}});
-export const studyContext=query({args:{chatId:v.id("chats")},handler:async(ctx,a)=>{const {chat}=await requireChat(ctx,a.chatId);return{activeStudyId:chat.activeStudyId??null,studies:await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",a.chatId)).collect()};}});
+export const studyContext=query({args:{chatId:v.id("chats")},handler:async(ctx,a)=>{const {chat}=await requireChat(ctx,a.chatId);return{activeStudyId:chat.activeStudyId??null,studies:(await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",a.chatId)).collect()).filter(isRecipe)};}});
 export const workspaceStudies=query({args:{chatId:v.id("chats")},handler:async(ctx,a)=>{
  const {chat,u}=await requireChat(ctx,a.chatId);
  const chats=await ctx.db.query("chats").withIndex("by_workspace",q=>q.eq("workspaceId",chat.workspaceId)).collect();
  const accessible=chats.filter(c=>c.state!=="deleted"&&(!c.private||c.members.includes(u.githubLogin!)));
- return(await Promise.all(accessible.map(async c=>(await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",c._id)).collect()).map(s=>({id:s._id,name:s.name,revision:s.revision,chatId:c._id,chatTitle:c.title,workspaceId:c.workspaceId}))))).flat();
+ return(await Promise.all(accessible.map(async c=>(await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",c._id)).collect()).filter(isRecipe).map(s=>({id:s._id,name:s.name,revision:s.revision,chatId:c._id,chatTitle:c.title,workspaceId:c.workspaceId}))))).flat();
 }});
 export const study=query({args:{id:v.id("simulationCases")},handler:async(ctx,a)=>{
- const study=await ctx.db.get(a.id);if(!study)return null;await requireChat(ctx,study.chatId);
+ const study=await ctx.db.get(a.id);if(!study||!isRecipe(study))return null;await requireChat(ctx,study.chatId);
  const jobs=(await ctx.db.query("computeJobs").withIndex("by_chat",q=>q.eq("chatId",study.chatId)).order("desc").collect()).map(summary).filter(j=>j.simulation?.caseId===a.id);
  const revisions=await ctx.db.query("simulationRevisions").withIndex("by_study_revision",q=>q.eq("studyId",a.id)).collect();
  return{...study,jobs,revisions:revisions.map(({revision,name,createdAt,createdBy})=>({revision,name,createdAt,createdBy}))};
@@ -168,7 +172,7 @@ export const saveSimulation=mutation({args:{chatId:v.id("chats"),...saveCaseArgs
 export const submitSimulation=mutation({args:{chatId:v.id("chats"),runnerId:v.id("runners"),...simulationArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);return enqueueSimulation(ctx,a.chatId,a.runnerId,u.githubLogin!,a,false);}});
 export const simulationForRun=readableQuery({args:{token:v.string(),runId:v.id("runs"),messageId:v.optional(v.id("messages"))},handler:async(ctx,a)=>{
  const {run}=await runAccess(ctx,a.token,a.runId);const runner=await ctx.db.get(run.runnerId),chat=await ctx.db.get(run.chatId);
- const cases=await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",run.chatId)).collect();
+ const cases=(await ctx.db.query("simulationCases").withIndex("by_chat",q=>q.eq("chatId",run.chatId)).collect()).filter(isRecipe);
  const activeStudyId=run.studyId===undefined?chat?.activeStudyId??null:run.studyId;
  const jobs=(await ctx.db.query("computeJobs").withIndex("by_chat",q=>q.eq("chatId",run.chatId)).order("desc").collect()).map(summary).filter(j=>j.simulation);
  const dispatch=await ctx.db.get(a.messageId??run.dispatchMessageId);if(a.messageId&&dispatch?.chatId!==run.chatId)throw new Error("Message unavailable in this chat");

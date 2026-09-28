@@ -12,7 +12,7 @@ vi.mock("react-native", () => ({
   Text: ({ children }) => <span>{children}</span>,
   Pressable: ({ children, accessibilityLabel, disabled }) => <button aria-label={accessibilityLabel} disabled={disabled}>{children}</button>,
   Image: ({ source, accessibilityLabel }) => <img src={source.uri} alt={accessibilityLabel} />,
-  StyleSheet: { hairlineWidth: 1 }, Platform: { OS: "web" }, Linking: { openURL: vi.fn() },
+  StyleSheet: { hairlineWidth: 1, create: (s) => s }, Platform: { OS: "web" }, Linking: { openURL: vi.fn() },
 }));
 vi.mock("convex/react", () => ({ useQuery: vi.fn(), useMutation: () => vi.fn() }));
 vi.mock("expo-router", () => ({ router: { push: vi.fn(), back: vi.fn() } }));

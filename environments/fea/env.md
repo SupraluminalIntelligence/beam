@@ -10,7 +10,7 @@ Python is `/opt/conda/bin/python`. Run in parallel with `mpirun -n $BEAM_CORES p
 
 ## Writing results
 
-Import `from beam_out import out, gci`. Record numbers with units (`out.quantity`), checks (`out.check`), plots (`out.series`), tables (`out.table`) and 3D fields on tetrahedral meshes (`out.field`), then call `out.write()`. Only MPI rank 0 writes. Results go to `beam/out/` under the working directory; Beam reads `beam/out/manifest.json`.
+Import `from beam_out import out, gci`. Record numbers with units (`out.quantity`), checks (`out.check`), plots (`out.series`), tables (`out.table`) and 3D fields on tetrahedral meshes (`out.field`), then call `out.write()`. Only MPI rank 0 writes. Results go to `$BEAM_WORK/beam/out/`, and Beam reads only `$BEAM_WORK/beam/out/manifest.json`. A simulation version's parameters are in `$BEAM_WORK/beam/parameters.json`; read them with `beam_out.parameters()` (`{}` outside a simulation job, so keep defaults). `$BEAM_WORK` is `/work`, the job root: `beam/` is always there, even when your command changes directory first, so use `beam_out` or absolute paths for it, not paths relative to the current directory.
 
 Every number needs a unit. Every result an engineer might trust needs a check that says why, or says it was not evaluated.
 

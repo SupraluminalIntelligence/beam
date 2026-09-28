@@ -11,6 +11,7 @@ import { AgentMark, Avatar, Sq, T } from "../ui";
 import { landingOf, STEP_LABEL, stepText, type Run } from "./model";
 import { Rich } from "./Rich";
 import { MessageFiles } from "./Files";
+import { SimulationCard } from "./Simulation";
 
 const tap = () => { if (Platform.OS !== "web") void Haptics.selectionAsync(); };
 
@@ -30,7 +31,7 @@ export function Frame({ avatar, name, at, cont, children }: { avatar: React.Reac
   );
 }
 
-type Msg = { _id: Id<"messages">; author: string; text: string; reactions: { emoji: string; by: string[] }[]; attachments?: Id<"files">[] };
+type Msg = { _id: Id<"messages">; author: string; text: string; reactions: { emoji: string; by: string[] }[]; attachments?: Id<"files">[]; simulationId?: Id<"simulationCases"> };
 
 /** Reaction chips under a message. Tap toggles yours. */
 export function Reactions({ m, me }: { m: Msg; me: string }) {
@@ -69,7 +70,7 @@ function Holdable({ onHold, lifted, children }: { onHold: (a: Anchor) => void; l
 export function PersonBody({ m, at, cont, name, image, me, known }: { m: Msg; at: number; cont: boolean; name: string; image: string | null; me: string; known: Set<string> }) {
   return (
     <Frame avatar={<Avatar login={m.author} name={name} image={image} size={26} />} name={name} at={at} cont={cont}>
-      {m.text ? <Rich text={m.text} known={known} /> : null}
+      {m.simulationId ? <SimulationCard id={m.simulationId} me={me} /> : m.text ? <Rich text={m.text} known={known} /> : null}
       <MessageFiles ids={m.attachments} />
       <Reactions m={m} me={me} />
     </Frame>
@@ -79,7 +80,7 @@ export function PersonBody({ m, at, cont, name, image, me, known }: { m: Msg; at
 export function AgentBody({ m, harness, name, at, cont, known, me }: { m: Msg; harness: string; name: string; at: number; cont: boolean; known: Set<string>; me: string }) {
   return (
     <Frame avatar={<AgentMark harness={harness} size={26} />} name={name} at={at} cont={cont}>
-      <Rich text={m.text} known={known} />
+      {m.simulationId ? <SimulationCard id={m.simulationId} me={me} /> : <Rich text={m.text} known={known} />}
       <MessageFiles ids={m.attachments} />
       <Reactions m={m} me={me} />
     </Frame>

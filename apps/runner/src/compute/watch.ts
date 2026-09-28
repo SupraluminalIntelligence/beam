@@ -31,7 +31,11 @@ export function watchCompute(client: ConvexClient, token: string, executor: Comp
         job.state = "preparing";
       }
       await reconcileJob(client, token, executor, job);
-    } catch (e) { console.error("compute reconciliation", (e as Error).message); }
+    } catch (e) {
+      // fetch reports only "fetch failed"; the reason (a reset socket, a timeout) is its cause.
+      const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+      console.error("compute reconciliation", (e as Error).message, cause ? `(${cause.code ?? cause.message})` : "");
+    }
     finally { working = false; }
   };
   const timer = setInterval(() => void reconcile(), 2000);
