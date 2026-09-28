@@ -1,3 +1,4 @@
+import { SimulationTabLabel, SimulationView } from "../simulation/Simulations";
 import { lazy, Suspense, Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { emptyPanel, ui, useUi } from "../lib/ui";
@@ -20,7 +21,7 @@ const tools = [
 ];
 const MIN_TOOL_WIDTH = 340;
 const MIN_CHAT_WIDTH = 480;
-const label = (id: string) => tools.find(t=>t.id===id)?.label ?? (id.startsWith("job:") ? `Job · ${id.slice(-6)}` : "Tool");
+const label = (id: string) => tools.find(t=>t.id===id)?.label ?? (id.startsWith("job:") ? `Job · ${id.slice(-6)}` : id.startsWith("sim:") ? "Simulation" : "Tool");
 
 /** Shared presentation shell. Durable resources and executions are owned outside it. */
 export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: string }) {
@@ -60,7 +61,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
       resizeCleanup.current=end;
       window.addEventListener("pointermove",move);window.addEventListener("pointerup",end);window.addEventListener("pointercancel",end);
     }} />}
-    <div className="workspace-bar"><div className="workspace-tabs" role="tablist" aria-label="Open tools">{panel.tabs.map(id=><div key={id} className={`workspace-tab${panel.active===id?" selected":""}`}><button role="tab" aria-selected={panel.active===id} onClick={()=>ui.panel(chatId,{active:id})}>{label(id)}</button><button aria-label={`Close ${label(id)}`} onClick={()=>ui.closeSurface(chatId,id)}>×</button></div>)}</div><button title="Open a tool" aria-label="Open a tool" onClick={()=>ui.panel(chatId,{active:null})}>＋</button><button className="workspace-expand" title={panel.maximized ? "Restore split view (Esc)" : "Expand tool to full workspace"} aria-label={panel.maximized ? "Restore split view" : "Expand tool to full workspace"} aria-pressed={panel.maximized} onClick={()=>ui.panel(chatId,{maximized:!panel.maximized})}>
+    <div className="workspace-bar"><div className="workspace-tabs" role="tablist" aria-label="Open tools">{panel.tabs.map(id=><div key={id} className={`workspace-tab${panel.active===id?" selected":""}`}><button role="tab" aria-selected={panel.active===id} onClick={()=>ui.panel(chatId,{active:id})}>{id.startsWith("sim:") ? <SimulationTabLabel id={id.slice(4) as Id<"simulationCases">} /> : label(id)}</button><button aria-label={`Close ${label(id)}`} onClick={()=>ui.closeSurface(chatId,id)}>×</button></div>)}</div><button title="Open a tool" aria-label="Open a tool" onClick={()=>ui.panel(chatId,{active:null})}>＋</button><button className="workspace-expand" title={panel.maximized ? "Restore split view (Esc)" : "Expand tool to full workspace"} aria-label={panel.maximized ? "Restore split view" : "Expand tool to full workspace"} aria-pressed={panel.maximized} onClick={()=>ui.panel(chatId,{maximized:!panel.maximized})}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {panel.maximized ? <path d="M21 3l-7 7m0-6v6h6M3 21l7-7m-6 0h6v6" /> : <path d="M14 3h7v7m0-7-7 7M10 21H3v-7m0 7 7-7" />}
       </svg>
@@ -68,7 +69,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     <div className="workspace-content">
       {panel.active === null && <div className="workspace-launcher"><span className="workspace-eyebrow">TOOLS</span><h2>Open a tool</h2><p>Keep your work beside the conversation.</p>{["General","Engineering"].map(group=><section key={group}><h3>{group}</h3>{tools.filter(t=>t.group===group).map(t=><button key={t.id} disabled={t.upcoming} onClick={()=>activate(t.id)} title={t.upcoming ? `${t.label} integration is coming next` : t.detail}><span className="tool-icon">{t.icon}</span><span><b>{t.label}</b><small>{t.detail}</small></span><span className="tool-action">{t.upcoming?"Coming next":"↗"}</span></button>)}</section>)}</div>}
       {panel.tabs.map(id=><div key={id} className="workspace-surface" hidden={panel.active!==id}><ToolBoundary>
-        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id==="cfd" ? <Suspense fallback={<div className="workspace-empty">Loading Simulation…</div>}><SimulationPane key={chatId} chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : null}
+        {id==="browser" ? <BrowserPane chatId={chatId} /> : id==="files" ? <ContextPane chatId={chatId} /> : id==="compute" ? <ComputeJobs chatId={chatId} /> : id==="cad" ? <Suspense fallback={<div className="workspace-empty">Loading CAD Viewer…</div>}><CadPane chatId={chatId} /></Suspense> : id==="cfd" ? <Suspense fallback={<div className="workspace-empty">Loading Simulation…</div>}><SimulationPane key={chatId} chatId={chatId} /></Suspense> : id.startsWith("job:") ? <ComputeJob id={id.slice(4) as Id<"computeJobs">} chatId={chatId} login={login} /> : id.startsWith("sim:") ? <SimulationView key={id} id={id.slice(4) as Id<"simulationCases">} chatId={chatId} login={login} /> : null}
       </ToolBoundary></div>)}
     </div>
   </aside>;

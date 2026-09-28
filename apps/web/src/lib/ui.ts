@@ -1,6 +1,6 @@
 import { cadFormat, type CadReference } from "../cad/model";
 import { useSyncExternalStore } from "react";
-export interface PanelState { fitChat?: boolean; studyDraft?: boolean; simulationSelection?: {studyId:string;stage:"setup"|"mesh"|"runs"|"results";jobId?:string;key:number}; cadReference?: CadReference | null; open: boolean; tabs: string[]; active: string | null; width: number; maximized: boolean; selectedFile?: string | null; selectedSource?: string | null; contextScope?: "chat" | "workspace"; browserUrl?: string; browserHome?: boolean; browserHistory?: {url:string;at:number}[] }
+export interface PanelState { fitChat?: boolean; studyDraft?: boolean; simulationView?: {id:string;tab:"setup"|"jobs"|"results"|"compare";jobId?:string;key:number}; simulationSelection?: {studyId:string;stage:"setup"|"mesh"|"runs"|"results";jobId?:string;key:number}; cadReference?: CadReference | null; open: boolean; tabs: string[]; active: string | null; width: number; maximized: boolean; selectedFile?: string | null; selectedSource?: string | null; contextScope?: "chat" | "workspace"; browserUrl?: string; browserHome?: boolean; browserHistory?: {url:string;at:number}[] }
 export const emptyPanel: PanelState = { open: false, tabs: [], active: null, width: 520, maximized: false };
 
 /** Per-person UI state: which workspace, which tabs, which chat. Never shared. */
