@@ -70,7 +70,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     },
     {
       name: "sweep",
-      description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. Unavailable in plan mode.",
+      description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. On the local machine the jobs run one after another, not side by side; parallelise inside each with $BEAM_CORES MPI processes. Unavailable in plan mode.",
       schema: { id: z.string(), version: z.number().int().positive(), parameter: z.string(), values: z.array(z.union([z.number().finite(), z.string(), z.boolean()])).min(1).max(32), machine: MachineId.default("local"), requestKey: z.string().min(1).max(120) },
       run: async a => {
         writable();

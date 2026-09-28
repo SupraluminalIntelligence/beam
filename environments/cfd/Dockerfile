@@ -28,11 +28,15 @@ RUN mkdir -p /work && chmod 1777 /work \
  && micromamba list -p /opt/conda --json > /beam/packages.json
 
 # OpenFOAM's own environment loads in login shells (/etc/profile.d/openfoam-99run.sh); jobs run bash -lc.
+# Docker Desktop runs containers as root, and Open MPI refuses root unless told otherwise; the container,
+# not the user inside it, is the boundary.
 ENV PATH=/opt/conda/bin:$PATH \
     PYTHONPATH=/opt/beam/python \
     PYVISTA_OFF_SCREEN=true \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \
+    OMPI_ALLOW_RUN_AS_ROOT=1 \
+    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
     BEAM_ENVIRONMENT=cfd
 WORKDIR /work
 ENTRYPOINT []
