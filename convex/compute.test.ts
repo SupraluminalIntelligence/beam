@@ -113,6 +113,23 @@ it("versions case edits, blocks conflicts and binds jobs to matching saved meshe
   tables.chats![0].members=[];
   await expect(call(saveSimulation,ctx,{chatId:"chat",name:"Hidden",config:defaultChannel})).rejects.toThrow();
 });
+it("runs studies in the cfd environment on a runner that has it, with the mesh from the mesh job's results",async()=>{
+  const {ctx,tables}=fixture(),cfd="ghcr.io/supraluminalintelligence/beam-env-cfd@sha256:"+"c".repeat(64);
+  tables.runners![0].openfoam={ready:true,image:cfd,message:"OpenFOAM 2512 · cfd environment"};tables.runs![0].state="landed";
+  const saved=await call(saveSimulation,ctx,{chatId:"chat",name:"Channel",config:defaultChannel});
+  const args={chatId:"chat",runnerId:"runner",caseId:saved.id,revision:1,stage:"mesh",requestKey:"mesh"};
+  const mesh=await call(submitSimulation,ctx,args),meshJob=await ctx.db.get(mesh);
+  expect(meshJob.spec).toMatchObject({kind:"environment",environment:{name:"cfd",image:cfd},command:"beam-recipe",inputs:[],recipe:{caseId:saved.id,revision:1,stage:"mesh"}});
+  meshJob.state="succeeded";meshJob.outputs=["recipe-mesh"];
+  tables.computeAssets!.push({_id:"recipe-mesh",chatId:"chat",path:"beam/out/recipe/mesh.json",size:500,jobId:mesh});
+  const solve=await ctx.db.get(await call(submitSimulation,ctx,{...args,stage:"solve",meshJobId:mesh,requestKey:"solve"}));
+  expect(solve.spec).toMatchObject({kind:"environment",inputs:[{assetId:"recipe-mesh",path:"mesh-input.json"}],recipe:{stage:"solve",meshJobId:mesh}});
+  // Studies list their jobs whichever way they ran.
+  expect((await call(study,ctx,{id:saved.id})).jobs.map((j:any)=>[j.simulation.stage,j.environment])).toEqual([["solve","cfd"],["mesh","cfd"]]);
+  // A runner whose cfd image changed since it reported is refused, as a changed OpenFOAM image is.
+  tables.runners![0].openfoam.image=OPENFOAM_IMAGE;
+  await expect(call(submit,ctx,{chatId:"chat",runnerId:"runner",requestKey:"stale",spec:{...meshJob.spec}})).rejects.toThrow("different OpenFOAM runtime");
+});
 it("simulation tools enforce agent permissions and use the same case and job records",async()=>{
   const {ctx,tables}=fixture();tables.runners![0].openfoam={ready:true,image:OPENFOAM_IMAGE,message:"ready"};
   tables.agents![0].permissionMode="plan";

@@ -1,5 +1,6 @@
-# cfd: OpenFOAM comes from OpenCFD's image (see Dockerfile). This adds nothing beyond the shared
-# Python base; add Python-side CFD packages here. Solved together with ../base/environment.yml.
+# cfd: OpenFOAM comes from OpenCFD's image (see Dockerfile). This adds Node, which runs Beam's study
+# recipes (cfd/recipes, bundled as /beam/recipes/beam-recipe.mjs). Solved together with ../base/environment.yml.
 channels:
   - conda-forge
-dependencies: []
+dependencies:
+  - nodejs=22

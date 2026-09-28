@@ -11,7 +11,7 @@ import { login } from "./login.ts";
 import { contributeResource, watchResources } from "./resources.ts";
 import { watchRuns } from "./runs.ts";
 import { onShutdown } from "./shutdown.ts";
-import { probeOpenFoam, runOpenFoam } from "./compute/openfoam.ts";
+import { probeOpenFoam, runOpenFoam } from "./compute/legacyFoam.ts";
 import { watchCompute } from "./compute/watch.ts";
 
 /**

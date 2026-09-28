@@ -59,6 +59,11 @@ export const meshAssetPath = (config?:SimulationCase) => config?.geometry==="dom
 export const simulationMeshInputs = (config:SimulationCase) => config.geometry==="domain3d" ? modelInputs(config) : [];
 export const meshInputPath = (config?:SimulationCase) => config?.geometry==="domain3d" ? "mesh-input.tar.gz" : "mesh-input.json";
 export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => config?.geometry==="domain3d" ? (stage==="mesh" ? ["report.json","mesh.tar.gz","mesh-view.json"] : ["report.json","fields.json","frames.bin","case.tar.gz"]) : stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel" && config.geometry!=="parallel-channels"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
+/** Where a study run in the cfd environment puts the files simulationOutputs lists, under the job's results. */
+export const RECIPE_OUTPUTS = "beam/out/recipe";
+/** A study job's output by its name: at the top level for older jobs, under RECIPE_OUTPUTS for environment jobs. */
+export const studyOutput = <T extends { path: string }>(outputs: readonly T[], name: string): T | undefined =>
+  outputs.find(o => o.path === name) ?? outputs.find(o => o.path === `${RECIPE_OUTPUTS}/${name}`);
 /** Heated-channel results a thermal engineer reads: flow-weighted outlet temperature, discrete energy balance, developed f·Re and local Nu(x) on 2H. */
 export const ChannelResults = z.object({bulkOutletTemperatureK:z.number().finite(),maxWallTemperatureK:z.number().finite().optional(),energyImbalance:z.number().finite().nullable(),fRe:z.number().finite().nullable(),nusselt:z.array(z.tuple([z.number().finite(),z.number().finite()])).max(160)});
 export type ChannelResults = z.infer<typeof ChannelResults>;

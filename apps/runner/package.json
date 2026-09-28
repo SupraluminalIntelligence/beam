@@ -13,11 +13,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@beam/cfd-recipes": "workspace:*",
     "@beam/compute": "workspace:*",
     "@beam/contracts": "workspace:*",
     "@beam/git": "workspace:*",
     "@beam/harness": "workspace:*",
-    "cdt2d": "1.0.0",
     "convex": "^1.43.0",
     "zod": "^3.25.76"
   }

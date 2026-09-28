@@ -1,3 +1,4 @@
+/// <reference path="./cdt2d.d.ts" />
 import triangulate from "cdt2d";
 import { PlanarCase, posedBody, pitchPoint, bodyLoop, bodyMeshSize, refinementSize, inside, segmentDistance, signedArea, type Point2 } from "@beam/contracts";
 const header=(object:string,klass="dictionary")=>`FoamFile { version 2.0; format ascii; class ${klass}; object ${object}; }\n`;

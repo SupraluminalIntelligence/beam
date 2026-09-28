@@ -1,0 +1,22 @@
+{
+  "name": "@beam/cfd-recipes",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": { "beam-recipe": "./src/cli.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/beam-recipe.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\""
+  },
+  "dependencies": {
+    "@beam/contracts": "workspace:*",
+    "cdt2d": "1.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
