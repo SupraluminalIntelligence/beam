@@ -59,6 +59,11 @@ export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"c
   const [tab, setTab] = useState<Tab>((selection?.id === id ? selection.tab : null) ?? "setup");
   const [jobId, setJobId] = useState<string | null>(selection?.id === id ? selection.jobId ?? null : null);
   useEffect(() => { if (selection?.id === id) { setTab(selection.tab); if (selection.jobId) setJobId(selection.jobId); } }, [selection?.key]);
+  // Remembered in the panel, so switching to another tool and back keeps the page where it was.
+  const show = (t: Tab, j: string | null = jobId) => {
+    setTab(t); setJobId(j);
+    ui.panel(chatId, { simulationView: { id, tab: t, ...(j ? { jobId: j } : {}), key: selection?.id === id ? selection.key : 0 } });
+  };
   if (sim === undefined) return <div className="workspace-scroll">Loading simulation…</div>;
   if (!sim) return <div className="workspace-scroll">Simulation unavailable.</div>;
   if (sim.kind === "recipe") return <div className="workspace-scroll"><div className="workspace-section-heading"><div><span className="workspace-eyebrow">SIMULATION · OPENFOAM RECIPE</span><h2>{sim.name}</h2><p>v{sim.version} · set up, mesh and run in the Simulation pane.</p></div></div>
@@ -67,9 +72,9 @@ export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"c
   return <div className="workspace-scroll sim-view">
     <div className="workspace-section-heading"><div><span className="workspace-eyebrow">SIMULATION</span><h2>{sim.name}</h2>
       <p>v{sim.version} · {sim.versions.at(-1)?.setup?.environment.name} environment · {sim.jobs.length} job{sim.jobs.length === 1 ? "" : "s"} · updated by {sim.updatedBy}</p></div></div>
-    <div className="sim-tabs" role="tablist">{(["setup", "jobs", "results", "compare"] as Tab[]).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
-    {tab === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => { setJobId(j); setTab("jobs"); }} />}
-    {tab === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => { setJobId(j); setTab("results"); }} />}
+    <div className="sim-tabs" role="tablist">{(["setup", "jobs", "results", "compare"] as Tab[]).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
+    {tab === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />}
+    {tab === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => show("results", j)} />}
     {tab === "results" && (shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></> : <p className="results-empty">No results yet. Run a version from Setup.</p>)}
     {tab === "compare" && <Compare sim={sim} />}
   </div>;

@@ -28,7 +28,8 @@
 .results-files small{color:var(--ink-3);margin-left:6px}
 .results-files .kept{color:var(--ink-2)}
 .results-plot{margin:4px 0 0}
-.results-plot svg{width:100%;height:auto;display:block}
+.results-plot>svg{width:100%;height:auto;display:block}
+.results-plot figcaption svg{flex:none}
 .results-plot text{font:10px var(--font-mono);fill:var(--ink-3)}
 .results-plot .axis-label{fill:var(--ink-2)}
 .results-plot .grid{stroke:var(--line);stroke-width:1}
@@ -38,8 +39,8 @@
 .results-plot .mark{fill:var(--surface);stroke-width:1.3}
 .results-plot .hover{fill:none;stroke:var(--live);stroke-width:1.5}
 .results-plot figcaption{display:flex;flex-wrap:wrap;gap:4px 14px;font:11px var(--font-mono);color:var(--ink-2);padding:4px 0 0}
-.results-plot .legend{display:inline-flex;align-items:center;gap:6px}
-.results-plot .readout{margin-left:auto;color:var(--ink-3)}
+.results-plot .legend{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0}
+.results-plot .readout{margin-left:auto;color:var(--ink-3);flex:none}
 
 .sim-card-results{display:flex;flex-direction:column;gap:2px;margin:8px 0 2px}
 .sim-card-q{display:flex;justify-content:space-between;gap:12px;font:11.5px/1.6 var(--font-mono);border-bottom:1px solid var(--line);padding:2px 0}

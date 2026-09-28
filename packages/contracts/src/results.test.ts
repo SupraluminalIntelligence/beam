@@ -68,6 +68,11 @@ it("compares versions by name and unit, never converting units", () => {
 it("formats numbers with SI prefixes where they read naturally", async () => {
   const { formatQuantity } = await import("./results");
   expect(formatQuantity(1.905790435e-4, "m")).toBe("190.6 µm");
+  const { siScale } = await import("./results");
+  expect(siScale([2.38e-4, 4.76e-4, 9.53e-4], "m")).toEqual({ unit: "µm", factor: 1e6 });
+  expect(siScale([3.75e7, 1.5e8], "Pa")).toEqual({ unit: "MPa", factor: 1e-6 });
+  expect(siScale([250, 1000], "N")).toEqual({ unit: "kN", factor: 1e-3 });
+  expect(siScale([1.2, 3], "N/m")).toEqual({ unit: "N/m", factor: 1 });
   expect(formatQuantity(0.00042, "m")).toBe("420 µm");
   expect(formatQuantity(3001609, "Pa")).toBe("3.002 MPa");
   expect(formatQuantity(165e6, "Pa")).toBe("165 MPa");

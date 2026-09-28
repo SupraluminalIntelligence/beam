@@ -216,6 +216,14 @@ const PREFIXABLE: Record<string, string[]> = {
   s: ["", "m", "µ"], Hz: ["G", "M", "k", ""], V: ["k", "", "m"], A: ["k", "", "m", "µ"],
 };
 /** A number with its unit, as a person reads it: 4 significant digits, SI prefixes where they read naturally. */
+/** The prefixed unit an axis of these values reads best in (µm for 2.4e-4 … 9.5e-4 m), and the factor that converts to it. */
+export function siScale(values: number[], unit: string): { unit: string; factor: number } {
+  const allowed = PREFIXABLE[unit], a = Math.max(0, ...values.filter(Number.isFinite).map(Math.abs));
+  if (!allowed || a === 0) return { unit, factor: 1 };
+  const options = PREFIXES.filter(([p]) => allowed.includes(p)), pick = options.find(([, f]) => a >= f) ?? options.at(-1)!;
+  return { unit: `${pick[0]}${unit}`, factor: 1 / pick[1] };
+}
+
 export function formatQuantity(value: number, unit: string, digits = 4): string {
   if (!Number.isFinite(value)) return "—";
   const plain = (v: number) => {
