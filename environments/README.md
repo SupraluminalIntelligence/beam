@@ -1,6 +1,13 @@
 # Environments
 
-What gets installed on a machine: pinned OCI images of open-source tools, each with a guide and benchmarks. Design: [compute plane](../docs/decisions/2026-09-27-compute-plane.md). First measurements: [spike/REPORT.md](spike/REPORT.md).
+What gets installed on a machine: pinned OCI images of open-source tools, each with a guide and benchmarks.
+
+| Environment | Tools | Benchmark |
+| --- | --- | --- |
+| `fea` | FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista | Cantilever against Timoshenko beam theory |
+| `cfd` | OpenFOAM 2512 (OpenCFD's image), pyvista | Lid-driven cavity at Re 100 against Ghia, Ghia & Shin (1982) |
+
+Design: [compute plane](../docs/decisions/2026-09-27-compute-plane.md). First measurements: [spike/REPORT.md](spike/REPORT.md).
 
 | Path | What |
 | --- | --- |

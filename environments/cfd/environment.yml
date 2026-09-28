@@ -1,0 +1,5 @@
+# cfd: OpenFOAM comes from OpenCFD's image (see Dockerfile). This adds nothing beyond the shared
+# Python base; add Python-side CFD packages here. Solved together with ../base/environment.yml.
+channels:
+  - conda-forge
+dependencies: []
