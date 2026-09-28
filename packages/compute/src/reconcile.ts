@@ -1,5 +1,5 @@
 import type { ConvexClient } from "convex/browser";
-import { collectResults, ExecutorUnavailable, jobFinished, JobSpec, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
+import { cloudMachineSeconds, collectResults, ExecutorUnavailable, jobFinished, JobSpec, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
 import { api } from "../../../convex/_generated/api.js";
 import type { Doc, Id } from "../../../convex/_generated/dataModel.js";
 
@@ -22,7 +22,11 @@ export async function reconcileJob(client: ConvexClient, token: string, executor
   if (!ended || !executor.release) return;
   // Beam settles the job's spend only once the machine is confirmed stopped; a failed release is
   // retried on the next pass, and the machine's own lifetime limit bounds it if every retry fails.
-  const stoppedAt = handle ? await executor.release(handle) : undefined;
+  let stoppedAt: number | undefined;
+  if (handle) {
+    await client.mutation(api.compute.releasing, { token, id: job._id });
+    stoppedAt = await executor.release(handle);
+  }
   await client.mutation(api.compute.released, { token, id: job._id, ...(stoppedAt ? { stoppedAt } : {}) });
 }
 
@@ -54,11 +58,16 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
     }
     // A launch the executor refuses outright (an image it cannot start, an invalid spec) ends the job;
     // an unanswered one is recovered on the next pass.
-    // A metered machine is charged from this launch, not from when the report reaches Convex.
-    const launchedAt = Date.now();
+    if (executor.release) {
+      // A cloud launch is recorded before the machine exists. One that could have run to the end of its
+      // life while the gateway was away has left no machine to recover, and is not launched again.
+      if (job.launchedAt && Date.now() - job.launchedAt > cloudMachineSeconds(spec.timeoutSeconds) * 1000)
+        return end("failed", job.log, "The cloud machine for this job stopped before Beam heard from it. It may have run; it was not run again.");
+      await client.mutation(api.compute.launching, { token, id });
+    }
     try { handle = await executor.submit(id, spec, inputs); }
     catch (e) { return end("failed", job.log, known(e)); }
-    await client.mutation(api.compute.report, { token, id, state: "running", handle, log: job.log, error: null, ...(executor.release ? { launchedAt } : {}) });
+    await client.mutation(api.compute.report, { token, id, state: "running", handle, log: job.log, error: null });
   }
   const launched = handle;
   if (job.cancelRequestedAt) await executor.cancel(launched);

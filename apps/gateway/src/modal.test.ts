@@ -243,13 +243,12 @@ describe("ModalExecutor", () => {
     expect(await executor.inspect(refused)).toMatchObject({ state: "failed", error: "Input download failed: 404" });
   });
 
-  it("reports the same stop time for a release that is retried", async () => {
+  it("says when a release stopped the machine, and nothing when it had already stopped", async () => {
     const modal = new FakeModal(), executor = new ModalExecutor(modal);
     const handle = await executor.submit("job1", job(), []);
-    const first = await executor.release(handle);
+    expect(await executor.release(handle)).toBeTypeOf("number");
     const terminate = vi.spyOn(modal.byName.get(sandboxName("job1"))!, "terminate");
-    await new Promise(r => setTimeout(r, 5));
-    expect(await executor.release(handle)).toBe(first);
+    expect(await executor.release(handle)).toBeUndefined();
     expect(terminate).not.toHaveBeenCalled();
   });
 

@@ -94,7 +94,7 @@ it("fails an environment job whose manifest is invalid, naming the problem",asyn
 it("frees a cloud machine once the job's outcome is recorded, and settles only after the release succeeds",async()=>{
   const s=setup();const release=vi.fn(async()=>1234);s.executor.release=release;
   let settled=0;const mutate=s.client.mutation.getMockImplementation()!;
-  s.client.mutation.mockImplementation(async(ref:never,args:Record<string,unknown>)=>{if(getFunctionName(ref)==="compute:released"){expect(args["stoppedAt"]).toBe(1234);settled++;return;}return mutate(ref,args);});
+  s.client.mutation.mockImplementation(async(ref:never,args:Record<string,unknown>)=>{const name=getFunctionName(ref);if(name==="compute:releasing")return;if(name==="compute:released"){expect(args["stoppedAt"]).toBe(1234);settled++;return;}return mutate(ref,args);});
   vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({storageId:"blob"}))));
   vi.mocked(s.executor.inspect).mockResolvedValueOnce({state:"running",log:""});s.job.state="running";
   await s.run();expect(release).not.toHaveBeenCalled();expect(settled).toBe(0);

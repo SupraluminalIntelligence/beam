@@ -335,7 +335,7 @@ export const resumeSimulationExport = readableMutation({ args: {token:v.string()
   return true;
 } });
 
-export const report = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), state: v.union(v.literal("running"), v.literal("publishing"), v.literal("succeeded"), v.literal("failed"), v.literal("cancelled")), log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())), handle: v.optional(v.object({ backend: v.string(), id: v.string() })), launchedAt: v.optional(v.number()) }, handler: async (ctx, a) => {
+export const report = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), state: v.union(v.literal("running"), v.literal("publishing"), v.literal("succeeded"), v.literal("failed"), v.literal("cancelled")), log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())), handle: v.optional(v.object({ backend: v.string(), id: v.string() })) }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   if (jobFinished(job.state)) return;
   if (!executing.includes(job.state)) throw new Error("Job has not been claimed");
@@ -351,12 +351,11 @@ export const report = readableMutation({ args: { token: v.string(), id: v.id("co
   let billing = job.billing, error = a.error?.slice(0, 2000) ?? null, cancelRequestedAt = job.cancelRequestedAt;
   const machine = !!(job.handle ?? a.handle), finished = jobFinished(state);
   if (billing) {
-    // Metering runs from when the machine was launched: the gateway's launch time with its first handle,
-    // never before the claim. A machine the gateway recovered after a restart reports no launch time; it
-    // is metered from the start of the launch window it must have been staged within, or the claim if later.
+    // Metering runs from the launch the gateway recorded before creating the machine, never before the
+    // claim; without one, from the start of the launch window the machine must have been staged within.
     // A job that reaches what approval authorized is stopped on the gateway's next pass; a finished one
     // settles once its machine is released.
-    const claimed = job.startedAt ?? now, launchedAt = a.launchedAt ?? now - CLOUD_LAUNCH_WINDOW_SECONDS * 1000;
+    const claimed = job.startedAt ?? now, launchedAt = job.launchedAt ?? now - CLOUD_LAUNCH_WINDOW_SECONDS * 1000;
     if (!billing.meteredFrom && a.handle) billing = { ...billing, meteredFrom: Math.min(now, Math.max(claimed, launchedAt)) };
     billing = finished && !machine ? await settle(ctx, { ...job, billing }, now) : { ...billing, spentCents: metered(billing, now) };
     if (billing && billing.spentCents >= billing.authorizedCents && (state === "cancelled" || !finished)) {
@@ -366,13 +365,31 @@ export const report = readableMutation({ args: { token: v.string(), id: v.id("co
   }
   await ctx.db.patch(job._id, { state, log: a.log.slice(-16000), error, updatedAt: now, ...(a.handle ? { handle: a.handle } : {}), ...(a.exitCode !== undefined ? { exitCode: a.exitCode } : {}), ...(jobFinished(state) ? { endedAt: now } : {}), ...(billing ? { billing } : {}), ...(cancelRequestedAt ? { cancelRequestedAt } : {}), ...(billing && finished && machine ? { awaitingRelease: true } : {}) });
 } });
+/**
+ * The gateway is about to create a cloud job's machine. Recorded first, so metering starts here and a
+ * machine that ran and expired while the gateway was away is never launched a second time.
+ */
+export const launching = readableMutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+  const { job, runner } = await workerAccess(ctx, a.token, a.id);
+  if (runner) throw new Error("Only the gateway launches cloud machines");
+  if (jobFinished(job.state) || job.handle) throw new Error("Job is not waiting for a machine");
+  await ctx.db.patch(job._id, { launchedAt: Date.now() });
+} });
+/** The gateway is about to stop a finished job's machine. If it cannot say when the machine stopped, spend settles here. */
+export const releasing = readableMutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+  const { job, runner } = await workerAccess(ctx, a.token, a.id);
+  if (runner) throw new Error("Only the gateway releases cloud machines");
+  if (!jobFinished(job.state)) throw new Error("Job has not finished");
+  if (!job.releasingAt) await ctx.db.patch(job._id, { releasingAt: Date.now() });
+} });
 /** The gateway confirmed a finished cloud job's machine has stopped: its metered spend settles now. */
 export const released = readableMutation({ args: { token: v.string(), id: v.id("computeJobs"), stoppedAt: v.optional(v.number()) }, handler: async (ctx, a) => {
   const { job, runner } = await workerAccess(ctx, a.token, a.id);
   if (runner) throw new Error("Only the gateway releases cloud machines");
   if (!jobFinished(job.state)) throw new Error("Job has not finished");
-  // Settled at the confirmed stop, so a retried release after a Convex outage charges nothing extra.
-  const now = Date.now(), stoppedAt = Math.min(now, Math.max(job.billing?.meteredFrom ?? 0, a.stoppedAt ?? now));
+  // Settled at the confirmed stop, or when the release began if the machine had already stopped, so a
+  // release retried after an outage charges nothing for the outage.
+  const now = Date.now(), stoppedAt = Math.min(now, Math.max(job.billing?.meteredFrom ?? 0, a.stoppedAt ?? job.releasingAt ?? now));
   const billing = await settle(ctx, job, stoppedAt);
   await ctx.db.patch(job._id, { awaitingRelease: undefined, updatedAt: now, ...(billing ? { billing } : {}) });
 } });

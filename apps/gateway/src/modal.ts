@@ -73,8 +73,6 @@ async function readTextOrNull(sandbox: SandboxPort, path: string) {
 export class ModalExecutor implements ComputeExecutor {
   readonly backend = "modal-sandbox";
   private readonly cancelled = new Set<string>();
-  /** When each released sandbox was confirmed stopped, so a retried release reports the same time. */
-  private readonly stopped = new Map<string, number>();
   // No parameter properties: the gateway runs under Node's type stripping.
   private readonly modal: ModalPort;
   constructor(modal: ModalPort) { this.modal = modal; }
@@ -204,11 +202,10 @@ export class ModalExecutor implements ComputeExecutor {
 
   /** Stops the sandbox once its outputs are published. Until then it holds the results. */
   async release(handle: ExecutionHandle) {
-    const known = this.stopped.get(handle.id);
-    if (known) return known;
-    await this.cancel(handle);
-    const at = Date.now();
-    this.stopped.set(handle.id, at);
-    return at;
+    const sandbox = await this.sandbox(handle);
+    // Already stopped (an earlier release, or the end of its life): when is not known here.
+    if (!sandbox || await sandbox.poll() !== null) return undefined;
+    await sandbox.terminate();
+    return Date.now();
   }
 }

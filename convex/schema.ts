@@ -156,6 +156,9 @@ export default defineSchema({
     billing: v.optional(v.object({ centsPerHour: v.number(), authorizedCents: v.number(), spentCents: v.number(), reserved: v.boolean(), meteredFrom: v.optional(v.number()) })),
     /** A finished cloud job whose machine the gateway has not yet confirmed stopped. Its spend settles then. */
     awaitingRelease: v.optional(v.boolean()),
+    /** Cloud jobs: when the gateway last began launching a machine, and first began releasing it, recorded before each call to the provider. */
+    launchedAt: v.optional(v.number()),
+    releasingAt: v.optional(v.number()),
   }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]).index("by_backend_release", ["backend", "awaitingRelease"]),
   /** A workspace's cloud compute allowance. Reservations hold each approved job's authorized amount until it settles. */
   computeBudgets: defineTable({ workspaceId: v.id("workspaces"), allowanceCents: v.number(), reservedCents: v.number(), spentCents: v.number(), updatedAt: v.number(), updatedBy: v.string() }).index("by_workspace", ["workspaceId"]),

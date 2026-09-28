@@ -11,7 +11,7 @@ const spec: EnvironmentJobSpec = {
   version: 1, kind: "environment", title: "Cantilever", environment: { name: "fea", image: `ghcr.io/supraluminalintelligence/beam-env-fea@sha256:${"a".repeat(64)}` },
   command: "python run.py", inputs: [], machine: "chat", timeoutSeconds: 600,
 };
-type Job = { _id: string; state: string; backend: string; spec: EnvironmentJobSpec; log: string; handle?: { backend: string; id: string }; cancelRequestedAt?: number; awaitingRelease?: boolean };
+type Job = { _id: string; state: string; backend: string; spec: EnvironmentJobSpec; log: string; handle?: { backend: string; id: string }; cancelRequestedAt?: number; awaitingRelease?: boolean; launchedAt?: number; releasingAt?: number };
 
 /** Convex as the gateway sees it: pending cloud jobs, claim, and the reports reconcile makes. */
 function convex(jobs: Job[], inputs: unknown[] = []) {
@@ -26,6 +26,8 @@ function convex(jobs: Job[], inputs: unknown[] = []) {
       const name = getFunctionName(ref), job = jobs.find(j => j._id === args.id)!;
       if (name === "compute:claim") { if (job.state !== "queued") return false; job.state = "preparing"; return true; }
       if (name === "compute:report") { job.state = args.state!; if (args.handle) job.handle = args.handle; if (["succeeded", "failed", "cancelled"].includes(job.state) && job.handle) job.awaitingRelease = true; return; }
+      if (name === "compute:launching") { job.launchedAt = Date.now(); return; }
+      if (name === "compute:releasing") { job.releasingAt ??= Date.now(); return; }
       if (name === "compute:released") { job.awaitingRelease = false; return; }
       if (name === "compute:publishResults") return;
       throw new Error(name);
@@ -156,3 +158,13 @@ it("reconciles at most the limit's worth of jobs at once, so outputs are never r
   await settle(); restarted.stop();
 });
 
+
+it("never launches a second machine for a job whose first may have run to the end of its life unseen", async () => {
+  const jobs: Job[] = [{ _id: "a", state: "preparing", backend: "modal-sandbox", spec, log: "", launchedAt: Date.now() - 4 * 3600_000 }];
+  const modal = new FakeModal(), client = convex(jobs);
+  const watcher = watchCloudJobs(client, "token", new ModalExecutor(modal), { intervalMs: 60_000 });
+  await settle();
+  expect(modal.creates).toBe(0);
+  expect(jobs[0]!.state).toBe("failed");
+  watcher.stop();
+});

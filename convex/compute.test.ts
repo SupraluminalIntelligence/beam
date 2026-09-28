@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { pending, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
+import { launching, pending, releasing, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { setAllowance } from "./computeBudget";
@@ -333,18 +333,31 @@ it("releases what a finished cloud job did not spend, and records its provenance
 it("meters a cloud machine from its launch and settles it at its confirmed stop",async()=>{
   const {ctx,enqueue,budget,job}=cloudFixture();const id=await enqueue("c",cloudSpec as any);
   await call(claim,ctx,{token:GATEWAY,id});
-  const claimedAt=Date.now()-60_000, launchedAt=claimedAt+1_000;job().startedAt=claimedAt;
-  // A launch time before the claim is not believed; one after it is.
-  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"},launchedAt:claimedAt-60_000});
-  expect(job().billing.meteredFrom).toBe(claimedAt);
-  job().billing.meteredFrom=undefined;
-  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"},launchedAt});
+  const claimedAt=Date.now()-60_000;job().startedAt=claimedAt;
+  await expect(call(launching,ctx,{token:"valid",id})).rejects.toThrow("Not this runner's job");
+  await call(launching,ctx,{token:GATEWAY,id});const launchedAt=job().launchedAt;
+  expect(launchedAt).toBeGreaterThanOrEqual(claimedAt);
+  // The report reaches Convex late; metering still starts at the recorded launch.
+  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"}});
   expect(job().billing.meteredFrom).toBe(launchedAt);
+  await expect(call(launching,ctx,{token:GATEWAY,id})).rejects.toThrow("not waiting for a machine");
   const meteredFrom=Date.now()-3600_000;job().billing.meteredFrom=meteredFrom;
   await call(report,ctx,{token:GATEWAY,id,state:"failed",log:"",error:"x"});
   // Stopped ten minutes in, though Convex hears of it only now: ten minutes are charged, not the hour.
   await call(released,ctx,{token:GATEWAY,id,stoppedAt:meteredFrom+600_000});
   expect(job().billing).toMatchObject({spentCents:16,reserved:false});
+  expect(budget()).toMatchObject({reservedCents:0,spentCents:16});
+});
+it("settles a machine found already stopped at when its release began",async()=>{
+  const {ctx,enqueue,budget,job}=cloudFixture();const id=await enqueue("c",cloudSpec as any);
+  await call(claim,ctx,{token:GATEWAY,id});await call(launching,ctx,{token:GATEWAY,id});
+  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"}});
+  const meteredFrom=Date.now()-3600_000;job().billing.meteredFrom=meteredFrom;
+  await call(report,ctx,{token:GATEWAY,id,state:"failed",log:"",error:"x"});
+  await call(releasing,ctx,{token:GATEWAY,id});job().releasingAt=meteredFrom+600_000;
+  // A retry after an outage records nothing new, and the machine is found already stopped.
+  await call(releasing,ctx,{token:GATEWAY,id});expect(job().releasingAt).toBe(meteredFrom+600_000);
+  await call(released,ctx,{token:GATEWAY,id});
   expect(budget()).toMatchObject({reservedCents:0,spentCents:16});
 });
 it("reserves an approval-gated cloud job only when approved, and releases it on cancel",async()=>{
