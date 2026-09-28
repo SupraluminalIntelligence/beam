@@ -105,7 +105,8 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
         return JSON.stringify({
           state: job.state,
           ...(manifest ? { headline: headlineQuantities(manifest), checkCounts: checkCounts(manifest), results: manifest } : { results: null, note: "The job wrote no /work/beam/out/manifest.json. If it wrote one under another directory, the end of its log (get_job) says where." }),
-          files: job.outputs.map(o => ({ path: o.path, bytes: o.size, url: o.url })),
+          // A large output (storage "r2") has no standing URL; people download it from Results in Beam.
+          files: job.outputs.map(o => ({ path: o.path, bytes: o.size, url: o.url, ...(o.storage === "r2" ? { storage: "large-output storage" } : {}) })),
           keptOnMachine: job.results?.unpublished ?? [],
         });
       },

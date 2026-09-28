@@ -1,14 +1,17 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { requireChat, readableMutation, readableQuery } from "./lib";
+import { requireChat, readableAction, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { isGatewayToken } from "./gateway";
 import { metered, reserve, settle } from "./computeBudget";
 import { JobPath, JobSpec, ProcessJobSpec, jobFinished, jobStudy, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
-import { MAX_RESULT_FILES, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
+import { FieldPreview, MAX_RESULT_FILES, previewByteLengths, previewLengthMismatch, resultPaths, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
+import { LARGE_OUTPUT_PART_BYTES, MAX_JOB_LARGE_OUTPUT_BYTES, MAX_LARGE_OUTPUT_BYTES, PartNumbers, Sha256Hex, UploadId, largeOutputKey, largeOutputReasons, planParts, type LargeOutputStart, type LargeOutputUrls } from "../packages/contracts/src/largeOutputs";
+import { objectStore, signObject } from "./objectStore";
 import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, authorizedCents, cloudCentsPerHour, formatCents } from "../packages/contracts/src/machines";
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
 import { isCfdImage } from "../packages/contracts/src/environments";
@@ -255,9 +258,11 @@ async function detail(ctx: Ctx, job: Doc<"computeJobs">) {
   const runner = await ctx.db.get(job.runnerId);
   const outputs = await Promise.all(job.outputs.map(async id => {
     const asset = await ctx.db.get(id);
-    return asset ? { id, path: asset.path, size: asset.size, sha256: asset.sha256, url: await ctx.storage.getUrl(asset.storageId) } : null;
+    return asset ? { id: id as Id<"computeAssets"> | Id<"computeObjects">, path: asset.path, size: asset.size, sha256: asset.sha256, url: await ctx.storage.getUrl(asset.storageId), storage: "convex" as "convex" | "r2" } : null;
   }));
-  const spec = JobSpec.parse(job.spec), published = outputs.filter(o => o !== null);
+  // Outputs over the Convex limit live in the object store; a viewer asks outputUrl for a short-lived link.
+  const large = (await largeObjects(ctx, job._id)).map(o => ({ id: o._id as Id<"computeAssets"> | Id<"computeObjects">, path: o.path, size: o.size, sha256: o.sha256, url: null, storage: "r2" as const }));
+  const spec = JobSpec.parse(job.spec), published = [...outputs.filter(o => o !== null), ...large];
   // A cloud job runs on its machine, not on the runner it was submitted from.
   const cloud = spec.kind === "environment" && job.backend !== "local-process" ? MACHINES[spec.machine].label : null;
   return { ...job, spec, runnerName: cloud ?? runner?.name ?? "Runner", runnerOnline: cloud ? true : !!runner?.online && runner.lastSeen > Date.now() - 90_000, outputs: published, provenance: await provenance(ctx, job, spec, published) };
@@ -489,9 +494,142 @@ export const publishResults = readableMutation({ args: { token: v.string(), id: 
 export const hasOutput = readableQuery({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a) => {
   const { job } = await workerAccess(ctx, a.token, a.id);
   const assets = await Promise.all(job.outputs.map(id => ctx.db.get(id)));
-  return assets.some(asset => asset?.path === a.path);
+  return assets.some(asset => asset?.path === a.path) || !!(await largeObject(ctx, job._id, a.path));
 } });
 export const findRequest = readableQuery({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string() }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   return ctx.db.query("computeJobs").withIndex("by_request", q => q.eq("chatId", run.chatId).eq("requestedBy", run.dispatchedBy).eq("requestKey", a.requestKey)).first();
+} });
+
+// Large outputs: result files over the Convex storage limit go to the object store (R2). Convex signs
+// the uploader's multipart requests and viewers' downloads, and records each finished upload; it never
+// reads or writes an object itself. See packages/contracts/src/largeOutputs.ts.
+const largeObjects = (ctx: Ctx, jobId: Id<"computeJobs">) => ctx.db.query("computeObjects").withIndex("by_job", q => q.eq("jobId", jobId)).collect();
+const largeObject = (ctx: Ctx, jobId: Id<"computeJobs">, path: string) => ctx.db.query("computeObjects").withIndex("by_job", q => q.eq("jobId", jobId).eq("path", path)).first();
+/** Signed upload URLs outlast the slowest part; a download link lasts 15 minutes. */
+const UPLOAD_URL_SECONDS = 3600, DOWNLOAD_URL_SECONDS = 900;
+const largeArgs = { token: v.string(), id: v.id("computeJobs"), path: v.string(), size: v.number() };
+type LargeArgs = { token: string; id: Id<"computeJobs">; path: string; size: number };
+
+/**
+ * Whether this worker may put this file in the object store: its job, publishing, an environment job
+ * whose manifest is already published, a file under beam/out over the Convex limit. A file past a cap
+ * is not an error; `refusal` says why it stays where it was written.
+ */
+export async function largeOutputTarget(ctx: Ctx, a: LargeArgs) {
+  const { job } = await workerAccess(ctx, a.token, a.id);
+  if (JobSpec.parse(job.spec).kind !== "environment") throw new Error("Only environment jobs publish large outputs");
+  if (job.state !== "publishing" || job.cancelRequestedAt) throw new Error("Job is not publishing");
+  const path = JobPath.parse(a.path);
+  if (!path.startsWith(`${RESULTS_ROOT}/`)) throw new Error("Output was not requested");
+  if (!Number.isSafeInteger(a.size) || a.size <= MAX_COMPUTE_FILE_BYTES) throw new Error("Outputs of 20 MB or less are published to Convex storage");
+  const assets = (await Promise.all(job.outputs.map(id => ctx.db.get(id)))).filter(x => x !== null);
+  const manifest = assets.find(x => x.path === `${RESULTS_ROOT}/manifest.json`);
+  if (!manifest) throw new Error("Publish beam/out/manifest.json first");
+  const objects = await largeObjects(ctx, job._id), found = objects.find(o => o.path === path);
+  const prior = found ? { id: found._id, size: found.size, sha256: found.sha256, key: found.key } : null;
+  const refusal = a.size > MAX_LARGE_OUTPUT_BYTES ? largeOutputReasons.tooLarge()
+    : !prior && objects.reduce((n, o) => n + o.size, 0) + a.size > MAX_JOB_LARGE_OUTPUT_BYTES ? largeOutputReasons.jobTotal()
+    : !prior && assets.length + objects.length >= MAX_RESULT_FILES ? `past the ${MAX_RESULT_FILES}-file limit`
+    : null;
+  return {
+    key: largeOutputKey(job._id, path), prior, refusal, manifest: manifest.storageId,
+    json: assets.filter(x => x.path.endsWith(".json")).map(x => ({ path: x.path, storageId: x.storageId })),
+  };
+}
+type LargeTarget = Awaited<ReturnType<typeof largeOutputTarget>>;
+export const largeOutputTargetQuery = internalQuery({ args: largeArgs, handler: largeOutputTarget });
+
+/**
+ * The file must be one the published manifest names, or a buffer one of its published previews
+ * describes, at exactly the length the preview gives. Read from Convex storage, so the check rests on
+ * what was published rather than on the uploader's word.
+ */
+export async function namedByManifest(read: (id: Id<"_storage">) => Promise<string>, target: Pick<LargeTarget, "manifest" | "json">, path: string, size: number) {
+  const manifest = ResultsManifest.parse(JSON.parse(await read(target.manifest)));
+  const rel = path.slice(RESULTS_ROOT.length + 1);
+  if (resultPaths(manifest).includes(rel)) return;
+  for (const field of manifest.fields) {
+    const preview = target.json.find(x => x.path === `${RESULTS_ROOT}/${field.preview}`);
+    if (!preview) continue;
+    const lengths = previewByteLengths(FieldPreview.parse(JSON.parse(await read(preview.storageId))));
+    if (!Object.prototype.hasOwnProperty.call(lengths, rel)) continue;
+    if (lengths[rel] !== size) throw new Error(previewLengthMismatch(rel, size, lengths[rel]!));
+    return;
+  }
+  throw new Error("Output was not requested");
+}
+async function largeOutputAccess(ctx: ActionCtx, a: LargeArgs): Promise<LargeTarget> {
+  const target: LargeTarget = await ctx.runQuery(internal.compute.largeOutputTargetQuery, { token: a.token, id: a.id, path: a.path, size: a.size });
+  await namedByManifest(async id => {
+    const blob = await ctx.storage.get(id);
+    if (!blob) throw new Error("A published result is missing from storage");
+    return blob.text();
+  }, target, a.path, a.size);
+  return target;
+}
+function requireStore() {
+  const store = objectStore();
+  if (!store) throw new Error("Large-output storage is not configured");
+  return store;
+}
+/** Step 1 for the uploader: whether this file goes to the object store, and a URL that starts its multipart upload. */
+export const startLargeOutput = readableAction({ args: largeArgs, handler: async (ctx, a): Promise<LargeOutputStart> => {
+  const target = await largeOutputAccess(ctx, a);
+  if (target.prior) throw new Error("This output is already published");
+  if (target.refusal) return { ok: false, reason: target.refusal };
+  const store = objectStore();
+  if (!store) return { ok: false, reason: largeOutputReasons.notConfigured() };
+  return { ok: true, key: target.key, partBytes: LARGE_OUTPUT_PART_BYTES, createUrl: await signObject(store, "POST", target.key, { uploads: "" }, UPLOAD_URL_SECONDS) };
+} });
+/** Step 2, in batches: URLs for the next parts, and fresh ones to complete or abort the upload. */
+export const largeOutputUrls = readableAction({ args: { ...largeArgs, uploadId: v.string(), parts: v.array(v.number()) }, handler: async (ctx, a): Promise<LargeOutputUrls> => {
+  const uploadId = UploadId.parse(a.uploadId), parts = PartNumbers.parse(a.parts);
+  const target = await largeOutputAccess(ctx, a);
+  if (target.prior) throw new Error("This output is already published");
+  if (target.refusal) throw new Error(target.refusal);
+  const count = planParts(a.size, LARGE_OUTPUT_PART_BYTES).length;
+  if (parts.some(n => n > count)) throw new Error(`This file uploads in ${count} parts`);
+  const store = requireStore(), sign = (method: "PUT" | "POST" | "DELETE", query: Record<string, string>) => signObject(store, method, target.key, query, UPLOAD_URL_SECONDS);
+  return {
+    parts: await Promise.all(parts.map(async partNumber => ({ partNumber, url: await sign("PUT", { partNumber: String(partNumber), uploadId }) }))),
+    completeUrl: await sign("POST", { uploadId }), abortUrl: await sign("DELETE", { uploadId }),
+  };
+} });
+/** Step 3: the upload is complete; record it as one of the job's outputs. Idempotent for the same file. */
+export const recordLargeOutput = readableAction({ args: { ...largeArgs, sha256: v.string(), key: v.string() }, handler: async (ctx, a): Promise<Id<"computeObjects">> => {
+  await largeOutputAccess(ctx, a);
+  requireStore();
+  return ctx.runMutation(internal.compute.insertLargeOutputMutation, { token: a.token, id: a.id, path: a.path, size: a.size, key: a.key, sha256: Sha256Hex.parse(a.sha256) });
+} });
+export async function insertLargeOutput(ctx: MutationCtx, a: LargeArgs & { key: string; sha256: string }): Promise<Id<"computeObjects">> {
+  // Checked again here, in the transaction that records it: the job may have been cancelled since.
+  const target = await largeOutputTarget(ctx, a);
+  if (a.key !== target.key) throw new Error("The key does not match this output");
+  if (target.prior) {
+    if (target.prior.size === a.size && target.prior.sha256 === a.sha256) return target.prior.id;
+    throw new Error("A different file is already published at this path");
+  }
+  if (target.refusal) throw new Error(target.refusal);
+  const job = (await ctx.db.get(a.id))!, now = Date.now();
+  const id = await ctx.db.insert("computeObjects", { chatId: job.chatId, jobId: job._id, path: a.path, key: target.key, size: a.size, sha256: Sha256Hex.parse(a.sha256), author: job.requestedBy, createdAt: now });
+  await ctx.db.patch(job._id, { updatedAt: now });
+  return id;
+}
+export const insertLargeOutputMutation = internalMutation({ args: { ...largeArgs, sha256: v.string(), key: v.string() }, handler: insertLargeOutput });
+
+/** A large output's key, for anyone who can read the job's chat. */
+export async function largeOutputForViewer(ctx: QueryCtx, a: { id: Id<"computeJobs">; path: string }) {
+  const job = await ctx.db.get(a.id); if (!job) throw new Error("Job not found");
+  await requireChat(ctx, job.chatId);
+  const object = await largeObject(ctx, job._id, a.path);
+  if (!object) throw new Error("This output is not in large-output storage");
+  return { key: object.key, name: (a.path.split("/").at(-1) ?? "output").replace(/[^\w.-]/g, "_") };
+}
+export const largeOutputForViewerQuery = internalQuery({ args: { id: v.id("computeJobs"), path: v.string() }, handler: largeOutputForViewer });
+/** A download link for a large output, valid for 15 minutes. */
+export const outputUrl = readableAction({ args: { id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a): Promise<{ url: string; expiresAt: number }> => {
+  const object: { key: string; name: string } = await ctx.runQuery(internal.compute.largeOutputForViewerQuery, a);
+  const url = await signObject(requireStore(), "GET", object.key, { "response-content-disposition": `attachment; filename="${object.name}"` }, DOWNLOAD_URL_SECONDS);
+  return { url, expiresAt: Date.now() + DOWNLOAD_URL_SECONDS * 1000 };
 } });

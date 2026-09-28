@@ -218,7 +218,17 @@ export type CollectOptions = {
   onFile?: (file: { path: string; bytes: Uint8Array }) => Promise<void>;
   /** What happens to a file over the size limit: on the engineer's computer it stays there; a cloud machine is released. */
   oversize?: string;
+  /**
+   * Publishes a file over the size limit somewhere else (the large-output store), given the length its
+   * preview says it has, if it is a preview buffer. It resolves with whether the file was published, or
+   * why not; it throws ResultRejected for a file that fails the job (a preview buffer of the wrong length).
+   */
+  large?: (path: string, expectedBytes: number | undefined) => Promise<{ published: true } | { published: false; reason: string }>;
 };
+/** A result file that fails the job rather than being retried: the viewer would draw garbage. */
+export class ResultRejected extends Error {}
+/** The message for a preview buffer whose length does not match its description. */
+export const previewLengthMismatch = (rel: string, actual: number, expected: number) => `${rel} is ${actual} bytes; its preview says ${expected}`;
 /**
  * Everything to publish from beam/out: the manifest and exactly the files it names, previews' buffers
  * included. A file over the size limit, or past the file limit, is listed rather than silently dropped;
@@ -242,11 +252,16 @@ export async function collectResults(read: (path: string) => Promise<Uint8Array>
     try { bytes = await read(path); }
     catch (e) {
       const message = (e as Error).message;
-      if (/20 MB or less|size limit/.test(message)) { unpublished.push({ path, reason: `larger than ${MAX_COMPUTE_FILE_BYTES / 2 ** 20} MB; ${options.oversize ?? "kept on the machine"}` }); return null; }
+      if (/20 MB or less|size limit/.test(message)) {
+        const large = options.large ? await options.large(path, expectedBytes) : null;
+        if (large?.published) { seen.add(path); return null; }
+        unpublished.push({ path, reason: large?.reason ?? `larger than ${MAX_COMPUTE_FILE_BYTES / 2 ** 20} MB; ${options.oversize ?? "kept on the machine"}` });
+        return null;
+      }
       if (e instanceof ExecutorUnavailable) throw e;
       throw new Error(`The manifest names ${rel}, which could not be read: ${message}`);
     }
-    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) throw new Error(`${rel} is ${bytes.byteLength} bytes; its preview says ${expectedBytes}`);
+    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) throw new ResultRejected(previewLengthMismatch(rel, bytes.byteLength, expectedBytes));
     await keep({ path, bytes });
     return bytes;
   };

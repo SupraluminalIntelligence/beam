@@ -1,5 +1,5 @@
 import type { ConvexClient } from "convex/browser";
-import { cloudMachineSeconds, collectResults, ExecutorUnavailable, jobFinished, JobSpec, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
+import { cloudMachineSeconds, collectResults, ExecutorUnavailable, jobFinished, JobSpec, ResultRejected, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
 import { api } from "../../../convex/_generated/api.js";
 import type { Doc, Id } from "../../../convex/_generated/dataModel.js";
 
@@ -16,9 +16,17 @@ export async function uploadBytes(url: string, bytes: Uint8Array): Promise<Id<"_
   return data.storageId;
 }
 
-export async function reconcileJob(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">) {
+/**
+ * Publishes an output over the Convex storage limit to the large-output store, from where the executor
+ * keeps it. It resolves with whether the file was published or why it was not; it throws ResultRejected
+ * for a file that fails the job, and anything else to be retried on the next pass.
+ */
+export type LargeOutputPublisher = (handle: ExecutionHandle, jobId: Id<"computeJobs">, path: string, expectedBytes: number | undefined) => Promise<{ published: true } | { published: false; reason: string }>;
+export type ReconcileOptions = { large?: LargeOutputPublisher };
+
+export async function reconcileJob(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">, options: ReconcileOptions = {}) {
   // A finished cloud job whose machine is not yet confirmed stopped: only the release is left to do.
-  const { handle, ended } = jobFinished(job.state) ? { handle: job.handle, ended: true } : await advance(client, token, executor, job);
+  const { handle, ended } = jobFinished(job.state) ? { handle: job.handle, ended: true } : await advance(client, token, executor, job, options);
   if (!ended || !executor.release) return;
   // Beam settles the job's spend only once the machine is confirmed stopped; a failed release is
   // retried on the next pass, and the machine's own lifetime limit bounds it if every retry fails.
@@ -30,7 +38,7 @@ export async function reconcileJob(client: ConvexClient, token: string, executor
   await client.mutation(api.compute.released, { token, id: job._id, ...(stoppedAt ? { stoppedAt } : {}) });
 }
 
-async function advance(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">): Promise<{ handle: ExecutionHandle | undefined; ended: boolean }> {
+async function advance(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">, options: ReconcileOptions): Promise<{ handle: ExecutionHandle | undefined; ended: boolean }> {
   const id = job._id;
   const spec = JobSpec.parse(job.spec);
   let handle = job.handle;
@@ -106,7 +114,14 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
     // Each file is published as soon as it is read, so at most one is held in memory.
     const oversize = executor.release ? "not kept, since the cloud machine is released" : "kept on the machine";
     const onFile = async (f: { path: string; bytes: Uint8Array }) => { if (await wanted(f.path)) await upload(f.path, f.bytes); };
-    try { results = await collectResults(path => executor.readOutput(launched, path), { onFile, oversize }); }
+    // A file over the limit goes to the large-output store when this executor can stream it from disk.
+    const publishLarge = options.large;
+    const large = publishLarge && (async (path: string, expectedBytes: number | undefined) => {
+      if (!(await wanted(path))) return { published: true as const };
+      try { return await publishLarge(launched, id, path, expectedBytes); }
+      catch (e) { if (e instanceof ResultRejected || e instanceof ExecutorUnavailable) throw e; throw new Retry(e); }
+    });
+    try { results = await collectResults(path => executor.readOutput(launched, path), { onFile, oversize, ...(large ? { large } : {}) }); }
     catch (e) { if (settled(e)) return { handle, ended: true }; return fail(`Results: ${known(e)}`); }
     await client.mutation(api.compute.publishResults, { token, id, manifest: results.manifest, unpublished: results.unpublished });
   } else {

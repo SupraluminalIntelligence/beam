@@ -9,11 +9,16 @@ import { z } from "zod";
 import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, RECIPE_PATH, parametersFile } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 
-export async function readJobFile(directory: string, path: string): Promise<Uint8Array> {
+/** The real path of a job file, refusing one that resolves (through a link) outside the job directory. */
+export async function resolveJobFile(directory: string, path: string): Promise<string> {
   JobPath.parse(path);
   const root = await realpath(directory), file = await realpath(join(root, path));
   const rel = relative(root, file);
   if (!rel || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) throw new Error("File escapes the job directory");
+  return file;
+}
+export async function readJobFile(directory: string, path: string): Promise<Uint8Array> {
+  const file = await resolveJobFile(directory, path);
   const meta = await stat(file);
   if (!meta.isFile() || meta.size > MAX_COMPUTE_FILE_BYTES) throw new Error("Job files must be regular files of 20 MB or less");
   const bytes = await readFile(file);
@@ -109,4 +114,5 @@ export class LocalExecutor implements ComputeExecutor {
   }
   async cancel(handle: ExecutionHandle) { const root = this.root(handle); await mkdir(root, { recursive: true }); await writeFile(join(root, "cancel"), "cancel"); }
   async readOutput(handle: ExecutionHandle, path: string) { return readJobFile(join(this.root(handle), "work"), path); }
+  async localPath(handle: ExecutionHandle, path: string) { return resolveJobFile(join(this.root(handle), "work"), path); }
 }

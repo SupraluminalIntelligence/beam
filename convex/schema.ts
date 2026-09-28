@@ -166,6 +166,12 @@ export default defineSchema({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
     author: v.string(), jobId: v.optional(v.id("computeJobs")),
   }).index("by_storage", ["storageId"]).index("by_job", ["jobId"]),
+  // A job's outputs over the Convex storage limit, kept in the object store (R2) under `key`. Separate from
+  // computeAssets, whose storageId every reader relies on; size and sha256 are what the uploader measured.
+  computeObjects: defineTable({
+    chatId: v.id("chats"), jobId: v.id("computeJobs"), path: v.string(), key: v.string(), size: v.number(), sha256: v.string(),
+    author: v.string(), createdAt: v.number(),
+  }).index("by_job", ["jobId", "path"]),
   workspaceResources: defineTable({ workspaceId: v.id("workspaces"), chatId: v.id("chats"), runnerId: v.id("runners"), owner: v.string(), localId: v.string(), name: v.string(), kind: v.union(v.literal("folder"), v.literal("service")), shared: v.boolean(), allowInstall: v.boolean(), revoked: v.boolean() }).index("by_workspace", ["workspaceId"]).index("by_runner", ["runnerId"]),
   resourceRequests: defineTable({ resourceId: v.id("workspaceResources"), runnerId: v.id("runners"), requesterRunnerId: v.id("runners"), requestedBy: v.string(), chatId: v.id("chats"), sourceRunId: v.optional(v.id("runs")), operation: v.any(), state: v.string(), createdAt: v.number(), result: v.optional(v.string()), error: v.optional(v.string()) }).index("by_runner_state", ["runnerId", "state"]),
   typing: defineTable({ chatId: v.id("chats"), login: v.string(), session: v.string(), expiresAt: v.number() })
