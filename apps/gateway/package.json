@@ -1,0 +1,19 @@
+{
+  "name": "@beam/gateway",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/main.ts",
+    "smoke": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@beam/compute": "workspace:*",
+    "@beam/contracts": "workspace:*",
+    "convex": "^1.43.0",
+    "modal": "0.10.1",
+    "zod": "^3.25.76"
+  }
+}

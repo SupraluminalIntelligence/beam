@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { checkCounts, compareQuantities, FieldPreview, headlineQuantities, previewByteLengths, resultPaths, ResultsManifest, SeriesData, TableData } from "./results";
+import { checkCounts, collectResults, compareQuantities, FieldPreview, headlineQuantities, MAX_RESULT_FILES, previewByteLengths, resultPaths, ResultsManifest, SeriesData, TableData } from "./results";
+import { ExecutorUnavailable } from "./compute";
 
 // Written by environments/base/beam_out from `cantilever.py --nx 10,20,40` in the fea image.
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/cantilever/${name}`, import.meta.url), "utf8"));
@@ -63,6 +64,31 @@ it("compares versions by name and unit, never converting units", () => {
   expect(c.matched[0]?.relative).toBeCloseTo(-0.2217, 3);
   expect(c.onlyBefore.map((q) => q.name)).toEqual(["mass", "old"]);
   expect(c.onlyAfter.map((q) => `${q.name} ${q.unit}`)).toEqual(["mass kg"]);
+});
+
+describe("collecting results", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const manyFiles = { version: 1, files: Array.from({ length: 64 }, (_, n) => ({ path: `f${n}.txt`, label: `f${n}`, kind: "file", bytes: 1 })) };
+  it("lists files past the file limit as unpublished instead of failing the job", async () => {
+    const tables = Array.from({ length: 20 }, (_, n) => ({ name: `t${n}`, label: `t${n}`, data: `t${n}.json`, rows: 1 }));
+    const series = Array.from({ length: 50 }, (_, n) => ({ name: `s${n}`, label: `s${n}`, data: `s${n}.json`, points: 1, x: { label: "x" }, y: { lines: ["a"] } }));
+    const manifest = { ...manyFiles, tables, series };
+    const published: string[] = [];
+    const r = await collectResults(async p => p.endsWith("manifest.json") ? enc(JSON.stringify(manifest)) : enc("x"), { onFile: async f => { published.push(f.path); } });
+    expect(published).toHaveLength(MAX_RESULT_FILES);
+    expect(r.unpublished).toHaveLength(1 + 64 + 20 + 50 - MAX_RESULT_FILES);
+    expect(r.unpublished[0]!.reason).toBe(`past the ${MAX_RESULT_FILES}-file limit`);
+    expect(r.files).toEqual([]);
+  });
+  it("says what happens to a file over the size limit", async () => {
+    const read = async (p: string) => { if (p.endsWith("f0.txt")) throw new Error("Job files must be regular files of 20 MB or less"); return enc(p.endsWith("manifest.json") ? JSON.stringify({ version: 1, files: manyFiles.files.slice(0, 1) }) : "x"); };
+    expect((await collectResults(read)).unpublished[0]!.reason).toBe("larger than 20 MB; kept on the machine");
+    expect((await collectResults(read, { oversize: "not kept" })).unpublished[0]!.reason).toBe("larger than 20 MB; not kept");
+  });
+  it("passes an unreachable provider through, so the job is retried rather than failed", async () => {
+    const read = async (p: string) => { if (p.endsWith("f0.txt")) throw new ExecutorUnavailable("Modal did not answer"); return enc(p.endsWith("manifest.json") ? JSON.stringify({ version: 1, files: manyFiles.files.slice(0, 1) }) : "x"); };
+    await expect(collectResults(read)).rejects.toBeInstanceOf(ExecutorUnavailable);
+  });
 });
 
 it("formats numbers with SI prefixes where they read naturally", async () => {

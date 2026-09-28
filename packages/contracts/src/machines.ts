@@ -40,3 +40,37 @@ export function usefulProcesses(machine: MachineShape, available = machine.cores
   const cores = Math.max(1, machine.cores ?? available);
   return machine.backend === "modal-function" || machine.backend === "modal-sandbox" ? Math.min(cores, 8) : cores;
 }
+
+/**
+ * Modal's list prices for Sandboxes, in USD per second (modal.com/pricing, read 28 Sep 2026). Beam
+ * charges cloud machines at cost until pricing is decided. A Modal core is a physical core, two vCPUs.
+ */
+const MODAL_SANDBOX_USD_PER_SECOND = { core: 0.00003942, memoryGiB: 0.00000667, gpu: { L40S: 0.000542, H100: 0.001097 } as Record<string, number> };
+
+/** What a cloud machine costs per hour in US cents, or null when Beam cannot run it in the cloud yet. */
+export function cloudCentsPerHour(machine: MachineShape): number | null {
+  if (machine.backend !== "modal-sandbox" && machine.backend !== "modal-function") return null;
+  const p = MODAL_SANDBOX_USD_PER_SECOND;
+  const gpu = machine.gpus ? machine.gpus.count * (p.gpu[machine.gpus.model] ?? NaN) : 0;
+  const usdPerSecond = machine.cores! * p.core + machine.memoryGiB! * p.memoryGiB + gpu;
+  return Number.isFinite(usdPerSecond) ? usdPerSecond * 3600 * 100 : null;
+}
+
+/**
+ * A cloud job's machine waits this long for its inputs and start signal, then holds finished results
+ * this long for Beam to collect. Its whole life is capped, so the machine stops even if Beam never does.
+ */
+export const CLOUD_LAUNCH_WINDOW_SECONDS = 300;
+export const CLOUD_COLLECT_WINDOW_SECONDS = 1800;
+export const cloudMachineSeconds = (timeoutSeconds: number) => CLOUD_LAUNCH_WINDOW_SECONDS + timeoutSeconds + CLOUD_COLLECT_WINDOW_SECONDS;
+/** Modal's longest sandbox life, so the longest job timeout a cloud machine can take. */
+export const CLOUD_MAX_MACHINE_SECONDS = 24 * 3600;
+export const CLOUD_MAX_TIMEOUT_SECONDS = CLOUD_MAX_MACHINE_SECONDS - CLOUD_LAUNCH_WINDOW_SECONDS - CLOUD_COLLECT_WINDOW_SECONDS;
+/** Cents charged for a machine's time, rounded up to the cent. */
+export const chargeCents = (centsPerHour: number, seconds: number) => Math.ceil((centsPerHour * Math.max(0, seconds)) / 3600);
+/**
+ * The most a job may spend: its machine's whole capped life. This is the amount approval authorizes and
+ * the workspace budget reserves; what it actually spends is metered and usually far less.
+ */
+export const authorizedCents = (centsPerHour: number, timeoutSeconds: number) => chargeCents(centsPerHour, cloudMachineSeconds(timeoutSeconds));
+export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;

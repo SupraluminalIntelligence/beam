@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JobPath } from "./compute.ts";
+import { ExecutorUnavailable, JobPath, MAX_COMPUTE_FILE_BYTES } from "./compute.ts";
 
 /**
  * Results: what a job writes to beam/out/. manifest.json names every other file by a path relative to
@@ -208,6 +208,76 @@ export function compareQuantities(before: Pick<ResultsManifest, "quantities">, a
   }
   return { matched, onlyBefore: [...old.values()], onlyAfter };
 }
+
+export type CollectedResults = { manifest: ResultsManifest | null; files: { path: string; bytes: Uint8Array }[]; unpublished: { path: string; reason: string }[] };
+/** An environment job publishes at most this many files from beam/out, the manifest included; the rest are listed as unpublished. */
+export const MAX_RESULT_FILES = 128;
+export type CollectOptions = {
+  /** Called with each file as it is read and checked, so a caller can publish it before the next is read. Without it, files are returned. */
+  onFile?: (file: { path: string; bytes: Uint8Array }) => Promise<void>;
+  /** What happens to a file over the size limit: on the engineer's computer it stays there; a cloud machine is released. */
+  oversize?: string;
+};
+/**
+ * Everything to publish from beam/out: the manifest and exactly the files it names, previews' buffers
+ * included. A file over the size limit, or past the file limit, is listed rather than silently dropped;
+ * a preview buffer of the wrong length fails the job, since the viewer would draw garbage.
+ */
+export async function collectResults(read: (path: string) => Promise<Uint8Array>, options: CollectOptions = {}): Promise<CollectedResults> {
+  const manifestPath = `${RESULTS_ROOT}/manifest.json`;
+  let manifestBytes: Uint8Array;
+  try { manifestBytes = await read(manifestPath); }
+  catch (e) { if (/ENOENT|no such file/i.test((e as Error).message)) return { manifest: null, files: [], unpublished: [] }; throw e; }
+  const parsed = ResultsManifest.safeParse(JSON.parse(new TextDecoder().decode(manifestBytes)));
+  if (!parsed.success) throw new Error(`beam/out/manifest.json is invalid: ${parsed.error.issues.slice(0, 3).map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+  const manifest = parsed.data, files: CollectedResults["files"] = [], unpublished: CollectedResults["unpublished"] = [], seen = new Set<string>();
+  const keep = async (file: { path: string; bytes: Uint8Array }) => { seen.add(file.path); if (options.onFile) await options.onFile(file); else files.push(file); };
+  await keep({ path: manifestPath, bytes: manifestBytes });
+  const add = async (rel: string, expectedBytes?: number) => {
+    const path = JobPath.parse(`${RESULTS_ROOT}/${rel}`);
+    if (seen.has(path) || unpublished.some(u => u.path === path)) return null;
+    if (seen.size >= MAX_RESULT_FILES) { unpublished.push({ path, reason: `past the ${MAX_RESULT_FILES}-file limit` }); return null; }
+    let bytes: Uint8Array;
+    try { bytes = await read(path); }
+    catch (e) {
+      const message = (e as Error).message;
+      if (/20 MB or less|size limit/.test(message)) { unpublished.push({ path, reason: `larger than ${MAX_COMPUTE_FILE_BYTES / 2 ** 20} MB; ${options.oversize ?? "kept on the machine"}` }); return null; }
+      if (e instanceof ExecutorUnavailable) throw e;
+      throw new Error(`The manifest names ${rel}, which could not be read: ${message}`);
+    }
+    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) throw new Error(`${rel} is ${bytes.byteLength} bytes; its preview says ${expectedBytes}`);
+    await keep({ path, bytes });
+    return bytes;
+  };
+  for (const rel of resultPaths(manifest)) {
+    const bytes = await add(rel);
+    const field = manifest.fields.find(f => f.preview === rel);
+    if (field && bytes) {
+      const preview = FieldPreview.parse(JSON.parse(new TextDecoder().decode(bytes)));
+      for (const [buffer, size] of Object.entries(previewByteLengths(preview))) await add(buffer, size);
+    }
+  }
+  return { manifest, files, unpublished };
+}
+
+/**
+ * The command as the container runs it. beam/ lives at the job root whatever directory the command
+ * changes to; results written under another directory's beam/out would publish nothing, so say where
+ * they went rather than leave the job looking empty.
+ */
+export const jobScript = (command: string) => [
+  `{\n${command}\n}`,
+  `status=$?`,
+  `if [ ! -f "$BEAM_WORK/${RESULTS_ROOT}/manifest.json" ]; then`,
+  `  stray=$(find "$BEAM_WORK" -mindepth 2 -maxdepth 6 -path "*/${RESULTS_ROOT}/manifest.json" 2>/dev/null | head -n 3)`,
+  `  if [ -n "$stray" ]; then`,
+  `    echo "beam: nothing was published: Beam reads results only from $BEAM_WORK/${RESULTS_ROOT}, but the manifest was written to:" >&2`,
+  `    echo "$stray" >&2`,
+  `    echo "beam: write results with beam_out, which uses $BEAM_WORK/${RESULTS_ROOT} from any directory, or use absolute paths." >&2`,
+  `  fi`,
+  `fi`,
+  `exit $status`,
+].join("\n");
 
 const PREFIXES: [string, number][] = [["G", 1e9], ["M", 1e6], ["k", 1e3], ["", 1], ["m", 1e-3], ["µ", 1e-6], ["n", 1e-9]];
 /** SI prefixes that read naturally for each base unit (km is fine, kK is not). */

@@ -1,0 +1,211 @@
+import { createHash } from "node:crypto";
+import { dirname } from "node:path/posix";
+import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, jobScript, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, PARAMETERS_PATH, parametersFile, usefulProcesses } from "@beam/contracts";
+import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
+import { FileMissing, SandboxRejected, type ModalPort, type SandboxPort } from "./port.ts";
+import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
+
+export const JOB_DIR = "/tmp/beam-job";
+export const WORK = "/work";
+const LOG_BYTES = 16_000;
+
+export const sandboxName = (jobId: string) => `beam-job-${jobId}`;
+
+/** The Modal resources for one of Beam's machine sizes; only machines Modal backs are accepted. */
+export function sandboxShape(id: MachineId) {
+  const machine = MACHINES[MachineId.parse(id)];
+  if (machine.backend !== "modal-sandbox" && machine.backend !== "modal-function")
+    throw new Error(`The ${machine.label} does not run on Modal. Cloud jobs can use: ${Object.values(MACHINES).filter(m => m.backend.startsWith("modal")).map(m => m.id).join(", ")}.`);
+  const gpu = machine.gpus ? (machine.gpus.count > 1 ? `${machine.gpus.model}:${machine.gpus.count}` : machine.gpus.model) : undefined;
+  return { cpu: machine.cores!, memoryMiB: machine.memoryGiB! * 1024, cores: usefulProcesses(machine), ...(gpu ? { gpu } : {}) };
+}
+
+/**
+ * One input from Convex storage. A dropped connection or a server error is retried on the next pass,
+ * which resumes staging; a missing input, a bad checksum or the staging deadline ends the job.
+ */
+async function download(input: ComputeInput, deadline: AbortSignal): Promise<Uint8Array> {
+  if (input.size > MAX_COMPUTE_FILE_BYTES || input.size < 0) throw new Error(`Input ${input.path} exceeds the 20 MB file limit`);
+  let bytes: Uint8Array;
+  try {
+    const response = await fetch(input.url, { signal: deadline });
+    if (response.status >= 500 || response.status === 408 || response.status === 429) throw new ExecutorUnavailable(`Input download failed: ${response.status}`);
+    if (!response.ok) throw new Error(`Input download failed: ${response.status}`);
+    bytes = new Uint8Array(await response.arrayBuffer());
+  } catch (e) {
+    if (deadline.aborted) throw new Error(`Inputs took longer than ${CLOUD_LAUNCH_WINDOW_SECONDS / 60 - 1} minutes to stage`);
+    if (e instanceof TypeError) throw new ExecutorUnavailable(`Input download failed: ${e.message}`);
+    throw e;
+  }
+  const digest = createHash("sha256").update(bytes).digest();
+  if (bytes.length !== input.size || (digest.toString("hex") !== input.sha256 && digest.toString("base64") !== input.sha256))
+    throw new Error("Input snapshot checksum mismatch");
+  return bytes;
+}
+
+const text = (s: string) => new TextEncoder().encode(s);
+/**
+ * A call to Modal that failed without an answer (a network error, an outage) leaves the job's state
+ * unknown, so it is retried rather than recorded as a failure. A missing file is an answer.
+ */
+async function unreachable<T>(call: () => Promise<T>): Promise<T> {
+  try { return await call(); }
+  catch (e) { if (e instanceof FileMissing || e instanceof ExecutorUnavailable) throw e; throw new ExecutorUnavailable(`Modal did not answer: ${(e as Error).message}`); }
+}
+async function exists(sandbox: SandboxPort, path: string) {
+  try { await sandbox.size(path); return true; }
+  catch (e) { if (e instanceof FileMissing) return false; throw e; }
+}
+async function readTextOrNull(sandbox: SandboxPort, path: string) {
+  try { return new TextDecoder().decode(await sandbox.readBytes(path)); }
+  catch (e) { if (e instanceof FileMissing) return null; throw e; }
+}
+
+/**
+ * Runs environment jobs in Modal Sandboxes: one named sandbox per job, created from the environment's
+ * image by digest, with no network. The job's handle is the sandbox ID. Like the local executor, a launch
+ * whose outcome is uncertain is inspected and never replayed.
+ *
+ * Modal Functions cost about a third as much per core-second but may be preempted, so they suit only
+ * work that can restart or checkpoint (docs/decisions/2026-09-27-compute-plane.md). Every job here runs
+ * as a Sandbox.
+ */
+export class ModalExecutor implements ComputeExecutor {
+  readonly backend = "modal-sandbox";
+  private readonly cancelled = new Set<string>();
+  // No parameter properties: the gateway runs under Node's type stripping.
+  private readonly modal: ModalPort;
+  constructor(modal: ModalPort) { this.modal = modal; }
+
+  private async sandbox(handle: ExecutionHandle) {
+    if (handle.backend !== this.backend) throw new Error("Invalid Modal execution handle");
+    return this.modal.fromId(handle.id);
+  }
+
+  /**
+   * A launch interrupted while staging (the gateway restarted, or lost Modal's reply): the sandbox
+   * exists but was never told to start or stop, so its command cannot have run and staging can resume.
+   */
+  private async unstaged(sandbox: SandboxPort) {
+    if (await sandbox.poll() !== null) return false;
+    for (const receipt of ["go", "abort"]) if (await exists(sandbox, `${JOB_DIR}/${receipt}`)) return false;
+    return true;
+  }
+
+  /** The launch for this job, unless it was interrupted before its command could start; submit resumes that one. */
+  async recover(jobId: string): Promise<ExecutionHandle | null> {
+    const found = await this.modal.fromName(sandboxName(jobId));
+    return found && !(await this.unstaged(found)) ? { backend: this.backend, id: found.id } : null;
+  }
+
+  async cancelSubmission(jobId: string) {
+    this.cancelled.add(jobId);
+    await (await this.modal.fromName(sandboxName(jobId)))?.terminate();
+  }
+
+  async submit(jobId: string, raw: JobSpec, inputs: ComputeInput[]): Promise<ExecutionHandle> {
+    const spec = JobSpec.parse(raw);
+    if (spec.kind !== "environment") throw new Error("Cloud machines run environment jobs. OpenFOAM study jobs run on the engineer's computer.");
+    if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
+    const shape = sandboxShape(spec.machine);
+    if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours`);
+    const lifetime = cloudMachineSeconds(spec.timeoutSeconds);
+    if (inputs.length !== spec.inputs.length || inputs.some((input, n) => input.path !== spec.inputs[n]?.path) || inputs.reduce((n, i) => n + i.size, 0) > MAX_COMPUTE_INPUT_BYTES)
+      throw new Error("Invalid input manifest");
+
+    const { sandbox, created } = await this.modal.create({
+      name: sandboxName(jobId),
+      image: spec.environment.image,
+      command: ["bash", "-c", SUPERVISOR],
+      env: {
+        BEAM_COMMAND: spec.command, BEAM_SCRIPT: jobScript(spec.command), BEAM_TIMEOUT: String(spec.timeoutSeconds), BEAM_CORES: String(shape.cores),
+        BEAM_IMAGE: spec.environment.image, BEAM_JOB_DIR: JOB_DIR, BEAM_WORK: WORK, BEAM_LAUNCH_WINDOW: String(CLOUD_LAUNCH_WINDOW_SECONDS),
+      },
+      cpu: shape.cpu, cpuLimit: shape.cpu, memoryMiB: shape.memoryMiB, memoryLimitMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
+      timeoutMs: lifetime * 1000,
+      tags: { beamJob: jobId, environment: spec.environment.name, machine: spec.machine },
+    }).catch(e => {
+      // A refusal Modal would repeat ends the job; anything else is retried on the next pass.
+      if (e instanceof SandboxRejected) throw new Error(`Modal could not start a machine for ${spec.environment.image}: ${e.message}`);
+      throw new ExecutorUnavailable(`Modal did not answer: ${(e as Error).message}`);
+    });
+    const handle = { backend: this.backend, id: sandbox.id };
+    // An earlier submit that got as far as `go` or `abort` is inspected, never staged twice.
+    if (!created && !(await unreachable(() => this.unstaged(sandbox)))) return handle;
+    const write = (bytes: Uint8Array, path: string) => unreachable(() => sandbox.writeBytes(bytes, path));
+    try {
+      await unreachable(() => sandbox.makeDirectory(JOB_DIR));
+      // Staging must finish inside the supervisor's launch window, with a minute to spare.
+      const deadline = AbortSignal.timeout((CLOUD_LAUNCH_WINDOW_SECONDS - 60) * 1000);
+      for (const input of inputs) {
+        if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
+        const path = `${WORK}/${JobPath.parse(input.path)}`;
+        const bytes = await download(input, deadline);
+        await unreachable(() => sandbox.makeDirectory(dirname(path)));
+        await write(bytes, path);
+      }
+      if (spec.parameters) {
+        await unreachable(() => sandbox.makeDirectory(dirname(`${WORK}/${PARAMETERS_PATH}`)));
+        await write(text(parametersFile(spec.parameters)), `${WORK}/${PARAMETERS_PATH}`);
+      }
+      if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
+      await write(text(""), `${JOB_DIR}/go`);
+    } catch (e) {
+      // A write Modal did not answer may have landed, `go` included, so the next pass inspects the
+      // sandbox rather than aborting a command that may be running; recover resumes staging if not.
+      if (e instanceof ExecutorUnavailable) throw e;
+      // A known failure is recorded in the sandbox so inspect reports it; the command never starts.
+      await write(text((e as Error).message), `${JOB_DIR}/setup-error`);
+      await write(text(""), `${JOB_DIR}/abort`);
+    }
+    return handle;
+  }
+
+  async inspect(handle: ExecutionHandle): Promise<ExecutionStatus> {
+    if (handle.backend !== this.backend) throw new Error("Invalid Modal execution handle");
+    return unreachable(() => this.status(handle));
+  }
+
+  private async status(handle: ExecutionHandle): Promise<ExecutionStatus> {
+    const sandbox = await this.sandbox(handle);
+    const failed = (error: string, log = "", exitCode: number | null = null): ExecutionStatus => ({ state: "failed", log, error, exitCode });
+    if (!sandbox) return failed("The cloud machine for this job no longer exists. The job was not run again.");
+    const stopped = await sandbox.poll();
+    if (stopped === LAUNCH_ABANDONED) return failed("The job's launch was interrupted before its command started. It was not run.");
+    if (stopped !== null) return failed("The cloud machine stopped before the job's results were collected: it was cancelled, ran out of time or ran out of memory.");
+    const setupError = await readTextOrNull(sandbox, `${JOB_DIR}/setup-error`);
+    if (setupError !== null) return failed(setupError);
+    const exit = await readTextOrNull(sandbox, `${JOB_DIR}/exit`);
+    const tail = await sandbox.exec(["tail", "-c", String(LOG_BYTES), `${JOB_DIR}/log`]);
+    const log = tail.exitCode === 0 ? tail.stdout : "";
+    if (exit === null) return { state: "running", log };
+    const code = Number(exit.trim());
+    if (code === 0) return { state: "succeeded", log, error: null, exitCode: 0 };
+    if (code === TIMED_OUT) return failed("The command ran past the job's time limit and was stopped.", log, code);
+    if (code === 137) return failed("The command was killed (exit 137), most often because it ran out of memory.", log, code);
+    return failed(`The command exited with code ${code}.`, log, Number.isFinite(code) ? code : null);
+  }
+
+  /** Returns once Modal confirms the sandbox has stopped, so a cancelled job is known to have stopped spending. */
+  async cancel(handle: ExecutionHandle) { await (await this.sandbox(handle))?.terminate(); }
+
+  async readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array> {
+    const file = `${WORK}/${JobPath.parse(path)}`;
+    const sandbox = await unreachable(() => this.sandbox(handle));
+    if (!sandbox) throw new Error("The cloud machine for this job no longer exists");
+    if (await unreachable(() => sandbox.poll()) !== null) throw new Error("The cloud machine stopped before this result was collected");
+    if (await unreachable(() => sandbox.size(file)) > MAX_COMPUTE_FILE_BYTES) throw new Error("Job files must be regular files of 20 MB or less");
+    const bytes = await unreachable(() => sandbox.readBytes(file));
+    if (bytes.length > MAX_COMPUTE_FILE_BYTES) throw new Error("Job file grew beyond the size limit");
+    return bytes;
+  }
+
+  /** Stops the sandbox once its outputs are published. Until then it holds the results. */
+  async release(handle: ExecutionHandle) {
+    const sandbox = await this.sandbox(handle);
+    // Already stopped (an earlier release, or the end of its life): when is not known here.
+    if (!sandbox || await sandbox.poll() !== null) return undefined;
+    await sandbox.terminate();
+    return Date.now();
+  }
+}
