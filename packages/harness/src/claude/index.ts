@@ -208,13 +208,16 @@ class ClaudeSession implements Session {
       }
       case "result": {
         this.beginTurn();
-        const r = m as { user_message_uuid?: string; queued_turn_count?: number };
+        const r = m as { user_message_uuid?: string; queued_turn_count?: number; num_turns?: number };
         if (r.user_message_uuid && this.unanswered.delete(r.user_message_uuid)) this.echoes = true;
+        // A turn the CLI started itself answers none of our sends while one waits behind it: on resume, the
+        // notice that an earlier run's background commands stopped comes back as a result without a model call
+        // (num_turns 0). Ending the Beam turn there closes the session before the model reads the message.
+        // Only on evidence, so a CLI that echoes nothing still ends its turns.
+        const selfStarted = !r.user_message_uuid && this.unanswered.size > 0
+          && (this.echoes || (r.queued_turn_count ?? 0) > 0 || (m.subtype === "success" && r.num_turns === 0));
+        if (selfStarted) { this.text = ""; return; }
         if (r.queued_turn_count === 0) this.unanswered.clear();
-        // A turn the CLI started itself, such as a notification that a background task from an earlier run
-        // stopped, answers none of our sends while one waits behind it. Ending the Beam turn here would close
-        // the session before the model reads the message. Only on evidence, so an older CLI still ends turns.
-        if (!r.user_message_uuid && this.unanswered.size > 0 && (this.echoes || (r.queued_turn_count ?? 0) > 0)) { this.text = ""; return; }
         const text = this.text.trim() || (m.subtype === "success" ? m.result : "");
         if (text) this.emit({ type: "content.final", runId, messageId: `t${this.turn}` as never, text });
         if (m.subtype !== "success") this.emit({ type: "error", runId, message: `${m.subtype}${"errors" in m && Array.isArray(m.errors) ? ": " + m.errors.join("; ") : ""}`, fatal: false });

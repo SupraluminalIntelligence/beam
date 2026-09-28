@@ -79,11 +79,12 @@ describe("Claude turns", () => {
     const { session, events, stream, sent } = await setup("auto", { sessionId: "previous" });
     await session.send("Read the results", "m1");
     const { uuid } = (await sent.next()).value;
-    // Background tasks from the previous run stopped: the CLI answers their notification first.
-    stream.push(result({ queued_turn_count: 1 }));
+    // Background tasks from the previous run stopped: the CLI answers their notice first, without the model
+    // (frames as the CLI sends them: no uuid, no turns, and a queue count of 0).
+    stream.push(result({ queued_turn_count: 0, num_turns: 0 }));
     await settle();
     expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(0);
-    stream.push(result({ user_message_uuid: uuid, queued_turn_count: 0, result: "Here are the results" }));
+    stream.push(result({ user_message_uuid: uuid, queued_turn_count: 0, num_turns: 1, result: "Here are the results" }));
     await settle();
     expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({ type: "content.final", text: "Here are the results" }));
@@ -92,7 +93,7 @@ describe("Claude turns", () => {
     const { session, events, stream, sent } = await setup("auto");
     await session.send("Hello", "m1");
     await sent.next();
-    stream.push(result({ result: "Hi" }));
+    stream.push(result({ num_turns: 1, result: "Hi" }));
     await settle();
     expect(events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
   });
