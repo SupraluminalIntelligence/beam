@@ -19,11 +19,13 @@ describe.skipIf(process.platform !== "win32")("Windows npm CLI resolution", () =
     const script = join(bin, "entry.cjs");
     await writeFile(script, 'console.log(process.argv[2] === "--version" ? "fixture 1.2.3" : JSON.stringify({args: process.argv.slice(2), home: process.env.CODEX_HOME}));');
     vi.stubEnv("PATH", `${bin};${process.env.PATH}`);
-    expect(await realpath((await which("beam-fixture"))!)).toBe(await realpath(script));
+    const found = await which("beam-fixture");
+    expect(found, "Windows CLI discovery should resolve the npm fixture").not.toBeNull();
+    expect(await realpath(found!)).toBe(await realpath(script));
     const args = ["login", "O'Brien & %PATH% $(echo no)"];
     const command = cliInvocation(script, args, { ...process.env, CODEX_HOME: join(root, "isolated account") });
     const result = JSON.parse((await run(command.bin, command.args, { env: command.env, windowsHide: true })).stdout);
     expect(result).toEqual({ args, home: join(root, "isolated account") });
     expect(await cliVersion(script)).toBe("1.2.3");
-  });
+  }, 20_000);
 });

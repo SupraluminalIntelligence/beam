@@ -41,7 +41,9 @@ export async function hydratePathFromLoginShell(): Promise<string> {
 
 export async function which(bin: string): Promise<string | null> {
   try {
-    const { stdout } = await run(process.platform === "win32" ? "where.exe" : "which", [bin], { timeout: 2000, windowsHide: true });
+    // Windows runners can have long PATHs and cold executable scans. Keep discovery
+    // bounded without treating a slow lookup as a missing provider after two seconds.
+    const { stdout } = await run(process.platform === "win32" ? "where.exe" : "which", [bin], { timeout: process.platform === "win32" ? 10_000 : 2000, windowsHide: true });
     const candidates = stdout.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
     if (process.platform !== "win32") return candidates[0] ?? null;
     for (const candidate of candidates) {
