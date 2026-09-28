@@ -1,0 +1,6 @@
+{
+ "preview/beam.displacement.f32": 8088,
+ "preview/beam.indices.u32": 16128,
+ "preview/beam.positions.f32": 8088,
+ "preview/beam.von_mises.f32": 2696
+}

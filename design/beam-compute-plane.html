@@ -1,0 +1,488 @@
+<title>Beam Compute Plane</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F3F4F1;
+    --surface: #FFFFFF;
+    --ink: #16201C;
+    --muted: #5B6761;
+    --rule: #D2D8D4;
+    --zone: #E8EBE7;
+    --accent: #2446C8;
+    --accent-soft: #E6EBFB;
+    --cred: #B4531F;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0F1311;
+      --surface: #161B19;
+      --ink: #E4E9E6;
+      --muted: #97A39D;
+      --rule: #2E3633;
+      --zone: #1B211F;
+      --accent: #8BA2FF;
+      --accent-soft: #1D2544;
+      --cred: #E4925F;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0F1311;
+    --surface: #161B19;
+    --ink: #E4E9E6;
+    --muted: #97A39D;
+    --rule: #2E3633;
+    --zone: #1B211F;
+    --accent: #8BA2FF;
+    --accent-soft: #1D2544;
+    --cred: #E4925F;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    padding-inline: 20px;
+    padding-block: 40px 72px;
+  }
+  main { max-width: 1120px; margin: 0 auto; display: grid; gap: 56px; }
+  section { display: grid; gap: 16px; }
+  .prose { max-width: 70ch; }
+  .prose > * + * { margin-top: 12px; }
+  p { margin: 0; }
+
+  header { display: grid; gap: 14px; max-width: 76ch; }
+  .eyebrow, .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1, h2 {
+    font-family: var(--display);
+    font-stretch: 82%;
+    text-wrap: balance;
+    margin: 0;
+    line-height: 1.1;
+  }
+  h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 800; letter-spacing: -0.01em; }
+  h2 { font-size: 26px; font-weight: 700; }
+  h3 { font-family: var(--body); font-size: 16px; font-weight: 600; margin: 0; }
+  .lede { font-size: 18px; color: var(--ink); max-width: 66ch; }
+  .muted { color: var(--muted); }
+  code, .mono { font-family: var(--mono); font-size: 0.9em; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  figure { margin: 0; display: grid; gap: 12px; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .diagram svg { display: block; width: 100%; min-width: 880px; height: auto; color: var(--ink); }
+  figcaption { font-size: 14px; color: var(--muted); max-width: 80ch; }
+
+  /* SVG classes (styled from the page so both themes work) */
+  .zone { fill: var(--zone); stroke: none; }
+  .zlabel { font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; fill: var(--muted); }
+  .box { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2; }
+  .box-new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+  .box-later { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .cred { fill: none; stroke: var(--cred); stroke-width: 1.4; stroke-dasharray: 4 3; }
+  .t { font-family: var(--body); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+  .s { font-family: var(--body); font-size: 11.5px; fill: var(--muted); }
+  .s-cred { font-family: var(--body); font-size: 11.5px; fill: var(--cred); }
+  .ln { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .ln-new { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+  .al { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
+  .al-new { font-family: var(--mono); font-size: 11px; fill: var(--accent); }
+  .mk { fill: var(--ink); }
+  .mk-new { fill: var(--accent); }
+
+  ol.loop { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 10px; max-width: 76ch; }
+  ol.loop li { counter-increment: step; display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: baseline; }
+  ol.loop li::before {
+    content: counter(step);
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 50%;
+    width: 26px; height: 26px; display: grid; place-items: center;
+  }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+  th { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  .tbl { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
+  .tbl table { min-width: 640px; }
+  tr:last-child td { border-bottom: 0; }
+  .pick td { background: var(--accent-soft); }
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+    padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap;
+  }
+  .yes { color: #2F7D4F; }
+  .no { color: #B23A3A; }
+  .part { color: #9A6A12; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .yes { color: #6FCB94; }
+    :root:not([data-theme="light"]) .no { color: #F08A8A; }
+    :root:not([data-theme="light"]) .part { color: #E3B35A; }
+  }
+  :root[data-theme="dark"] .yes { color: #6FCB94; }
+  :root[data-theme="dark"] .no { color: #F08A8A; }
+  :root[data-theme="dark"] .part { color: #E3B35A; }
+
+  pre {
+    margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.65;
+  }
+  pre .c { color: var(--muted); }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .note {
+    border-left: 3px solid var(--cred); padding: 4px 0 4px 14px; max-width: 72ch; font-size: 15px;
+  }
+  .phases { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+  .phase { display: grid; grid-template-columns: 120px 1fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .phase .label { padding-top: 3px; }
+  @media (max-width: 560px) {
+    .phase { grid-template-columns: 1fr; gap: 4px; }
+  }
+  footer { font-size: 13.5px; color: var(--muted); display: grid; gap: 6px; }
+  footer ul { margin: 0; padding-left: 18px; }
+</style>
+
+<main>
+  <header>
+    <div class="eyebrow">Beam · accepted design, not built · 27 Sep 2026</div>
+    <h1>Beam Compute Plane</h1>
+    <p class="lede">How Claude and Codex agents in Beam run physics tools on compute Beam allocates. Agents run on the engineer's machine or on a cloud machine, always with the engineer's own provider login. Solvers run in environments on cloud machines, and results come back as live cards and viewers in the chat.</p>
+  </header>
+
+  <section aria-labelledby="words-h">
+    <h2 id="words-h">Vocabulary</h2>
+    <p class="prose">One word per concept across Beam. <em>Run</em> stays reserved for agent runs, which the public Worlds API already names. The UI mockups use these words throughout: <a href="https://claude.ai/artifact/14QNjGmoLV1tC614r88E4q">Beam Results UI</a>.</p>
+    <div class="tbl scroll">
+      <table>
+        <thead><tr><th>Word</th><th>Meaning</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Workspace</td><td>The team: members, repos, machines, budget</td><td>Acme Engineering</td></tr>
+          <tr><td>Chat</td><td>A conversation. It runs on a machine. "Thread" is a synonym in speech; the UI says chat.</td><td>bracket-redesign</td></tr>
+          <tr><td>Machine</td><td>Where work runs: the engineer's own computer or a cloud machine, with a shape and an environment</td><td>a 96-core cloud machine</td></tr>
+          <tr><td>Environment</td><td>What is installed on a machine: built-in (validated) or custom (a team's own Dockerfile)</td><td>the fea environment</td></tr>
+          <tr><td>Simulation</td><td>The thing being investigated, at workspace level, referenced from any chat</td><td>Bracket thermal cycling</td></tr>
+          <tr><td>Setup · Version</td><td>Its inputs and declared parameters · a saved state</td><td>v4, fillet 4 mm</td></tr>
+          <tr><td>Job</td><td>One attempt to compute a version, on a machine, in stages such as mesh, solve and post</td><td>job 7</td></tr>
+          <tr><td>Results</td><td>What a version produced: Numbers, Plots, 3D, Tables, Checks, Files</td><td>v4 results</td></tr>
+          <tr><td>Terminal</td><td>The shell on a chat's machine, shared by the agent and the engineer</td><td>Terminal tab</td></tr>
+          <tr><td>Compare · Sweep</td><td>Results side by side · versions that differ only in parameters</td><td>v3 vs v4 · fillet 3–6 mm</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="arch">
+    <div class="label" id="arch">Architecture</div>
+    <figure>
+      <div class="diagram scroll">
+        <svg viewBox="0 0 1100 640" role="img" aria-label="The agent on the engineer's machine calls beam-runner tools; requests go through Convex to a new compute gateway, which runs commands on Modal sandboxes, Modal functions, EC2 whole nodes or later an AWS PCS cluster. Images come from a pinned registry, outputs go to R2, and the Beam app loads previews from R2 directly.">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" class="mk"/>
+            </marker>
+            <marker id="arr-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" class="mk-new"/>
+            </marker>
+          </defs>
+
+          <!-- zones -->
+          <rect class="zone" x="16" y="40" width="280" height="460" rx="6"/>
+          <text class="zlabel" x="32" y="60">ENGINEER'S MACHINE</text>
+          <rect class="zone" x="380" y="40" width="280" height="460" rx="6"/>
+          <text class="zlabel" x="396" y="60">BEAM CONTROL PLANE</text>
+          <rect class="zone" x="770" y="40" width="314" height="460" rx="6"/>
+          <text class="zlabel" x="786" y="60">EXECUTION PROVIDERS</text>
+          <rect class="zone" x="380" y="530" width="704" height="100" rx="6"/>
+          <text class="zlabel" x="396" y="550">DATA PLANE</text>
+
+          <!-- left column -->
+          <rect class="box" x="32" y="70" width="248" height="64" rx="4"/>
+          <text class="t" x="48" y="96">Beam app</text>
+          <text class="s" x="48" y="116">cards · field, plot and CAD viewers</text>
+
+          <rect class="box" x="32" y="180" width="248" height="64" rx="4"/>
+          <text class="t" x="48" y="206">beam-runner</text>
+          <text class="s" x="48" y="226">new tools: machine_* · job_* · results_*</text>
+
+          <rect class="box" x="32" y="290" width="248" height="64" rx="4"/>
+          <rect class="cred" x="25" y="283" width="262" height="78" rx="6"/>
+          <text class="t" x="48" y="316">Agent · Claude Code / Codex</text>
+          <text class="s-cred" x="48" y="336">runs on the engineer's own login</text>
+
+          <rect class="box" x="32" y="400" width="248" height="64" rx="4"/>
+          <text class="t" x="48" y="426">Git worktree</text>
+          <text class="s" x="48" y="446">case files · the study's source</text>
+
+          <!-- left arrows -->
+          <line class="ln" x1="156" y1="283" x2="156" y2="248" marker-end="url(#arr)"/>
+          <text class="al" x="166" y="270">tool calls</text>
+          <line class="ln" x1="156" y1="361" x2="156" y2="396" marker-end="url(#arr)"/>
+          <text class="al" x="166" y="384">edits case</text>
+
+          <!-- middle column -->
+          <rect class="box" x="396" y="70" width="248" height="180" rx="4"/>
+          <text class="t" x="412" y="96">Convex</text>
+          <text class="s" x="412" y="118">studies · revisions</text>
+          <text class="s" x="412" y="136">jobs · approvals with cost</text>
+          <text class="s" x="412" y="154">budgets · output manifest</text>
+          <text class="s" x="412" y="172">live cards</text>
+
+          <rect class="box-new" x="396" y="300" width="248" height="100" rx="4"/>
+          <rect class="cred" x="389" y="293" width="262" height="114" rx="6"/>
+          <text class="t" x="412" y="326">Compute gateway (new)</text>
+          <text class="s" x="412" y="346">provider adapters · metering</text>
+          <text class="s" x="412" y="364">budget caps · log streams</text>
+          <text class="s-cred" x="412" y="386">only holder of Beam's cloud keys</text>
+
+          <rect class="box-new" x="396" y="440" width="248" height="50" rx="4"/>
+          <text class="t" x="412" y="462">Stripe</text>
+          <text class="s" x="412" y="480">prepaid credits · usage meters</text>
+
+          <!-- left <-> middle -->
+          <line class="ln" x1="396" y1="102" x2="284" y2="102" marker-end="url(#arr)"/>
+          <text class="al" x="338" y="94" text-anchor="middle">live cards</text>
+          <line class="ln" x1="280" y1="212" x2="392" y2="212" marker-end="url(#arr)"/>
+          <text class="al" x="338" y="204" text-anchor="middle">tool requests</text>
+
+          <!-- middle arrows -->
+          <line class="ln-new" x1="470" y1="250" x2="470" y2="289" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="462" y="276" text-anchor="end">dispatch</text>
+          <line class="ln-new" x1="570" y1="293" x2="570" y2="254" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="578" y="276">logs · status</text>
+          <line class="ln-new" x1="520" y1="407" x2="520" y2="436" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="528" y="426">usage</text>
+
+          <!-- gateway -> provider bus -->
+          <line class="ln-new" x1="651" y1="350" x2="725" y2="350"/>
+          <text class="al-new" x="688" y="342" text-anchor="middle">exec/submit</text>
+          <line class="ln-new" x1="725" y1="105" x2="725" y2="405"/>
+          <line class="ln-new" x1="725" y1="105" x2="782" y2="105" marker-end="url(#arr-new)"/>
+          <line class="ln-new" x1="725" y1="205" x2="782" y2="205" marker-end="url(#arr-new)"/>
+          <line class="ln-new" x1="725" y1="305" x2="782" y2="305" marker-end="url(#arr-new)"/>
+          <line class="ln-new" x1="725" y1="405" x2="782" y2="405" marker-end="url(#arr-new)" stroke-dasharray="5 4"/>
+
+          <!-- providers -->
+          <rect class="box-new" x="786" y="70" width="282" height="70" rx="4"/>
+          <text class="t" x="802" y="97">Modal Sandbox · chat machine</text>
+          <text class="s" x="802" y="118">4 cores · exec in seconds · snapshots</text>
+
+          <rect class="box-new" x="786" y="170" width="282" height="70" rx="4"/>
+          <text class="t" x="802" y="197">Modal Function · 8-core · GPU</text>
+          <text class="s" x="802" y="218">batch solves · per-second billing</text>
+
+          <rect class="box-new" x="786" y="270" width="282" height="70" rx="4"/>
+          <text class="t" x="802" y="297">EC2 whole node · 32/96-core</text>
+          <text class="s" x="802" y="318">hpc7a · one tenant per VM</text>
+
+          <rect class="box-later" x="786" y="370" width="282" height="70" rx="4"/>
+          <text class="t" x="802" y="397">AWS PCS · cluster</text>
+          <text class="s" x="802" y="418">managed Slurm + EFA · later</text>
+
+          <!-- data plane -->
+          <rect class="box-new" x="396" y="560" width="214" height="56" rx="4"/>
+          <text class="t" x="412" y="583">Working volume</text>
+          <text class="s" x="412" y="602">mounted into sandbox and jobs</text>
+
+          <rect class="box-new" x="630" y="560" width="216" height="56" rx="4"/>
+          <text class="t" x="646" y="583">Environments</text>
+          <text class="s" x="646" y="602">built-in and custom · @digest</text>
+
+          <rect class="box-new" x="866" y="560" width="202" height="56" rx="4"/>
+          <text class="t" x="882" y="583">R2 results</text>
+          <text class="s" x="882" y="602">fields · report.json · previews</text>
+
+          <!-- data plane arrows -->
+          <path class="ln" d="M156 468 V588 H392" marker-end="url(#arr)"/>
+          <text class="al" x="170" y="580">sync by content hash</text>
+          <line class="ln-new" x1="808" y1="556" x2="808" y2="504" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="800" y="522" text-anchor="end">pull image@digest</text>
+          <line class="ln-new" x1="968" y1="500" x2="968" y2="556" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="960" y="522" text-anchor="end">outputs + previews</text>
+
+          <!-- R2 -> app (results skip Convex) -->
+          <path class="ln-new" d="M1068 588 H1092 V20 H250 V66" marker-end="url(#arr-new)"/>
+          <text class="al-new" x="680" y="14" text-anchor="middle">previews loaded straight from R2 with signed URLs</text>
+
+          <!-- legend -->
+          <rect class="box" x="32" y="612" width="14" height="12" rx="2"/>
+          <text class="s" x="52" y="622">exists today</text>
+          <rect class="box-new" x="128" y="612" width="14" height="12" rx="2"/>
+          <text class="s" x="148" y="622">new</text>
+          <rect class="cred" x="186" y="612" width="14" height="12" rx="2"/>
+          <text class="s" x="206" y="622">credentials</text>
+        </svg>
+      </div>
+      <figcaption>Drawn with the agent on the engineer's machine. An agent can also run on a cloud machine; the engineer signs in there, and the login stays in that machine's profile. Beam never holds a provider login. Everything blue is new. The gateway is the only component with Beam's cloud keys; Convex keeps state and small metadata, and large results move from the provider to R2 and from R2 to the viewer without passing through Convex.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="loop-h">
+    <h2 id="loop-h">The loop</h2>
+    <p class="prose muted">An engineer asks for something specific. Example: a thermal-structural check of a bracket under 200&nbsp;°C cycling.</p>
+    <ol class="loop">
+      <li><span>The agent calls <code>machine_open("fea")</code> and reads the environment's <code>/beam/env.md</code>: installed tools, versions, worked examples and known gotchas.</span></li>
+      <li><span>It writes the setup into the git worktree. <code>machine_sync</code> pushes only changed files to the machine.</span></li>
+      <li><span>It iterates with <code>machine_exec</code> on the chat's 4-core cloud machine: mesh, coarse solve, read diagnostics, fix. Each step takes seconds.</span></li>
+      <li><span><code>job_estimate</code> then <code>job_submit</code> on a 96-core machine posts an approval card showing the worst-case cost, for example "~12 core-hours, at most $8". The engineer approves.</span></li>
+      <li><span>The job writes its results to R2. The simulation card fills in with the 3D view and the numbers from <code>manifest.json</code>.</span></li>
+      <li><span>The agent sweeps mesh refinement and reports the grid convergence index on the stress hotspot. The engineer pushes back, and the loop starts again at step 3.</span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="speeds-h">
+    <h2 id="speeds-h">Machines</h2>
+    <p class="prose">Two speeds of work need two kinds of machine. The chat's machine is small, interactive and used constantly, so it runs on serverless sandboxes. Large CPU solves are limited by memory bandwidth and sensitive to noisy neighbours, so they run on dedicated whole nodes. Agents choose from a short list.</p>
+    <div class="tbl scroll">
+      <table>
+        <thead><tr><th>Machine</th><th>Shape</th><th>Backed by</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">chat machine</td><td>4 cores · 16 GB</td><td>Modal Sandbox</td><td>Iterating: mesh, check, short runs</td></tr>
+          <tr><td class="mono">8-core</td><td>8 cores · 32 GB</td><td>Modal Function</td><td>Most 2D and small 3D solves</td></tr>
+          <tr><td class="mono">32-core</td><td>32 cores · 128 GB, whole node</td><td>EC2 c7a or hpc7a</td><td>Medium 3D solves</td></tr>
+          <tr><td class="mono">96-core</td><td>96 cores · 768 GB, whole node</td><td>EC2 hpc7a</td><td>10–50M-cell CFD, large FEA</td></tr>
+          <tr><td class="mono">1 GPU / 8 GPUs</td><td>L40S / H100</td><td>Modal Function</td><td>LBM, JAX/Warp, MD, surrogate models</td></tr>
+          <tr><td class="mono">cluster</td><td>N × 96-core with EFA</td><td>AWS PCS (later)</td><td>Multi-node MPI when a customer needs it</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="img-h">
+    <h2 id="img-h">Environments</h2>
+    <p class="prose">Built-in environments share a base: gmsh, CadQuery and build123d on OpenCascade, meshio, TetGen, pyvista, headless ParaView, numpy and scipy, Dakota, OpenMDAO and SALib. Domain families sit on top. They are separate images because MPI and PETSc versions conflict across solvers. Teams can also bring a custom environment from their own Dockerfile; it is marked custom until it has benchmarks.</p>
+    <div class="tbl scroll">
+      <table>
+        <thead><tr><th>Family</th><th>Tools</th><th>Covers</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">cfd</td><td>OpenFOAM, SU2, NekRS</td><td>Incompressible and compressible flow, aero with adjoint optimization</td></tr>
+          <tr><td class="mono">fea</td><td>FEniCSx, CalculiX, Code_Aster, Elmer</td><td>Structures, heat in solids, fatigue, modal analysis, acoustics</td></tr>
+          <tr><td class="mono">multiphysics</td><td>MOOSE, preCICE</td><td>Coupled fluid–structure and conjugate heat transfer</td></tr>
+          <tr><td class="mono">em</td><td>Meep, Palace, openEMS</td><td>Photonics, RF and microwave, antennas</td></tr>
+          <tr><td class="mono">atomistic</td><td>LAMMPS, GROMACS, OpenMM, ASE, Quantum ESPRESSO, CP2K</td><td>Materials, molecular dynamics, quantum chemistry</td></tr>
+          <tr><td class="mono">chem-energy</td><td>Cantera, PyBaMM</td><td>Combustion and kinetics, batteries</td></tr>
+          <tr><td class="mono">systems</td><td>Julia ModelingToolkit, OpenModelica, MuJoCo, Drake, Chrono</td><td>System dynamics, controls, robotics, multibody</td></tr>
+          <tr><td class="mono">gpu-sci</td><td>JAX, Warp, JAX-Fluids, GPU builds of the above</td><td>Differentiable simulation, large particle and LBM runs</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid2">
+      <div class="prose">
+        <h3>What each environment carries</h3>
+        <p><code>/beam/env.md</code> and <code>env.json</code>: what is installed, one worked example per tool that runs in under a minute, and known gotchas. The agent reads this before anything else. Our existing OpenFOAM recipes become examples here instead of code paths in Beam.</p>
+        <p>A small <code>beam_out</code> Python helper that writes results in the standard layout.</p>
+        <p>A benchmark suite with known answers, run on every environment build and by an agent from a plain-language prompt. A family is marked <em>available</em> once its smoke tests pass and <em>validated</em> once agents reliably solve its benchmarks.</p>
+      </div>
+      <div>
+        <pre><span class="c"># every job writes this layout</span>
+beam/out/
+  report.json    <span class="c"># named quantities, units, provenance</span>
+  fields/*.vtkhdf <span class="c"># or .vtu</span>
+  series/*.csv   <span class="c"># residuals, forces, probes</span>
+  images/*.png
+  preview/       <span class="c"># decimated glTF/VTP, slices</span></pre>
+      </div>
+    </div>
+    <p class="note">Open-source tools only at first. Commercial solvers such as Ansys, COMSOL and Abaqus need a license server the customer brings. FluidX3D is excluded because its license forbids commercial use.</p>
+  </section>
+
+  <section aria-labelledby="tools-h">
+    <h2 id="tools-h">Agent tools</h2>
+    <p class="prose">Added to the runner the same way <code>tools.ts</code> exposes the simulation tools today. Every call goes through Convex, so approvals, membership and private-chat rules still apply.</p>
+    <pre>environment_list                    <span class="c">→ built-in and custom environments with their env.md</span>
+machine_open(environment)           <span class="c">→ the chat's cloud machine; stops when idle, snapshot on stop</span>
+machine_exec(cmd, timeout ≤ 10m)    <span class="c">→ streamed stdout/stderr, exit code</span>
+machine_sync()                      <span class="c">→ push changed worktree files</span>
+job_estimate(cmd, machine)          <span class="c">→ core-hours, $ range</span>
+job_submit(cmd, machine, deadline)  <span class="c">→ approval card with cost → job id</span>
+job_status · job_logs · job_cancel
+results_list · results_read · view_publish · render_view</pre>
+  </section>
+
+  <section aria-labelledby="prov-h">
+    <h2 id="prov-h">Serverless provider: Modal</h2>
+    <p class="prose">Decided 27&nbsp;Sep 2026, from each provider's docs and pricing pages as of that date. The comparison normalizes to one busy hour on 8 vCPU (4 physical cores on Modal) with 16 GB.</p>
+    <div class="tbl scroll">
+      <table>
+        <thead><tr><th></th><th>Modal</th><th>Vercel Sandbox</th><th>E2B</th><th>fal</th></tr></thead>
+        <tbody>
+          <tr><td>Exec API for agents</td><td><span class="pill yes">yes</span> Sandbox <code>exec()</code></td><td><span class="pill yes">yes</span> <code>runCommand()</code></td><td><span class="pill yes">yes</span></td><td><span class="pill no">no</span> HTTP endpoints only</td></tr>
+          <tr><td>Largest machine</td><td>64 cores (measured)</td><td>4 vCPU Hobby · 8 Pro · 32 Enterprise</td><td>8 vCPU / 8 GiB Hobby · more on Pro</td><td>8 cores / 30 GB CPU</td></tr>
+          <tr><td>GPUs</td><td><span class="pill yes">yes</span> L40S to B200</td><td><span class="pill no">no</span></td><td><span class="pill no">no</span></td><td><span class="pill yes">yes</span> H100 to B300</td></tr>
+          <tr><td>Custom images</td><td>Any OCI image or code-defined</td><td>OCI via Vercel registry, amd64 only</td><td>SDK template builder</td><td>Dockerfile</td></tr>
+          <tr><td>Max session</td><td>24 h</td><td>45 min Hobby · 24 h Pro</td><td>1 h Hobby · 24 h Pro</td><td>Per request, default 1 h</td></tr>
+          <tr><td>Disk</td><td>Up to 3 TiB</td><td>64 GB + mountable drives</td><td>10 GiB Hobby · 20+ GiB Pro</td><td>Persistent <code>/data</code></td></tr>
+          <tr><td>TypeScript SDK</td><td><span class="pill yes">yes</span></td><td><span class="pill yes">yes</span></td><td><span class="pill yes">yes</span></td><td><span class="pill part">calls only</span></td></tr>
+          <tr><td>1 h · 8 vCPU · 16 GB</td><td>$0.32 as a Function · $0.95 as a Sandbox</td><td>$1.36 (CPU billed only while busy)</td><td>$0.66 (needs Pro for 16 GB)</td><td>n/a</td></tr>
+          <tr><td>Free to test</td><td>$30 credit every month · 100 containers · 10 GPUs at once</td><td>Hobby: 5 CPU-hours and 420 GB-hours a month · 10 at once · pauses at the limit, never bills</td><td>$100 credit once · 20 at once</td><td>Not assessed</td></tr>
+          <tr><td>Paid plan</td><td>Usage only; startup credit program</td><td>Pro $20/month credit, then usage</td><td>$150/month plus usage</td><td>Usage</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid2">
+      <div class="prose">
+        <h3>Decision: Modal</h3>
+        <p>Modal is the only one of the four that covers chat machines, batch jobs and GPUs with one image definition. Run long solves as Modal Functions rather than Sandboxes: Sandbox CPU costs three times as much per core-second.</p>
+        <p>The gateway reaches Modal only through the <code>ComputeExecutor</code> interface, and images are plain OCI images. Vercel Sandbox stays the fallback for chat machines if Modal's sandboxes disappoint. It has Firecracker isolation and a good TypeScript SDK, but tops out at 8 vCPU on Pro and has no GPUs.</p>
+      </div>
+      <div class="prose">
+        <h3>First checks, on the free tier</h3>
+        <p>Find Modal's real CPU ceiling by creating a Sandbox with <code>cpu=64</code>. The docs say an oversized request is rejected with <code>InvalidError</code>, so this costs nothing. Measured on 27 Sep 2026: the ceiling is 64 cores, and MPI solves stop speeding up beyond about 8 processes, so Modal machines stop at 8 cores and larger ones run on EC2.</p>
+        <p>Build one image, FEniCSx on the shared base, and run the cantilever benchmark in a Modal Sandbox. Measure cold start, image pull time and the <code>exec</code> round trip. The $30 monthly credit covers this.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="order-h">
+    <h2 id="order-h">Build order</h2>
+    <div class="phases">
+      <div class="phase"><div class="label">Phase 1</div><div>Gateway with the Modal adapter, the built-in <code>fea</code> environment, and the machine tools. This proves the loop on physics that isn't CFD.</div></div>
+      <div class="phase"><div class="label">Phase 2</div><div>Results in the standard layout, R2, and generic 3D and plot views. Move the OpenFOAM recipes into the <code>cfd</code> environment as worked examples.</div></div>
+      <div class="phase"><div class="label">Phase 3</div><div>Cost estimates in approval cards, Stripe credits and workspace budgets. Required before any outside startup uses it.</div></div>
+      <div class="phase"><div class="label">Phase 4</div><div>Whole-node EC2 for 96-core machines, custom environments, then more built-in environments in the order customers ask for them.</div></div>
+      <div class="phase"><div class="label">Later</div><div>Multi-node on AWS PCS, remote visualization for very large fields, a bare-metal pool once utilization is steady.</div></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="open-h">
+    <h2 id="open-h">Open decisions</h2>
+    <div class="prose">
+      <p><strong>Pricing.</strong> Pass compute through at cost plus a margin, or bundle it into a plan. Modal already costs more than raw cloud.</p>
+      <p><strong>Export control.</strong> Some startup engineering data falls under ITAR or EAR. That may mean US-only regions and turning some customers away. Decide before onboarding aerospace or defense teams.</p>
+      <p><strong>Long jobs.</strong> Beam agents speak only when spoken to. A paid multi-hour job probably needs an explicit "when this finishes, continue post-processing" approval.</p>
+      <p><strong>Repo rules.</strong> The gateway is a new process boundary. AGENTS.md needs a line saying it may call cloud providers, and nothing else in the repo may.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="label">Sources</div>
+    <ul>
+      <li><a href="https://modal.com/docs/guide/resources">Modal: configuring CPU, memory and disk</a> · <a href="https://modal.com/docs/guide/sandboxes">Sandboxes</a> · <a href="https://modal.com/pricing">Pricing</a></li>
+      <li><a href="https://vercel.com/docs/vercel-sandbox/pricing">Vercel Sandbox pricing and quotas</a> · <a href="https://vercel.com/docs/sandbox/concepts/images">Images</a></li>
+      <li><a href="https://e2b.dev/pricing">E2B pricing</a> · <a href="https://docs.e2b.dev/sandbox-template">E2B templates</a></li>
+      <li><a href="https://fal.ai/docs/documentation/deployment/machine-types">fal machine types</a> · <a href="https://fal.ai/serverless">fal Serverless</a></li>
+      <li><a href="https://aws.amazon.com/pcs/">AWS Parallel Computing Service</a></li>
+    </ul>
+  </footer>
+</main>

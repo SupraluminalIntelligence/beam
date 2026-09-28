@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Domain3DCase, Domain3DFields, Domain3DForces, Domain3DMeshView, Domain3DStreamlines, SimulationJob, SimulationReport, OPENFOAM_IMAGE, MAX_COMPUTE_FILE_BYTES, ahmedSurface, backgroundCells, bodyBounds, bodyLevel, canonicalMeshKey, estimateDomain3dCells, frontalArea, insideBody, locationInMesh, meshKey, type Body3D, type Point3 } from "@beam/contracts";
+import { Domain3DCase, Domain3DFields, Domain3DForces, Domain3DMeshView, Domain3DStreamlines, SimulationJob, SimulationReport, OPENFOAM_IMAGE, MAX_COMPUTE_FILE_BYTES, ahmedSurface, closeAndOrient, decodeModel, encodeStl, measureModel, modelInputPath, modelMatches, placeSurface, backgroundCells, bodyBounds, bodyLevel, canonicalMeshKey, estimateDomain3dCells, frontalArea, insideBody, locationInMesh, meshKey, type Body3D, type Point3 } from "@beam/contracts";
 const header=(object:string,klass="dictionary")=>`FoamFile { version 2.0; format ascii; class ${klass}; object ${object}; }\n`;
 const v=(p:readonly number[])=>`(${p.join(" ")})`;
 const axis={x:0,y:1,z:2} as const;
@@ -21,7 +21,7 @@ export function sliceOffset(c:Domain3DCase,s:{normal:"x"|"y"|"z";offset:number})
  return Math.abs(rel-Math.round(rel))<1e-3?s.offset+step*.0137:s.offset;
 }
 function searchable(b:Body3D){
- if(b.shape==="ahmed")return`type triSurfaceMesh; file "body_${b.name}.stl";`;
+ if(b.shape==="ahmed"||b.shape==="model")return`type triSurfaceMesh; file "body_${b.name}.stl";`;
  return b.shape==="sphere"?`type searchableSphere; centre ${v(b.centre)}; radius ${b.radius};`:b.shape==="box"?`type searchableBox; min ${v(b.min)}; max ${v(b.max)};`:`type searchableCylinder; point1 ${v(b.start)}; point2 ${v(b.end)}; radius ${b.radius};`;
 }
 /** ASCII STL of a triangulated body surface, read by snappyHexMesh as a triSurfaceMesh. */
@@ -33,6 +33,19 @@ export function stlText(name:string,s:{points:number[];triangles:number[]}){
   out.push(` facet normal ${n.map(x=>x/m).join(" ")}`,"  outer loop",...[a,b,c].map(q=>`   vertex ${q!.join(" ")}`),"  endloop"," endfacet");
  }
  return out.concat(`endsolid ${name}`,"").join("\n");
+}
+/**
+ * An imported body's stored surface, checked against the measurements the study was validated with,
+ * then placed in world coordinates as the binary STL snappyHexMesh reads.
+ */
+export async function writeModelSurfaces(c:Domain3DCase,dir:string){
+ for(const b of c.bodies){
+  if(b.shape!=="model")continue;
+  const {surface,shells}=closeAndOrient(decodeModel(await readFile(join(dir,modelInputPath(b)))));
+  if(!modelMatches(measureModel(surface,shells),b.model))throw new Error(`Model ${b.model.file} does not match the surface body ${b.name} was set up with; import it again`);
+  await mkdir(join(dir,"constant","triSurface"),{recursive:true});
+  await writeFile(join(dir,"constant","triSurface",`body_${b.name}.stl`),encodeStl(placeSurface(b,surface),`body_${b.name}`));
+ }
 }
 /** Body loads are reported as coefficients only for a tunnel-style flow along +x. */
 export function flowAlongX(c:Domain3DCase){return c.boundaries.every(b=>b.type!=="velocity-inlet"||(b.velocity[0]>0&&Math.hypot(b.velocity[1],b.velocity[2])<=1e-9*b.velocity[0]));}
@@ -54,6 +67,11 @@ export function streamlineSeeds(c:Domain3DCase):Point3[]{
  for(const y of span(1,.3,.3,9))for(const z of span(2,.15,.4,7)){const p:Point3=[x,y,z];if(!c.bodies.some(body=>insideBody(body,p)))seeds.push(p);}
  return seeds;
 }
+/**
+ * An imported model refines one level further where its surface curves sharply (resolveFeatureAngle),
+ * so thin parts such as pins or mirrors get cells across them. Built-in shapes keep a single level.
+ */
+export const surfaceMaxLevel=(c:Domain3DCase,b:Body3D)=>b.shape==="model"?bodyLevel(c,b)+1:bodyLevel(c,b);
 const patchType=(c:Domain3DCase,name:string)=>{const t=c.boundaries.find(b=>b.name===name)!.type;return t==="wall"?"wall":t==="symmetry"?"symmetry":"patch";};
 export function usesSnappy(c:Domain3DCase){return c.bodies.length>0||(c.refinements??[]).length>0;}
 /** Complete OpenFOAM dictionaries for a composable 3-D domain. SI units; solver pressure is kinematic. */
@@ -96,7 +114,7 @@ export function domain3dFiles(raw:Domain3DCase,processes=1):Record<string,string
  if(usesSnappy(c)){
   const geometry=[...c.bodies.map(b=>` body_${b.name} { ${searchable(b)} }`),...refinements.flatMap(r=>r.kind==="box"?[` refine_${r.name} { type searchableBox; min ${v(r.min)}; max ${v(r.max)}; }`]:[])];
   const regions=[...c.bodies.flatMap(b=>{const d=refinements.filter(r=>r.kind==="body"&&r.body===b.name&&r.distance>0).map(r=>r.kind==="body"?`(${r.distance} ${r.level})`:"");return d.length?[`  body_${b.name} { mode distance; levels (${d.join(" ")}); }`]:[];}),...refinements.flatMap(r=>r.kind==="box"?[`  refine_${r.name} { mode inside; levels ((1e15 ${r.level})); }`]:[])];
-  files["system/snappyHexMeshDict"]=header("snappyHexMeshDict")+`castellatedMesh true;\nsnap ${c.bodies.length>0};\naddLayers false;\ngeometry {\n${geometry.join("\n")}\n}\ncastellatedMeshControls {\n maxLocalCells 2000000; maxGlobalCells 4000000; minRefinementCells 0; maxLoadUnbalance 0.1; nCellsBetweenLevels 3;\n features ();\n refinementSurfaces {\n${c.bodies.map(b=>`  body_${b.name} { level (${bodyLevel(c,b)} ${bodyLevel(c,b)}); patchInfo { type wall; } }`).join("\n")}\n }\n resolveFeatureAngle 30;\n refinementRegions {\n${regions.join("\n")}\n }\n locationInMesh ${v(locationInMesh(c))};\n allowFreeStandingZoneFaces true;\n}\nsnapControls { nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; nFeatureSnapIter 10; implicitFeatureSnap true; explicitFeatureSnap false; multiRegionFeatureSnap false; }\naddLayersControls { relativeSizes true; layers {} expansionRatio 1.2; finalLayerThickness 0.5; minThickness 0.1; nGrow 0; featureAngle 60; nRelaxIter 3; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10; maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3; minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50; }\nmeshQualityControls { #includeEtc "caseDicts/mesh/generation/meshQualityDict.cfg" }\nmergeTolerance 1e-6;\n`;
+  files["system/snappyHexMeshDict"]=header("snappyHexMeshDict")+`castellatedMesh true;\nsnap ${c.bodies.length>0};\naddLayers false;\ngeometry {\n${geometry.join("\n")}\n}\ncastellatedMeshControls {\n maxLocalCells 2000000; maxGlobalCells 4000000; minRefinementCells 0; maxLoadUnbalance 0.1; nCellsBetweenLevels 3;\n features ();\n refinementSurfaces {\n${c.bodies.map(b=>`  body_${b.name} { level (${bodyLevel(c,b)} ${surfaceMaxLevel(c,b)}); patchInfo { type wall; } }`).join("\n")}\n }\n resolveFeatureAngle 30;\n refinementRegions {\n${regions.join("\n")}\n }\n locationInMesh ${v(locationInMesh(c))};\n allowFreeStandingZoneFaces true;\n}\nsnapControls { nSmoothPatch 3; tolerance 2.0; nSolveIter 50; nRelaxIter 5; nFeatureSnapIter 10; implicitFeatureSnap true; explicitFeatureSnap false; multiRegionFeatureSnap false; }\naddLayersControls { relativeSizes true; layers {} expansionRatio 1.2; finalLayerThickness 0.5; minThickness 0.1; nGrow 0; featureAngle 60; nRelaxIter 3; nSmoothSurfaceNormals 1; nSmoothNormals 3; nSmoothThickness 10; maxFaceThicknessRatio 0.5; maxThicknessToMedialRatio 0.3; minMedialAxisAngle 90; nBufferCellsNoExtrude 0; nLayerIter 50; }\nmeshQualityControls { #includeEtc "caseDicts/mesh/generation/meshQualityDict.cfg" }\nmergeTolerance 1e-6;\n`;
   files["system/createPatchDict"]=header("createPatchDict")+`pointSync false;\npatches (\n${bodyPatches.map(p=>` { name ${p}; patchInfo { type wall; } constructFrom patches; patches (${c.bodies.filter(b=>b.boundary===p).map(b=>`body_${b.name}`).join(" ")}); }`).join("\n")}\n);\n`;
  }
  return files;
@@ -190,6 +208,7 @@ export async function runDomain3d(sim:SimulationJob,dir:string,container:Contain
   processes=domain3dProcesses(saved.cells);
  }
  for(const [path,text] of Object.entries(domain3dFiles(c,processes))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
+ if(sim.stage==="mesh")await writeModelSurfaces(c,dir);
  console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM image ${OPENFOAM_IMAGE} · 3D · ${processes} process${processes>1?"es":""}`);
  const commands=sim.stage==="mesh"?domain3dMeshCommands(c):["tar -xzf mesh-input.tar.gz -C constant polyMesh",...domain3dSolveCommands(processes,streamlineSeeds(c).length>0)];
  await container(commands.join("; "),{cpus:4,memory:"4g"});

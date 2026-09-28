@@ -37,6 +37,8 @@ Current limits: native macOS/Linux local execution (Windows via a Linux/WSL runn
 
 ## Extending to compute servers / HPC
 
+The chosen direction is the [compute plane](decisions/2026-09-27-compute-plane.md): a gateway implementing this interface for Modal and EC2, pre-built tool images, and results in object storage.
+
 `ComputeExecutor` defines `submit`, `recover`, `inspect`, `cancel`, `cancelSubmission`, and `readOutput`. Submit must be idempotent for the Beam job ID and inspect must work after reconnect. Cancellation before a handle is saved persists a tombstone by Beam job ID so a racing submission cannot escape it. The durable job ID and artifact references stay the same when adding an executor; the current service advertises and validates only `local-process`.
 
 A remote implementation must add target discovery/authentication and capabilities, resource requests (CPU/RAM/GPU/wall time), scheduler mappings (e.g. Slurm job IDs), durable leases/heartbeats, and resumable object-store staging. Large meshes and field results should move through object storage directly, with previews/metadata in Beam. Production remote targets also need quota, retention, and authorization policies. The contract provides a seam, not an implemented remote scheduler.

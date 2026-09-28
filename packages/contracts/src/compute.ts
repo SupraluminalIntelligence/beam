@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { SimulationJob, simulationOutputs, meshInputPath } from "./simulation.ts";
+import { SimulationJob, simulationOutputs, meshInputPath, simulationMeshInputs } from "./simulation.ts";
+import { EnvironmentName, ImageRef } from "./environments.ts";
+import { MachineId } from "./machines.ts";
 
 /** Portable paths within a job's immutable input snapshot / private working directory. */
 export const JobPath = z.string().min(1).max(240).refine(
@@ -19,7 +21,7 @@ export const ProcessJobSpec = z.object({
 }).strict().superRefine((spec, ctx) => {
   if (spec.simulation || spec.executable === "beam:openfoam") {
     const sim = spec.simulation;
-    if (!sim || spec.executable !== "beam:openfoam" || spec.args.length || JSON.stringify(spec.outputs)!==JSON.stringify(simulationOutputs(sim.stage,sim.config)) || (sim.stage==="mesh" ? spec.inputs.length!==0 : spec.inputs.length!==1 || spec.inputs[0]?.path!==meshInputPath(sim.config) || !sim.meshJobId))
+    if (!sim || spec.executable !== "beam:openfoam" || spec.args.length || JSON.stringify(spec.outputs)!==JSON.stringify(simulationOutputs(sim.stage,sim.config)) || (sim.stage==="mesh" ? JSON.stringify(spec.inputs.map(i=>i.path))!==JSON.stringify(simulationMeshInputs(sim.config).map(i=>i.path)) : spec.inputs.length!==1 || spec.inputs[0]?.path!==meshInputPath(sim.config) || !sim.meshJobId))
       ctx.addIssue({code:"custom",message:"Invalid OpenFOAM job manifest"});
   }
   if (JSON.stringify(spec).length > 48_000)
@@ -31,6 +33,35 @@ export const ProcessJobSpec = z.object({
   }
 });
 export type ProcessJobSpec = z.infer<typeof ProcessJobSpec>;
+
+/**
+ * A command in an environment on a machine. The command runs with `bash -lc` inside the environment's
+ * container, in a working directory holding the inputs; unlike ProcessJobSpec it may use a shell, because
+ * the container, not the host, is the boundary. Results are whatever the job writes under beam/out,
+ * described by beam/out/manifest.json (see results.ts), so there is no output list.
+ */
+export const EnvironmentJobSpec = z.object({
+  version: z.literal(1),
+  kind: z.literal("environment"),
+  title: z.string().trim().min(1).max(120),
+  environment: z.object({ name: EnvironmentName, image: ImageRef }).strict(),
+  command: z.string().trim().min(1).max(8000).refine(v => !v.includes("\0"), "Commands cannot contain NUL"),
+  inputs: z.array(z.object({ assetId: z.string().min(1).max(128), path: JobPath }).strict()).max(64),
+  machine: MachineId,
+  timeoutSeconds: z.number().int().min(1).max(86400),
+}).strict().superRefine((spec, ctx) => {
+  if (JSON.stringify(spec).length > 48_000)
+    ctx.addIssue({ code: "custom", message: "Job specification must be smaller than 48,000 characters" });
+  const paths = spec.inputs.map(i => i.path);
+  if (new Set(paths).size !== paths.length) ctx.addIssue({ code: "custom", message: "Duplicate job paths" });
+  if (paths.some(p => paths.some(other => other !== p && other.startsWith(`${p}/`))))
+    ctx.addIssue({ code: "custom", message: "A file path cannot also be a directory" });
+  if (paths.some(p => p === "beam" || p === "beam/out" || p.startsWith("beam/out/")))
+    ctx.addIssue({ code: "custom", message: "beam/out is reserved for the job's results" });
+});
+export type EnvironmentJobSpec = z.infer<typeof EnvironmentJobSpec>;
+export const JobSpec = z.union([ProcessJobSpec, EnvironmentJobSpec]);
+export type JobSpec = z.infer<typeof JobSpec>;
 export const JobState = z.enum(["awaiting-approval", "queued", "preparing", "running", "publishing", "succeeded", "failed", "cancelled"]);
 export type JobState = z.infer<typeof JobState>;
 export const jobFinished = (state: string) => ["succeeded", "failed", "cancelled"].includes(state);

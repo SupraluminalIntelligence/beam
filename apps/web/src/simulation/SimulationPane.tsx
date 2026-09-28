@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { SimulationCase, studySetupChecks, PLATES_FRE, developedNusselt, type ChannelCase, defaultChannel, defaultCylinder, defaultPlanar, defaultParallelChannels, parallelLayout, defaultDomain3d, defaultAhmedTunnel, PlanarMeshView, WakeFields, decodeWakeFrames, decodeWakeGeometry, Domain3DFields, Domain3DMeshView, decodeDomain3dFrames, meshKey, SimulationFields, SimulationReport, jobFinished } from "@beam/contracts";
+import { SimulationCase, studySetupChecks, PLATES_FRE, developedNusselt, type ChannelCase, defaultChannel, defaultCylinder, defaultPlanar, defaultParallelChannels, parallelLayout, defaultDomain3d, defaultAhmedTunnel, PlanarMeshView, WakeFields, decodeWakeFrames, decodeWakeGeometry, Domain3DFields, Domain3DMeshView, decodeDomain3dFrames, meshKey, SimulationFields, SimulationReport, jobFinished, modelWindTunnel, guessUnits, MODEL_UNITS, windsorTunnel, WINDSOR } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui, useUi } from "../lib/ui";
@@ -14,6 +14,8 @@ import { FlowHistoryPlot, ParallelDrawing, ParallelMeasurements, ParallelRail } 
 import { Domain3DLoads, Domain3DRail } from "./Domain3DRail";
 import { SimulationProgress, simulationPhase } from "./SimulationProgress";
 import { SetupChecks, checkSummary } from "./SetupChecks";
+import { bundledModel, importModelFile, MODEL_ACCEPT } from "./modelImport";
+import windsorUrl from "./assets/windsor_1.stl.gz?url";
 import "./simulation.css";
 
 const Domain3DViewer = lazy(() => import("./Domain3DViewer"));
@@ -31,6 +33,7 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
   const selectStudy=useMutation(api.compute.selectSimulation);
   const jobs=useQuery(api.compute.list,{chatId}) ?? [], targets=useQuery(api.compute.targets,{chatId}) ?? [];
   const save=useMutation(api.compute.saveSimulation), submit=useMutation(api.compute.submitSimulation), cancel=useMutation(api.compute.cancel);
+  const modelUploadUrl=useMutation(api.compute.modelUploadUrl), stageModel=useMutation(api.compute.stageModel), modelPicker=useRef<HTMLInputElement>(null);
   const [caseId,setCaseId]=useState<Id<"simulationCases">|undefined>(),[revision,setRevision]=useState(0),[name,setName]=useState("Heated channel"),[config,setConfig]=useState<SimulationCase>({...defaultChannel});
   const [baseline,setBaseline]=useState(""),[stage,setStage]=useState<Stage>("setup"),[section,setSection]=useState("geometry"),[rail,setRail]=useState(true);
   const [runner,setRunner]=useState(""),[selected,setSelected]=useState<Id<"computeJobs">|undefined>(),[busy,setBusy]=useState(false),[error,setError]=useState("");
@@ -119,6 +122,21 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
   const setupChecks=valid.success?studySetupChecks(valid.data):null,shownChecks=studySetupChecks(shown);
   const fact=(label:string,value:string)=><div className="sim-value" key={label}><span>{label}</span><span>{value}</span></div>;
   const startNew=(kind:keyof typeof studyKinds="channel")=>{setCaseId(undefined);setRevision(0);setName(studyKinds[kind]);setConfig(kind==="channel"?{...defaultChannel}:kind==="planar"?structuredClone(defaultPlanar):kind==="domain3d"?structuredClone(defaultDomain3d):kind==="ahmed"?structuredClone(defaultAhmedTunnel):kind==="parallel-channels"?structuredClone(defaultParallelChannels):{...defaultCylinder});setBaseline("");setSelected(undefined);setStage("setup");setResidualField(kind!=="ahmed"&&thermal(kind)?"p_rgh":"p");setError("");};
+  const storeModel={uploadUrl:()=>modelUploadUrl({chatId}),stage:(storageId:string)=>stageModel({chatId,storageId:storageId as Id<"_storage">})};
+  /** The WindsorML body in its tunnel, with the published drag to compare against. Its geometry ships with Beam. */
+  async function windsorStudy(){
+    const model=await importModelFile(await bundledModel(windsorUrl,WINDSOR.file),storeModel);
+    startNew("domain3d");setName("Windsor body wind tunnel");setConfig(windsorTunnel(model));
+  }
+  /** A new wind-tunnel study around an imported STL or OBJ, in the units its size suggests. */
+  async function importTunnel(file:File){
+    const model=await importModelFile(file,storeModel);
+    const guessed=guessUnits(model),units=[guessed,...(["mm","m"] as const).filter(u=>u!==guessed)];
+    let tunnel:SimulationCase|null=null,problem="";
+    for(const u of units){try{tunnel=modelWindTunnel(model,{scale:MODEL_UNITS[u]});break;}catch(e){problem||=(e as Error).message;}}
+    if(!tunnel)throw new Error(problem);
+    startNew("domain3d");setName(`${file.name.replace(/\.[^.]+$/,"").slice(0,80)} wind tunnel`);setConfig(tunnel);
+  }
   return <div className="simulation">
     <header className="sim-modelbar"><input aria-label="Study name" className="sim-name" value={name} onChange={e=>setName(e.target.value)} maxLength={100}/>{caseId&&context?.activeStudyId!==caseId&&<button disabled={busy} onClick={()=>void action(()=>selectStudy({chatId,caseId}))}>Use in chat</button>}<span className="sim-meta">{config.geometry==="channel"?"2D channel":config.geometry==="planar"?"2D fluid domain":config.geometry==="domain3d"?"3D fluid domain":config.geometry==="parallel-channels"?"2D parallel channels":"2D cylinder wake"} · {revision?`rev ${revision}`:"new study"}{dirty?" · draft":""}</span><div className="sim-actions"><button disabled={busy||!valid.success||conflict||!dirty} onClick={()=>void action(saveCase)}>Save</button><button disabled={busy||active||conflict||!valid.success||!target?.openfoam?.ready} onClick={()=>void action(()=>launch("mesh"))}>Mesh</button><button className="sim-primary" disabled={busy||active||conflict||!valid.success||!mesh||!target?.openfoam?.ready} onClick={()=>void action(()=>launch("solve"))}>Run</button></div></header>
     <nav className="sim-stages" aria-label="Simulation stages">{(["setup","mesh","runs","results"] as const).map(s=><button key={s} className={stageTone(s)} aria-current={stage===s?"step":undefined} onClick={()=>{setStage(s);setSelected(undefined);}}><span>{status(s)}</span> {s}<small>{stageDescription(s)}</small></button>)}<button className="sim-rail-toggle" aria-pressed={rail} onClick={()=>setRail(!rail)}>{rail?"■":"□"} Rail</button></nav>
@@ -139,7 +157,8 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
       {rail&&<aside key={stage} className="sim-rail">
         <div className="sim-section-title">STUDY <button onClick={()=>startNew(config.geometry)} disabled={busy||dirty&&!!caseId} title={dirty&&caseId?"Save or reload before changing cases":"New simulation study"}>＋</button></div>
         <select aria-label="Saved study" value={caseId??""} disabled={busy||dirty&&!!caseId} onChange={e=>{const row=cases?.find(c=>c._id===e.target.value);if(row)void action(async()=>{await selectStudy({chatId,caseId:row._id});load(row);});}}><option value="">New study</option>{cases?.map(c=><option key={c._id} value={c._id}>{c.name}</option>)}</select>
-        <div className="sim-section-title">NEW STUDY</div><select aria-label="New study type" value="" disabled={busy||!!caseId&&dirty} onChange={e=>{if(e.target.value)startNew(e.target.value as keyof typeof studyKinds);}}><option value="">Choose a study…</option><option value="channel">Heated channel · steady</option><option value="parallel-channels">Parallel channels · buoyant, transient</option><option value="cylinder">Cylinder wake · animated</option><option value="planar">Planar flow · three-cylinder example</option><option value="domain3d">3D flow · sphere · k-ω SST</option><option value="ahmed">Wind tunnel · Ahmed body · 25°</option></select>
+        <div className="sim-section-title">NEW STUDY</div><select aria-label="New study type" value="" disabled={busy||!!caseId&&dirty} onChange={e=>{if(e.target.value==="import")modelPicker.current?.click();else if(e.target.value==="windsor")void action(windsorStudy);else if(e.target.value)startNew(e.target.value as keyof typeof studyKinds);}}><option value="">Choose a study…</option><option value="channel">Heated channel · steady</option><option value="parallel-channels">Parallel channels · buoyant, transient</option><option value="cylinder">Cylinder wake · animated</option><option value="planar">Planar flow · three-cylinder example</option><option value="domain3d">3D flow · sphere · k-ω SST</option><option value="ahmed">Wind tunnel · Ahmed body · 25°</option><option value="windsor">Wind tunnel · Windsor body · WindsorML</option><option value="import">Wind tunnel · import a 3D model (STL, OBJ)…</option></select>
+        <input ref={modelPicker} type="file" accept={MODEL_ACCEPT} hidden aria-label="3D model file" onChange={e=>{const file=e.target.files?.[0];e.target.value="";if(file)void action(()=>importTunnel(file));}}/>
         {dirty&&caseId&&<button className="sim-text-button" onClick={()=>current&&load(current)}>Discard draft · reload saved</button>}
         <div className="sim-section-title">RUNNER</div><select aria-label="Simulation runner" value={target?.id??""} onChange={e=>setRunner(e.target.value)}>{!targets.length&&<option value="">No runner connected</option>}{targets.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><p>{target?.openfoam?.ready?"OpenCFD OpenFOAM 2512 · Docker · local":target?.openfoam?.message??"Start an updated Beam runner and Docker to enable meshing and solving."}</p>
         {stage==="setup"?<>
