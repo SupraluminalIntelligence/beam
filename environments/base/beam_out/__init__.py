@@ -145,19 +145,27 @@ class Results:
         full = f"fields/{slug}.vtu"
         self._vtu(full, pts, tets, {k: (a if nsteps is None else a[-1]) for k, (a, _) in clean.items()})
 
-        faces = np.sort(np.concatenate([tets[:, [0, 1, 2]], tets[:, [0, 1, 3]], tets[:, [0, 2, 3]], tets[:, [1, 2, 3]]]), axis=1)
-        uniq, counts = np.unique(faces, axis=0, return_counts=True)
-        surface = uniq[counts == 1]
+        # The boundary: faces that belong to one tetrahedron, each wound so its normal points away from
+        # that tetrahedron's fourth vertex, i.e. out of the part.
+        corners = tets[:, [[0, 1, 2, 3], [0, 1, 3, 2], [0, 2, 3, 1], [1, 2, 3, 0]]].reshape(-1, 4)
+        _, first, counts = np.unique(np.sort(corners[:, :3], axis=1), axis=0, return_index=True, return_counts=True)
+        boundary = corners[first[counts == 1]]
+        surface, opposite = boundary[:, :3].copy(), boundary[:, 3]
+        a, b, c = pts[surface[:, 0]], pts[surface[:, 1]], pts[surface[:, 2]]
+        inward = np.einsum("ij,ij->i", np.cross(b - a, c - a), pts[opposite] - a) > 0
+        surface[inward] = surface[inward][:, [0, 2, 1]]
         if len(surface) > PREVIEW_TRIANGLES:
             raise ValueError(f"{name}: surface has {len(surface)} triangles; decimation is not implemented in this version")
         used, inverse = np.unique(surface, return_inverse=True)
         prefix = f"preview/{slug}"
         self._bin(f"{prefix}.positions.f32", pts[used].astype("<f4"))
         self._bin(f"{prefix}.indices.u32", inverse.reshape(-1, 3).astype("<u4"))
+        # At most PREVIEW_STEPS frames, spread evenly over the run and always including its last.
+        frames = np.unique(np.linspace(0, nsteps - 1, min(nsteps, PREVIEW_STEPS)).round().astype(int)) if nsteps else None
         meta_arrays = []
         for key, (a, unit) in clean.items():
             sub = a[..., used, :] if a.ndim == (3 if nsteps else 2) else a[..., used]
-            sub = sub[: PREVIEW_STEPS] if nsteps else sub
+            sub = sub[frames] if nsteps else sub
             comps = 3 if sub.ndim == (3 if nsteps else 2) else 1
             mag = np.linalg.norm(sub, axis=-1) if comps == 3 else sub
             self._bin(f"{prefix}.{key}.f32", sub.astype("<f4"))
@@ -166,7 +174,7 @@ class Results:
         preview = {"version": 1, "kind": "surface", "vertices": int(len(used)), "triangles": int(len(surface)),
                    "positions": f"{prefix}.positions.f32", "indices": f"{prefix}.indices.u32", "arrays": meta_arrays}
         if steps:
-            preview["steps"] = {**steps, "saved": min(nsteps, PREVIEW_STEPS), "total": nsteps}
+            preview["steps"] = {**steps, "values": [float(steps["values"][i]) for i in frames], "saved": int(len(frames)), "total": nsteps}
         self._json(f"{prefix}.json", preview)
         self.m["fields"].append({"name": name, "label": label or name.replace("_", " "), "full": full, "preview": f"{prefix}.json",
                                  "cells": int(len(tets)), "arrays": [{"name": k, "unit": u} for k, (_, u) in clean.items()]})
