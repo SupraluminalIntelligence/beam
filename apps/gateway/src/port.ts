@@ -1,4 +1,4 @@
-import { AlreadyExistsError, ModalClient, NotFoundError, SandboxFilesystemNotFoundError, type App, type Sandbox } from "modal";
+import { AlreadyExistsError, InvalidError, ModalClient, NotFoundError, SandboxFilesystemNotFoundError, type App, type Sandbox } from "modal";
 
 /**
  * The few Modal operations the executor needs. Keeping the SDK behind this seam lets the executor's
@@ -45,6 +45,15 @@ export class FileMissing extends Error {
   constructor(path: string) { super(`ENOENT: no such file ${path}`); }
 }
 
+/** Modal refused to create the sandbox and would refuse again: an image it cannot pull or build, or an invalid request. */
+export class SandboxRejected extends Error {}
+
+// gRPC INVALID_ARGUMENT. Anything else (outages, quota, auth) may pass, so the launch is retried.
+const INVALID_ARGUMENT = 3;
+const rejected = (e: unknown) => e instanceof InvalidError
+  || (e instanceof Error && e.name === "ClientError" && (e as { code?: unknown }).code === INVALID_ARGUMENT)
+  || (e instanceof Error && /^Image build for \S+ failed with the exception/.test(e.message));
+
 const missingAsNull = async <T>(load: () => Promise<T>): Promise<T | null> => {
   try { return await load(); }
   catch (e) { if (e instanceof NotFoundError) return null; throw e; }
@@ -90,6 +99,7 @@ export function modalPort(appName = "beam-compute", client = new ModalClient()):
         });
         return { sandbox: wrap(sandbox), created: true };
       } catch (e) {
+        if (rejected(e)) throw new SandboxRejected((e as Error).message);
         if (!(e instanceof AlreadyExistsError)) throw e;
         const existing = await fromName(spec.name);
         if (!existing) throw e;

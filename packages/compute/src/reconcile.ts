@@ -52,7 +52,10 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
       if (/Chat access revoked|Missing input asset|Input has expired/.test((e as Error).message)) return end("failed", job.log, (e as Error).message);
       throw e;
     }
-    handle = await executor.submit(id, spec, inputs);
+    // A launch the executor refuses outright (an image it cannot start, an invalid spec) ends the job;
+    // an unanswered one is recovered on the next pass.
+    try { handle = await executor.submit(id, spec, inputs); }
+    catch (e) { return end("failed", job.log, known(e)); }
     await client.mutation(api.compute.report, { token, id, state: "running", handle, log: job.log, error: null });
   }
   const launched = handle;

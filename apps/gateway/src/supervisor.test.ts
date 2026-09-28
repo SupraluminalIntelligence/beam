@@ -57,4 +57,18 @@ describe("sandbox supervisor", () => {
     expect(await s.exited).toBe(0);
     expect(await readFile(join(s.job, "exit"), "utf8")).toBe(String(TIMED_OUT));
   }, 10_000);
+
+  it("records a command that ignores TERM and is killed at its time limit as timed out, not out of memory", async () => {
+    const s = await start({ BEAM_COMMAND: "trap '' TERM; sleep 20", BEAM_TIMEOUT: "1", BEAM_KILL_AFTER: "1" });
+    await writeFile(join(s.job, "go"), "");
+    expect(await s.exited).toBe(0);
+    expect(await readFile(join(s.job, "exit"), "utf8")).toBe(String(TIMED_OUT));
+  }, 10_000);
+
+  it("still reports a kill before the time limit as exit 137", async () => {
+    const s = await start({ BEAM_COMMAND: "kill -KILL $$", BEAM_TIMEOUT: "30" });
+    await writeFile(join(s.job, "go"), "");
+    expect(await s.exited).toBe(0);
+    expect(await readFile(join(s.job, "exit"), "utf8")).toBe("137");
+  }, 10_000);
 });

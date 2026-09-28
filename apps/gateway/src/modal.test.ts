@@ -4,7 +4,7 @@ import type { ComputeInput, EnvironmentJobSpec } from "@beam/contracts";
 import { JOB_DIR, ModalExecutor, WORK, sandboxName, sandboxShape } from "./modal.ts";
 import { ExecutorUnavailable } from "@beam/contracts";
 import { FakeModal } from "./fake.ts";
-import { FileMissing } from "./port.ts";
+import { FileMissing, SandboxRejected } from "./port.ts";
 
 const IMAGE = `ghcr.io/supraluminalintelligence/beam-env-fea@sha256:${"a".repeat(64)}`;
 const job = (over: Partial<EnvironmentJobSpec> = {}): EnvironmentJobSpec => ({
@@ -185,5 +185,33 @@ describe("ModalExecutor", () => {
     const handle = await executor.submit("job1", job(), []);
     await executor.release(handle);
     expect(modal.byName.get(sandboxName("job1"))!.terminated).toBe(true);
+  });
+
+  it("inspects a launch whose go write went unanswered instead of aborting it", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    const create = modal.create.bind(modal);
+    vi.spyOn(modal, "create").mockImplementation(async spec => {
+      const made = await create(spec), write = made.sandbox.writeBytes.bind(made.sandbox);
+      // The write lands in the sandbox but its answer is lost.
+      vi.spyOn(made.sandbox, "writeBytes").mockImplementation(async (data, path) => { await write(data, path); if (path.endsWith("/go")) throw new Error("socket hang up"); });
+      return made;
+    });
+    await expect(executor.submit("job1", job(), [])).rejects.toBeInstanceOf(ExecutorUnavailable);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    expect(sandbox.files.has(`${JOB_DIR}/abort`)).toBe(false);
+    const handle = await executor.recover("job1");
+    expect(handle).toEqual({ backend: "modal-sandbox", id: sandbox.id });
+    expect(await executor.inspect(handle!)).toEqual({ state: "running", log: "" });
+  });
+
+  it("fails a launch Modal refuses and retries one it did not answer", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    vi.spyOn(modal, "create")
+      .mockRejectedValueOnce(new SandboxRejected("Image build for im-1 failed with the exception: manifest unknown"))
+      .mockRejectedValueOnce(new Error("503"));
+    const refused = await executor.submit("job1", job(), []).catch(e => e);
+    expect(refused).not.toBeInstanceOf(ExecutorUnavailable);
+    expect(refused.message).toMatch(/Modal could not start a machine for .*manifest unknown/);
+    await expect(executor.submit("job1", job(), [])).rejects.toBeInstanceOf(ExecutorUnavailable);
   });
 });

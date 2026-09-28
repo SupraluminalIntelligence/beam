@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path/posix";
 import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
-import { FileMissing, type ModalPort, type SandboxPort } from "./port.ts";
+import { FileMissing, SandboxRejected, type ModalPort, type SandboxPort } from "./port.ts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
 
 export const JOB_DIR = "/tmp/beam-job";
@@ -112,26 +112,35 @@ export class ModalExecutor implements ComputeExecutor {
       cpu: shape.cpu, cpuLimit: shape.cpu, memoryMiB: shape.memoryMiB, memoryLimitMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
       timeoutMs: lifetime * 1000,
       tags: { beamJob: jobId, environment: spec.environment.name, machine: spec.machine },
+    }).catch(e => {
+      // A refusal Modal would repeat ends the job; anything else is retried on the next pass.
+      if (e instanceof SandboxRejected) throw new Error(`Modal could not start a machine for ${spec.environment.image}: ${e.message}`);
+      throw new ExecutorUnavailable(`Modal did not answer: ${(e as Error).message}`);
     });
     const handle = { backend: this.backend, id: sandbox.id };
     // An earlier submit that got as far as `go` or `abort` is inspected, never staged twice.
-    if (!created && !(await this.unstaged(sandbox))) return handle;
+    if (!created && !(await unreachable(() => this.unstaged(sandbox)))) return handle;
+    const write = (bytes: Uint8Array, path: string) => unreachable(() => sandbox.writeBytes(bytes, path));
     try {
-      await sandbox.makeDirectory(JOB_DIR);
+      await unreachable(() => sandbox.makeDirectory(JOB_DIR));
       // Staging must finish inside the supervisor's launch window, with a minute to spare.
       const deadline = AbortSignal.timeout((CLOUD_LAUNCH_WINDOW_SECONDS - 60) * 1000);
       for (const input of inputs) {
+        if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
         const path = `${WORK}/${JobPath.parse(input.path)}`;
         const bytes = await download(input, deadline);
-        await sandbox.makeDirectory(dirname(path));
-        await sandbox.writeBytes(bytes, path);
+        await unreachable(() => sandbox.makeDirectory(dirname(path)));
+        await write(bytes, path);
       }
       if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
-      await sandbox.writeBytes(text(""), `${JOB_DIR}/go`);
+      await write(text(""), `${JOB_DIR}/go`);
     } catch (e) {
-      // Recorded in the sandbox so inspect reports it; the command never starts.
-      await sandbox.writeBytes(text((e as Error).message), `${JOB_DIR}/setup-error`);
-      await sandbox.writeBytes(text(""), `${JOB_DIR}/abort`);
+      // A write Modal did not answer may have landed, `go` included, so the next pass inspects the
+      // sandbox rather than aborting a command that may be running; recover resumes staging if not.
+      if (e instanceof ExecutorUnavailable) throw e;
+      // A known failure is recorded in the sandbox so inspect reports it; the command never starts.
+      await write(text((e as Error).message), `${JOB_DIR}/setup-error`);
+      await write(text(""), `${JOB_DIR}/abort`);
     }
     return handle;
   }
