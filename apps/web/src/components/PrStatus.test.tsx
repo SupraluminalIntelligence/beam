@@ -2,9 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 vi.mock("convex/react", () => ({ useMutation: () => async () => {}, useAction: () => async () => {} }));
 import type { Doc } from "../../../../convex/_generated/dataModel";
-import { CiPopover, PrBar, fixPrompt, prState } from "./PrStatus";
+import { CiPopover, PrBar, PrCard, fixPrompt, prState } from "./PrStatus";
 import { LandingCard } from "./RunBlocks";
 
+const comment = (id: string) => ({ id, path: "src/page.tsx", line: 4, author: "noah", body: "Handle the empty case", url: "https://github.com/acme/beam/pull/12#r1" });
 const change = (over: Record<string, unknown> = {}) => ({
   _id: "c1", _creationTime: 0, chatId: "chat", workspaceId: "ws", repo: "acme/beam", branch: "beam/delete-workspace", base: "main", state: "open",
   title: "Add workspace deletion", prUrl: "https://github.com/acme/beam/pull/12", prNumber: 12, add: 137, del: 11, files: 6, adopted: false,
@@ -51,10 +52,16 @@ describe("PrBar", () => {
     expect(html).toContain(">beam/delete-workspace</button>");
   });
 
-  it("drops the CI chip when GitHub reports no checks, but keeps it until GitHub has been read", () => {
+  it("keeps the CI chip on a PR with no checks, since its automation lives there too", () => {
     const none = renderToStaticMarkup(<PrBar changes={[change({ checks: { ...change().checks!, state: "none", passed: 0, failed: 0, skipped: 0, items: [] } })]} askHandle={null} onAsk={() => {}} />);
-    expect(none).not.toContain("cichip");
+    expect(none).toContain('class="cichip none"');
     expect(renderToStaticMarkup(<PrBar changes={[change({ checks: undefined })]} askHandle={null} onAsk={() => {}} />)).toContain('class="cichip unknown"');
+  });
+
+  it("counts unresolved review comments beside CI, and shows nothing when there are none", () => {
+    const html = renderToStaticMarkup(<PrBar changes={[change({ comments: [comment("t1"), comment("t2")] })]} askHandle={null} onAsk={() => {}} />);
+    expect(html).toContain('title="2 unresolved review comments · open on GitHub"');
+    expect(renderToStaticMarkup(<PrBar changes={[change({ comments: [] })]} askHandle={null} onAsk={() => {}} />)).not.toContain("cichip comments");
   });
 
   it("colors the icon by where the PR stands", () => {
@@ -64,6 +71,26 @@ describe("PrBar", () => {
     expect(prState(change({ prNumber: null }))).toBe("branch");
     expect(prState(change({ state: "merged" }))).toBe("merged");
     expect(prState(change({ state: "closed" }))).toBe("closed");
+  });
+});
+
+describe("PrCard", () => {
+  it("shows where the PR stands, its full title, who opened it, and its size", () => {
+    const html = renderToStaticMarkup(<PrCard change={change({ author: "apekshik", openedAt: Date.now() - 9 * 60_000, title: "Plan allocated compute for physics tools" })} />);
+    expect(html).toContain('class="prpill open"');
+    expect(html).toContain(">Open</span>");
+    expect(html).toContain("acme/beam #12");
+    expect(html).toContain("9m ago");
+    expect(html).toContain(">Plan allocated compute for physics tools<");
+    expect(html).toContain("apekshik");
+    expect(html).toContain("6 files");
+  });
+
+  it("leaves out who and when for a PR read before Beam kept them", () => {
+    const html = renderToStaticMarkup(<PrCard change={change({ draft: true })} />);
+    expect(html).toContain(">Draft</span>");
+    expect(html).not.toContain("prcard-by");
+    expect(html).not.toContain("ago");
   });
 });
 
@@ -109,6 +136,31 @@ describe("CiPopover", () => {
   it("does not offer a fix while CI passes", () => {
     const passing = change({ checks: { ...c.checks!, state: "passing", failed: 0, items: c.checks!.items.slice(1) } });
     expect(renderToStaticMarkup(<CiPopover change={passing} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />)).not.toContain("to fix");
+  });
+
+  it("offers the three automations with their state, and hides them without a handler", () => {
+    const on = change({ autoFix: { by: "noah", agentId: "a1", attempts: 0, addressed: [] }, autoMerge: { by: "me", note: "Waiting for checks to finish" } });
+    const html = renderToStaticMarkup(<CiPopover change={on} href={c.prUrl!} askHandle="claude" onAsk={() => {}} onAuto={() => {}} handleOf={() => "claude"} />);
+    expect(html).toContain("Auto-fix CI &amp; address comments");
+    expect(html).toContain("@claude fixes as noah");
+    expect(html).toContain("Waiting for checks to finish");
+    expect(html).toContain("Settle thread on merge or close");
+    expect(html.match(/type="checkbox" checked=""/g)).toHaveLength(2);
+    expect(renderToStaticMarkup(<CiPopover change={c} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />)).not.toContain("Auto-merge");
+  });
+
+  it("says why auto-fix stopped, in place of who it acts as", () => {
+    const stopped = change({ autoFix: { by: "noah", agentId: "a1", attempts: 3, addressed: [], note: "Stopped after 3 tries at CI." } });
+    const html = renderToStaticMarkup(<CiPopover change={stopped} href={c.prUrl!} askHandle="claude" onAsk={() => {}} onAuto={() => {}} />);
+    expect(html).toContain('<small class="warn">Stopped after 3 tries at CI.</small>');
+  });
+
+  it("lists open review comments and offers to fix them even while CI passes", () => {
+    const passing = change({ checks: { ...c.checks!, state: "passing", failed: 0, items: c.checks!.items.slice(1) }, comments: [comment("t1")] });
+    const html = renderToStaticMarkup(<CiPopover change={passing} href={c.prUrl!} askHandle="claude" onAsk={() => {}} />);
+    expect(html).toContain("page.tsx:4");
+    expect(html).toContain("Ask @claude to fix");
+    expect(fixPrompt("claude", passing)).toBe("@claude Address this review comment on acme/beam#12:\n- src/page.tsx:4 (noah) Handle the empty case https://github.com/acme/beam/pull/12#r1");
   });
 
   it("writes a fix prompt that mentions the agent and names the failing checks", () => {

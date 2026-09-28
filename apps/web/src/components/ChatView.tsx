@@ -288,7 +288,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       </div>
 
       <TypingIndicator chatId={chat._id} me={me.githubLogin} nameOf={nameOf} />
-      <PrBar changes={changes} askHandle={askHandle} onAsk={(t) => { setText(t); typing.change(t); setPop(null); const el = inputRef.current; if (el) { el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = t.length; }); } }} />
+      <PrBar changes={changes} askHandle={askHandle} handleOf={(id) => detail.agents.find((x) => x._id === id)?.handle} onAsk={(t) => { setText(t); typing.change(t); setPop(null); const el = inputRef.current; if (el) { el.focus(); requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = t.length; }); } }} />
       <div className="composer">
         {liveRuns.length > 0 && <div className="active-agents" aria-label="Active agents">{liveRuns.map(run => {
           const agent = detail.agents.find(a => a._id === run.agentId);
