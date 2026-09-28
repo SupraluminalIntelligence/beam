@@ -35,7 +35,7 @@ pnpm dev:desktop
 
 The desktop launches its own runner; do not also launch `dev:runner` with the same profile. The URL and profile overrides prevent a development runner from reusing a paired production runner's configuration. Sign in to Codex or Claude Code with the provider's CLI on the runner machine. CFD and shared-container command tests additionally require Docker; ordinary UI and unit tests do not.
 
-Run `pnpm convex` separately when you want backend changes watched and deployed to your own development deployment. Review the selected deployment before running any Convex command.
+Run `pnpm convex` separately when you want backend changes watched and deployed to your own development deployment. Review the selected deployment before running any Convex command. Maintainers with access to the `beam-backend` project can run `node scripts/dev-backend.mjs` to select their personal dev deployment in it and configure it; see [docs/dev-backend.md](docs/dev-backend.md).
 
 ## Several checkouts at once
 

@@ -1,0 +1,14 @@
+# Shared by every built-in environment. Each environment solves this file together with its own,
+# so MPI, HDF5 and PETSc builds stay consistent inside one image.
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy=2.5
+  - scipy
+  - matplotlib-base
+  - meshio=5.3.5
+  - gmsh=4.15.2
+  - python-gmsh=4.15.2
+  - vtk=9.7.0
+  - pyvista=0.49.0

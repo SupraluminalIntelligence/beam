@@ -1,0 +1,133 @@
+name: Environments
+
+# Builds each environment in environments/ on native amd64 and arm64 runners, runs the benchmarks its
+# env.json lists, and fails if any check in their results is not pass or not-evaluated. On main, the
+# images are pushed by digest and joined into one multi-arch tag per commit.
+
+on:
+  push:
+    branches: [main]
+    paths: ["environments/**", ".github/workflows/environments.yml"]
+  pull_request:
+    paths: ["environments/**", ".github/workflows/environments.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: environments-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io/supraluminalintelligence
+
+jobs:
+  build:
+    name: ${{ matrix.environment }} · ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [fea]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The images are ~4.5 GB; hosted runners start with ~14 GB free.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: environments
+          file: environments/${{ matrix.environment }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: beam-env-${{ matrix.environment }}:ci
+
+      - name: Benchmarks
+        run: |
+          set -euo pipefail
+          jq -r '.benchmarks[] | "\(.name)\t\(.command)"' environments/${{ matrix.environment }}/env.json |
+          while IFS=$'\t' read -r name command; do
+            echo "::group::$name"
+            docker run --rm --shm-size=1g -e BEAM_COMMAND="$command" -v "$PWD/environments/tools:/tools:ro" \
+              beam-env-${{ matrix.environment }}:ci bash -lc "$command && python /tools/check_results.py"
+            echo "::endgroup::"
+          done
+
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        if: github.event_name != 'pull_request'
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: environments
+          file: environments/${{ matrix.environment }}/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.REGISTRY }}/beam-env-${{ matrix.environment }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Record digest
+        if: github.event_name != 'pull_request'
+        run: mkdir -p digests && touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.environment }}-${{ matrix.arch }}
+          path: digests/*
+          retention-days: 1
+
+  publish:
+    name: publish ${{ matrix.environment }}
+    if: github.event_name != 'pull_request'
+    needs: build
+    strategy:
+      matrix:
+        environment: [fea]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.environment }}-*
+          merge-multiple: true
+          path: digests
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Tag the multi-arch image
+        working-directory: digests
+        run: |
+          image="$REGISTRY/beam-env-${{ matrix.environment }}"
+          docker buildx imagetools create -t "$image:sha-${GITHUB_SHA::7}" -t "$image:latest" $(printf "$image@sha256:%s " *)
+          docker buildx imagetools inspect "$image:sha-${GITHUB_SHA::7}"
