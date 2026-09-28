@@ -57,5 +57,6 @@ export type EnvironmentBuild = z.infer<typeof EnvironmentBuild>;
  * benchmarks passed.
  */
 export const BUILT_IN_ENVIRONMENTS: readonly { name: EnvironmentName; image: ImageRef; summary: string }[] = [
-  { name: "fea", image: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:ac545a2bd90c708d6f9ce74174b3d6dfea0c00eb6aa0539c5842e0dc53c7c105", summary: "Structures and heat in solids: FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista." },
+  { name: "fea", image: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:d2ac33a9ef11eae233c8c60a0913a8cccac101fc5b725e504c0c4575b0bc22e2", summary: "Structures and heat in solids: FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista." },
+  { name: "cfd", image: "ghcr.io/supraluminalintelligence/beam-env-cfd@sha256:fbae9c21724cefc5f0df19d710e4db5592a3db4a5e1ae17e5dcbb8ce542ba1bc", summary: "Flow: OpenFOAM 2512 (OpenCFD), with the Python base and pyvista." },
 ];
