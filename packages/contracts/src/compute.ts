@@ -86,4 +86,6 @@ export interface ComputeExecutor {
   inspect(handle: ExecutionHandle): Promise<ExecutionStatus>;
   cancel(handle: ExecutionHandle): Promise<void>;
   readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array>;
+  /** Frees the machine once the job's outcome is recorded in Beam. Optional: a local process has nothing to hold. */
+  release?(handle: ExecutionHandle): Promise<void>;
 }

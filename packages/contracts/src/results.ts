@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JobPath } from "./compute.ts";
+import { JobPath, MAX_COMPUTE_FILE_BYTES } from "./compute.ts";
 
 /**
  * Results: what a job writes to beam/out/. manifest.json names every other file by a path relative to
@@ -207,4 +207,43 @@ export function compareQuantities(before: Pick<ResultsManifest, "quantities">, a
     matched.push({ name: q.name, label: q.label, unit: q.unit, before: b.value, after: q.value, delta: q.value - b.value, relative: b.value === 0 ? null : (q.value - b.value) / Math.abs(b.value) });
   }
   return { matched, onlyBefore: [...old.values()], onlyAfter };
+}
+
+export type CollectedResults = { manifest: ResultsManifest | null; files: { path: string; bytes: Uint8Array }[]; unpublished: { path: string; reason: string }[] };
+/**
+ * Everything to publish from beam/out: the manifest and exactly the files it names, previews' buffers
+ * included. A file over the size limit stays on the machine and is listed, not silently dropped; a
+ * preview buffer of the wrong length fails the job, since the viewer would draw garbage.
+ */
+export async function collectResults(read: (path: string) => Promise<Uint8Array>): Promise<CollectedResults> {
+  const manifestPath = `${RESULTS_ROOT}/manifest.json`;
+  let manifestBytes: Uint8Array;
+  try { manifestBytes = await read(manifestPath); }
+  catch (e) { if (/ENOENT|no such file/i.test((e as Error).message)) return { manifest: null, files: [], unpublished: [] }; throw e; }
+  const parsed = ResultsManifest.safeParse(JSON.parse(new TextDecoder().decode(manifestBytes)));
+  if (!parsed.success) throw new Error(`beam/out/manifest.json is invalid: ${parsed.error.issues.slice(0, 3).map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
+  const manifest = parsed.data, files = [{ path: manifestPath, bytes: manifestBytes }], unpublished: CollectedResults["unpublished"] = [];
+  const add = async (rel: string, expectedBytes?: number) => {
+    const path = JobPath.parse(`${RESULTS_ROOT}/${rel}`);
+    if (files.some(f => f.path === path)) return null;
+    let bytes: Uint8Array;
+    try { bytes = await read(path); }
+    catch (e) {
+      const message = (e as Error).message;
+      if (/20 MB or less|size limit/.test(message)) { unpublished.push({ path, reason: `larger than ${MAX_COMPUTE_FILE_BYTES / 2 ** 20} MB; kept on the machine` }); return null; }
+      throw new Error(`The manifest names ${rel}, which could not be read: ${message}`);
+    }
+    if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) throw new Error(`${rel} is ${bytes.byteLength} bytes; its preview says ${expectedBytes}`);
+    files.push({ path, bytes });
+    return bytes;
+  };
+  for (const rel of resultPaths(manifest)) {
+    const bytes = await add(rel);
+    const field = manifest.fields.find(f => f.preview === rel);
+    if (field && bytes) {
+      const preview = FieldPreview.parse(JSON.parse(new TextDecoder().decode(bytes)));
+      for (const [buffer, size] of Object.entries(previewByteLengths(preview))) await add(buffer, size);
+    }
+  }
+  return { manifest, files, unpublished };
 }

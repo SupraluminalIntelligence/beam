@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@beam/compute": "workspace:*",
     "@beam/contracts": "workspace:*",
     "@beam/git": "workspace:*",
     "@beam/harness": "workspace:*",
