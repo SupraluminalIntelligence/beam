@@ -130,3 +130,37 @@ export const refresh = mutation({
     await startSync(ctx, changeId, 0);
   },
 });
+
+/**
+ * The agent auto-fix asks: the one whose run made this change, else the last to run in the thread, else the pinned one,
+ * else the first in the thread. The same order "Ask to fix" uses, less the composer.
+ */
+async function fixer(ctx: MutationCtx, chat: Doc<"chats">, c: Doc<"changes">) {
+  const runs = await ctx.db.query("runs").withIndex("by_chat", (q) => q.eq("chatId", chat._id)).order("desc").collect();
+  const agents = await ctx.db.query("agents").withIndex("by_workspace", (q) => q.eq("workspaceId", chat.workspaceId)).collect();
+  const inChat = agents.filter((a) => !chat.agents || chat.agents.includes(a._id));
+  const pick = (id: Id<"agents"> | null | undefined) => inChat.find((a) => a._id === id);
+  return pick(runs.find((r) => c.workScope && r.workScope === c.workScope)?.agentId) ?? pick(runs[0]?.agentId) ?? pick(chat.pinnedAgent) ?? inChat[0] ?? null;
+}
+
+/** Switch one of a PR's automations on or off. On acts as the person who switched it; the PR is read again at once. */
+export const setAuto = readableMutation({
+  args: { changeId: v.id("changes"), kind: v.union(v.literal("fix"), v.literal("merge"), v.literal("settle")), on: v.boolean() },
+  handler: async (ctx, { changeId, kind, on }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c) throw new Error("no such change");
+    const { chat, u } = await requireChat(ctx, c.chatId);
+    if (c.state !== "open") throw new Error("This PR is no longer open.");
+    const by = u.githubLogin!;
+    if (kind === "settle") return void await ctx.db.patch(changeId, { autoSettle: on ? { by } : undefined });
+    if (!c.prNumber) throw new Error("Open a PR first.");
+    if (kind === "merge") await ctx.db.patch(changeId, { autoMerge: on ? { by } : undefined });
+    else {
+      const agent = on ? await fixer(ctx, chat, c) : null;
+      if (on && !agent) throw new Error("This thread has no agent to fix the PR. Add one first.");
+      // Switching on starts over: comments already on the PR count as new, and CI gets its full number of tries.
+      await ctx.db.patch(changeId, { autoFix: agent ? { by, agentId: agent._id, attempts: 0, addressed: [] } : undefined });
+    }
+    if (on) await startSync(ctx, changeId, 0);
+  },
+});

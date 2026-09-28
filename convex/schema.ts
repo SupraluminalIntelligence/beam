@@ -124,6 +124,13 @@ export default defineSchema({
     })),
     syncError: v.optional(v.string()),     // why the last GitHub read failed; cleared by the next good one
     syncGen: v.optional(v.number()),         // bumped to start a fresh poll; an older poll sees the new number and stops
+    author: v.optional(v.string()), openedAt: v.optional(v.number()),   // who opened the PR on GitHub, and when
+    headAt: v.optional(v.number()),          // when a sync first saw the current head; auto-merge gives CI time to register
+    comments: v.optional(v.array(v.object({ id: v.string(), path: v.union(v.string(), v.null()), line: v.union(v.number(), v.null()), author: v.union(v.string(), v.null()), body: v.string(), url: v.union(v.string(), v.null()) }))), // unresolved review comments
+    // Per-PR automation, each switched on by one person and acting as them. Absent means off.
+    autoFix: v.optional(v.object({ by: v.string(), agentId: v.id("agents"), attempts: v.number(), sha: v.optional(v.string()), addressed: v.array(v.string()), note: v.optional(v.string()) })),
+    autoMerge: v.optional(v.object({ by: v.string(), note: v.optional(v.string()) })),
+    autoSettle: v.optional(v.object({ by: v.string() })),
   }).index("by_chat", ["chatId"]).index("by_state", ["state"]),
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
   /** Jobs are independent of agent runs. Never reap them when an agent or runner disconnects. */

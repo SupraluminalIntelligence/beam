@@ -1,12 +1,15 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
-import type { ActionCtx, QueryCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireChat } from "./lib";
+import { requireChat, requireChatLogin } from "./lib";
 import { startSync } from "./changes";
-import { EXPIRED, fingerprint, MAX_CHECK_PAGES, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, type ChecksSummary, type PrSnapshot, type Refusal } from "./prStatus";
+import { sendAs } from "./messages";
+import { chooseRunner, LIVE } from "./runs";
+import { fixRequest } from "../packages/contracts/src/pullRequests";
+import { EXPIRED, fingerprint, fixWork, MAX_AUTO_FIXES, MAX_CHECK_PAGES, mergeMethod, mergeWait, POLL_MS, PR_QUERY, keepPolling, parsePrPage, parseRestPr, prPatch, refusal, type ChecksSummary, type PrSnapshot, type Refusal } from "./prStatus";
 
 /** The signed-in user's GitHub token, if sign-in granted the repo scope. Internal only. */
 export const myToken = internalQuery({
@@ -123,29 +126,126 @@ export const markResolved = internalMutation({
   },
 });
 
+const commentV = v.object({ id: v.string(), path: v.union(v.string(), v.null()), line: v.union(v.number(), v.null()), author: v.union(v.string(), v.null()), body: v.string(), url: v.union(v.string(), v.null()) });
 const checkItemV = v.object({ name: v.string(), state: v.union(v.literal("passed"), v.literal("failed"), v.literal("pending"), v.literal("skipped")), url: v.union(v.string(), v.null()) });
 const snapshotV = v.object({
   state: v.union(v.literal("OPEN"), v.literal("CLOSED"), v.literal("MERGED")), merged: v.boolean(), isDraft: v.boolean(), title: v.string(), url: v.string(),
   additions: v.number(), deletions: v.number(), changedFiles: v.number(), headRefOid: v.string(),
+  author: v.union(v.string(), v.null()), openedAt: v.union(v.number(), v.null()), mergeable: v.union(v.string(), v.null()),
+  reviewDecision: v.union(v.string(), v.null()), mergeMethod: v.union(v.string(), v.null()), comments: v.array(commentV),
   rollupState: v.union(v.string(), v.null()), items: v.array(checkItemV),
 });
 
+type Merge = { login: string; repo: string; prNumber: number; sha: string; method: "merge" | "squash" | "rebase" };
+
 /**
- * Writes what GitHub says about the PR. The last checks stay on the row after it merges or closes.
+ * Writes what GitHub says about the PR, then does whatever automation is switched on: sends auto-fix, settles the
+ * thread, or hands back a merge for the action to make. The last checks stay on the row after it merges or closes.
  * Every sync passes the generation it read: if a landing started a newer poll while this one was fetching, the
  * response is about an older head and is dropped.
  */
 export const applyPr = internalMutation({
   args: { changeId: v.id("changes"), pr: snapshotV, gen: v.number() },
-  handler: async (ctx, { changeId, pr, gen }) => {
+  handler: async (ctx, { changeId, pr, gen }): Promise<{ checks: ChecksSummary["state"]; merge: Merge | null } | null> => {
     const c = await ctx.db.get(changeId);
     if (!c || c.state !== "open") return null;
     if ((c.syncGen ?? 0) !== gen) return null;
-    const { resolved, patch } = prPatch(pr, Date.now());
-    await ctx.db.patch(changeId, { ...patch, syncError: undefined, ...(resolved ? { state: resolved, resolvedAt: Date.now() } : {}) });
-    return resolved ? null : patch.checks.state;
+    const now = Date.now();
+    const { resolved, patch } = prPatch(pr, now);
+    const headAt = c.headSha === patch.headSha && c.headAt !== undefined ? c.headAt : now;
+    await ctx.db.patch(changeId, { ...patch, headAt, syncError: undefined, ...(resolved ? { state: resolved, resolvedAt: now } : {}) });
+    if (resolved) { if (c.autoSettle) await settle(ctx, c); return null; }
+    const next = { ...c, ...patch, headAt };
+    if (c.autoFix) await autoFix(ctx, next, c.autoFix);
+    let merge: Merge | null = null;
+    if (c.autoMerge && c.prNumber) {
+      const wait = mergeWait(pr, patch.checks, headAt, now);
+      if (wait) { if (wait !== c.autoMerge.note) await ctx.db.patch(changeId, { autoMerge: { by: c.autoMerge.by, note: wait } }); }
+      else merge = { login: c.autoMerge.by, repo: c.repo, prNumber: c.prNumber, sha: patch.headSha, method: mergeMethod(pr.mergeMethod) };
+    }
+    return { checks: patch.checks.state, merge };
   },
 });
+
+const liveRuns = async (ctx: MutationCtx, chatId: Id<"chats">) =>
+  (await Promise.all([...LIVE].map((state) => ctx.db.query("runs").withIndex("by_chat_state", (q) => q.eq("chatId", chatId).eq("state", state)).collect()))).flat();
+
+/**
+ * Sends the change's agent at failing CI and new review comments, as the person who switched auto-fix on. Waits while
+ * any agent is at work in the thread: its push starts a fresh sync, and this runs again on that. Anything that stops it
+ * is written on the change for the checks popover.
+ */
+async function autoFix(ctx: MutationCtx, c: Doc<"changes">, auto: NonNullable<Doc<"changes">["autoFix"]>) {
+  const { note: _, ...kept } = auto;
+  const setNote = async (note: string | undefined) => { if (note !== auto.note) await ctx.db.patch(c._id, { autoFix: note ? { ...kept, note } : kept }); };
+  const work = fixWork(c, auto);
+  if (!work.any) return work.capped ? setNote(`Stopped after ${MAX_AUTO_FIXES} tries at CI. Switch auto-fix off and on to try again.`) : undefined;
+  const chat = await ctx.db.get(c.chatId);
+  if (!chat || chat.state === "deleted" || (await liveRuns(ctx, chat._id)).length) return;
+  const agent = await ctx.db.get(auto.agentId);
+  if (!agent || (chat.agents && !chat.agents.includes(agent._id))) return setNote("The agent auto-fix asks is no longer in this thread. Switch it off and on to pick another.");
+  try {
+    await requireChatLogin(ctx, chat._id, auto.by);
+    await chooseRunner(ctx, chat, auto.by, agent.harness);
+  } catch (e) { return setNote(`Couldn't start @${agent.handle} for ${auto.by}: ${(e as Error).message}`); }
+  const text = `${fixRequest(agent.handle, c, work.failing, work.comments)}\n\n(Sent by auto-fix, which is on for this PR.)`;
+  await sendAs(ctx, chat, auto.by, { chatId: chat._id, text, mentionHandle: agent.handle });
+  await ctx.db.patch(c._id, { autoFix: {
+    ...kept, attempts: auto.attempts + (work.failing ? 1 : 0), ...(work.failing ? { sha: c.headSha } : {}),
+    addressed: [...auto.addressed, ...work.comments.map((x) => x.id)],
+  } });
+}
+
+/** A PR with auto-settle merged or closed: settle its thread, unless another PR there is still open or an agent is working. */
+async function settle(ctx: MutationCtx, c: Doc<"changes">) {
+  const chat = await ctx.db.get(c.chatId);
+  if (!chat || (chat.state && chat.state !== "open")) return;
+  const changes = await ctx.db.query("changes").withIndex("by_chat", (q) => q.eq("chatId", c.chatId)).collect();
+  if (changes.some((x) => x._id !== c._id && x.state === "open") || (await liveRuns(ctx, chat._id)).length) return;
+  await ctx.db.patch(chat._id, { state: "settled", settledAt: Date.now() });
+}
+
+/** One person's GitHub token, unless GitHub has already turned it down. Auto-merge merges as whoever switched it on. */
+export const tokenOf = internalQuery({
+  args: { login: v.string() },
+  handler: async (ctx, { login }) => {
+    const u = await ctx.db.query("users").withIndex("by_login", (q) => q.eq("githubLogin", login)).first();
+    if (!u?.githubToken || (u.githubRejectedTokenHash && u.githubRejectedTokenHash === await fingerprint(u.githubToken))) return null;
+    return u.githubToken;
+  },
+});
+
+/** How an auto-merge went. A merge reads the PR back at once, so the change resolves and the thread can settle. */
+export const noteMerge = internalMutation({
+  args: { changeId: v.id("changes"), note: v.union(v.string(), v.null()) },
+  handler: async (ctx, { changeId, note }) => {
+    const c = await ctx.db.get(changeId);
+    if (!c || c.state !== "open" || !c.autoMerge) return;
+    await ctx.db.patch(changeId, { autoMerge: note ? { by: c.autoMerge.by, note: note.slice(0, 200) } : { by: c.autoMerge.by } });
+    if (!note) await startSync(ctx, changeId, 0);
+  },
+});
+
+/** Merges a PR auto-merge found ready, naming the head it read so a push since then is never merged unread. */
+async function merge(ctx: ActionCtx, changeId: Id<"changes">, m: Merge) {
+  const token = await ctx.runQuery(internal.github.tokenOf, { login: m.login });
+  if (!token) return ctx.runMutation(internal.github.noteMerge, { changeId, note: `Beam has no working GitHub access for ${m.login}. They need to sign in again.` });
+  const res = await fetch(`https://api.github.com/repos/${m.repo}/pulls/${m.prNumber}/merge`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "beam", "content-type": "application/json" },
+    body: JSON.stringify({ sha: m.sha, merge_method: m.method }),
+  });
+  if (res.status === 401) await ctx.runMutation(internal.github.markTokenRejected, { login: m.login, tokenHash: await fingerprint(token) });
+  const why = res.ok ? null : ((await res.json().catch(() => null)) as { message?: string } | null)?.message ?? `GitHub answered ${res.status}`;
+  await ctx.runMutation(internal.github.noteMerge, { changeId, note: why && `GitHub didn't merge it: ${why}` });
+}
+
+/** Writes a read, then makes the merge it asked for, if any. What's left is the CI state, for polling. */
+async function apply(ctx: ActionCtx, changeId: Id<"changes">, pr: PrSnapshot, gen: number) {
+  const r = await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen });
+  if (r?.merge) await merge(ctx, changeId, r.merge);
+  return r?.checks ?? null;
+}
 
 /** Records why GitHub couldn't be read, so the checks popover says so instead of checking forever. */
 export const markSyncError = internalMutation({
@@ -190,7 +290,7 @@ export const syncChanges = internalAction({
         const pr = await readPr(ctx, r.repo, r.prNumber, r.access);
         // Both carry the generation read: a landing mid-fetch means this is about an older head.
         if ("error" in pr) await ctx.runMutation(internal.github.markSyncError, { changeId: r.id, gen: r.gen, error: pr.error });
-        else await ctx.runMutation(internal.github.applyPr, { changeId: r.id, pr, gen: r.gen });
+        else await apply(ctx, r.id, pr, r.gen);
       } catch (e) { console.error("syncChanges", r.repo, r.prNumber, (e as Error).message); }
     }
   },
@@ -210,8 +310,8 @@ export const syncChange = internalAction({
         // A blip gets a few retries. No usable token, or one GitHub won't take, waits for a sign-in and the 3-minute sync.
         next = attempt < 3 && pr.kind !== "expired" && r.access.tokens.length > 0;
       } else {
-        const checks = await ctx.runMutation(internal.github.applyPr, { changeId, pr, gen });
-        next = !!checks && keepPolling(checks as ChecksSummary["state"], attempt);
+        const checks = await apply(ctx, changeId, pr, gen);
+        next = !!checks && keepPolling(checks, attempt);
       }
     } catch (e) {
       console.error("syncChange", r.repo, r.prNumber, (e as Error).message);

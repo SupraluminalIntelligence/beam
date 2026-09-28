@@ -1,5 +1,6 @@
 import { z } from "zod";
 export * from "./compute.ts";
+export * from "./pullRequests.ts";
 export * from "./environments.ts";
 export * from "./machines.ts";
 export * from "./results.ts";
