@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path/posix";
-import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
+import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, jobScript, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, PARAMETERS_PATH, parametersFile, usefulProcesses } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 import { FileMissing, SandboxRejected, type ModalPort, type SandboxPort } from "./port.ts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
@@ -20,11 +20,23 @@ export function sandboxShape(id: MachineId) {
   return { cpu: machine.cores!, memoryMiB: machine.memoryGiB! * 1024, cores: usefulProcesses(machine), ...(gpu ? { gpu } : {}) };
 }
 
+/**
+ * One input from Convex storage. A dropped connection or a server error is retried on the next pass,
+ * which resumes staging; a missing input, a bad checksum or the staging deadline ends the job.
+ */
 async function download(input: ComputeInput, deadline: AbortSignal): Promise<Uint8Array> {
   if (input.size > MAX_COMPUTE_FILE_BYTES || input.size < 0) throw new Error(`Input ${input.path} exceeds the 20 MB file limit`);
-  const response = await fetch(input.url, { signal: deadline });
-  if (!response.ok) throw new Error(`Input download failed: ${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  let bytes: Uint8Array;
+  try {
+    const response = await fetch(input.url, { signal: deadline });
+    if (response.status >= 500 || response.status === 408 || response.status === 429) throw new ExecutorUnavailable(`Input download failed: ${response.status}`);
+    if (!response.ok) throw new Error(`Input download failed: ${response.status}`);
+    bytes = new Uint8Array(await response.arrayBuffer());
+  } catch (e) {
+    if (deadline.aborted) throw new Error(`Inputs took longer than ${CLOUD_LAUNCH_WINDOW_SECONDS / 60 - 1} minutes to stage`);
+    if (e instanceof TypeError) throw new ExecutorUnavailable(`Input download failed: ${e.message}`);
+    throw e;
+  }
   const digest = createHash("sha256").update(bytes).digest();
   if (bytes.length !== input.size || (digest.toString("hex") !== input.sha256 && digest.toString("base64") !== input.sha256))
     throw new Error("Input snapshot checksum mismatch");
@@ -61,6 +73,8 @@ async function readTextOrNull(sandbox: SandboxPort, path: string) {
 export class ModalExecutor implements ComputeExecutor {
   readonly backend = "modal-sandbox";
   private readonly cancelled = new Set<string>();
+  /** When each released sandbox was confirmed stopped, so a retried release reports the same time. */
+  private readonly stopped = new Map<string, number>();
   // No parameter properties: the gateway runs under Node's type stripping.
   private readonly modal: ModalPort;
   constructor(modal: ModalPort) { this.modal = modal; }
@@ -106,7 +120,7 @@ export class ModalExecutor implements ComputeExecutor {
       image: spec.environment.image,
       command: ["bash", "-c", SUPERVISOR],
       env: {
-        BEAM_COMMAND: spec.command, BEAM_TIMEOUT: String(spec.timeoutSeconds), BEAM_CORES: String(shape.cores),
+        BEAM_COMMAND: spec.command, BEAM_SCRIPT: jobScript(spec.command), BEAM_TIMEOUT: String(spec.timeoutSeconds), BEAM_CORES: String(shape.cores),
         BEAM_IMAGE: spec.environment.image, BEAM_JOB_DIR: JOB_DIR, BEAM_WORK: WORK, BEAM_LAUNCH_WINDOW: String(CLOUD_LAUNCH_WINDOW_SECONDS),
       },
       cpu: shape.cpu, cpuLimit: shape.cpu, memoryMiB: shape.memoryMiB, memoryLimitMiB: shape.memoryMiB, ...(shape.gpu ? { gpu: shape.gpu } : {}),
@@ -131,6 +145,10 @@ export class ModalExecutor implements ComputeExecutor {
         const bytes = await download(input, deadline);
         await unreachable(() => sandbox.makeDirectory(dirname(path)));
         await write(bytes, path);
+      }
+      if (spec.parameters) {
+        await unreachable(() => sandbox.makeDirectory(dirname(`${WORK}/${PARAMETERS_PATH}`)));
+        await write(text(parametersFile(spec.parameters)), `${WORK}/${PARAMETERS_PATH}`);
       }
       if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
       await write(text(""), `${JOB_DIR}/go`);
@@ -177,6 +195,7 @@ export class ModalExecutor implements ComputeExecutor {
     const file = `${WORK}/${JobPath.parse(path)}`;
     const sandbox = await unreachable(() => this.sandbox(handle));
     if (!sandbox) throw new Error("The cloud machine for this job no longer exists");
+    if (await unreachable(() => sandbox.poll()) !== null) throw new Error("The cloud machine stopped before this result was collected");
     if (await unreachable(() => sandbox.size(file)) > MAX_COMPUTE_FILE_BYTES) throw new Error("Job files must be regular files of 20 MB or less");
     const bytes = await unreachable(() => sandbox.readBytes(file));
     if (bytes.length > MAX_COMPUTE_FILE_BYTES) throw new Error("Job file grew beyond the size limit");
@@ -184,5 +203,12 @@ export class ModalExecutor implements ComputeExecutor {
   }
 
   /** Stops the sandbox once its outputs are published. Until then it holds the results. */
-  async release(handle: ExecutionHandle) { await this.cancel(handle); }
+  async release(handle: ExecutionHandle) {
+    const known = this.stopped.get(handle.id);
+    if (known) return known;
+    await this.cancel(handle);
+    const at = Date.now();
+    this.stopped.set(handle.id, at);
+    return at;
+  }
 }

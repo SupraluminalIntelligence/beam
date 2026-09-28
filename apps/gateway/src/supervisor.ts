@@ -19,7 +19,7 @@ export const SUPERVISOR = [
   "done",
   'cd "$W"',
   "started=$SECONDS",
-  'timeout --signal=TERM --kill-after="${BEAM_KILL_AFTER:-15}" "$BEAM_TIMEOUT" bash -lc "$BEAM_COMMAND" > "$J/log" 2>&1 < /dev/null',
+  'timeout --signal=TERM --kill-after="${BEAM_KILL_AFTER:-15}" "$BEAM_TIMEOUT" bash -lc "${BEAM_SCRIPT:-$BEAM_COMMAND}" > "$J/log" 2>&1 < /dev/null',
   "code=$?",
   // A command that ignores TERM is killed after the grace period and timeout exits 137, the same code
   // as an out-of-memory kill; only the elapsed time tells them apart.

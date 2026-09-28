@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { jobScript } from "@beam/contracts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
 
 /** Runs the real entrypoint script under bash, with the job and work directories in a temp folder. */
@@ -71,4 +72,12 @@ describe("sandbox supervisor", () => {
     expect(await s.exited).toBe(0);
     expect(await readFile(join(s.job, "exit"), "utf8")).toBe("137");
   }, 10_000);
+
+  it("runs the command through the job script, which says where stray results went", async () => {
+    const s = await start({ BEAM_COMMAND: "unused", BEAM_SCRIPT: jobScript("mkdir -p sub/beam/out && echo {} > sub/beam/out/manifest.json") });
+    await writeFile(join(s.job, "go"), "");
+    expect(await s.exited).toBe(0);
+    expect(await readFile(join(s.job, "log"), "utf8")).toContain("nothing was published");
+  });
 });
+

@@ -100,6 +100,9 @@ export interface ComputeExecutor {
   inspect(handle: ExecutionHandle): Promise<ExecutionStatus>;
   cancel(handle: ExecutionHandle): Promise<void>;
   readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array>;
-  /** Frees the machine once the job's outcome is recorded in Beam. Optional: a local process has nothing to hold. */
-  release?(handle: ExecutionHandle): Promise<void>;
+  /**
+   * Frees the machine once the job's outcome is recorded in Beam, resolving with when it stopped (ms since
+   * the epoch), the same time on every call. Optional: a local process has nothing to hold.
+   */
+  release?(handle: ExecutionHandle): Promise<number>;
 }

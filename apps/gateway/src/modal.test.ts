@@ -214,4 +214,49 @@ describe("ModalExecutor", () => {
     expect(refused.message).toMatch(/Modal could not start a machine for .*manifest unknown/);
     await expect(executor.submit("job1", job(), [])).rejects.toBeInstanceOf(ExecutorUnavailable);
   });
+
+  it("writes the job's parameters and runs the command through the shared job script", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    await executor.submit("job1", job({ parameters: [{ name: "load", value: 1200, unit: "N" }] }), []);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    expect(JSON.parse(dec(sandbox.files.get(`${WORK}/beam/parameters.json`)!))).toEqual({ load: { value: 1200, unit: "N" } });
+    expect(sandbox.spec.env["BEAM_SCRIPT"]).toContain("python /beam/benchmarks/cantilever.py");
+    expect(sandbox.spec.env["BEAM_SCRIPT"]).toContain("nothing was published");
+    expect(sandbox.files.has(`${JOB_DIR}/go`)).toBe(true);
+  });
+
+  it("retries an input download the server did not finish, and fails one it refused", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal), mesh = enc("mesh");
+    const spec = job({ inputs: [{ assetId: "a1", path: "mesh.msh" }] }), inputs = [input("mesh.msh", "https://store/mesh", mesh)];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(Uint8Array.from(mesh)))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(new Response("busy", { status: 503 })));
+    await expect(executor.submit("job1", spec, inputs)).rejects.toBeInstanceOf(ExecutorUnavailable);
+    await expect(executor.submit("job1", spec, inputs)).rejects.toBeInstanceOf(ExecutorUnavailable);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    expect(sandbox.files.has(`${JOB_DIR}/abort`)).toBe(false);
+    await executor.submit("job1", spec, inputs);
+    expect(sandbox.files.has(`${JOB_DIR}/go`)).toBe(true);
+
+    served({});
+    const refused = await executor.submit("job2", spec, [input("mesh.msh", "https://store/gone", mesh)]);
+    expect(await executor.inspect(refused)).toMatchObject({ state: "failed", error: "Input download failed: 404" });
+  });
+
+  it("reports the same stop time for a release that is retried", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    const handle = await executor.submit("job1", job(), []);
+    const first = await executor.release(handle);
+    const terminate = vi.spyOn(modal.byName.get(sandboxName("job1"))!, "terminate");
+    await new Promise(r => setTimeout(r, 5));
+    expect(await executor.release(handle)).toBe(first);
+    expect(terminate).not.toHaveBeenCalled();
+  });
+
+  it("does not read results from a machine that has stopped", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    const handle = await executor.submit("job1", job(), []);
+    modal.byName.get(sandboxName("job1"))!.stopped = 0;
+    await expect(executor.readOutput(handle, "beam/out/manifest.json")).rejects.toThrow("stopped before this result was collected");
+  });
 });

@@ -297,7 +297,9 @@ it("meters a cloud job from its machine's creation, stops it at its authorized l
   await call(claim,ctx,{token:GATEWAY,id});job().startedAt=Date.now()-3600_000;
   // Claimed an hour ago but no machine yet: nothing is metered.
   await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null});expect(job().billing.spentCents).toBe(0);
+  // A machine recovered after a restart, with no launch time: metered from the launch window, not the claim.
   await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"}});
+  expect(job().billing.spentCents).toBe(8);
   expect(job().billing.meteredFrom).toBeTypeOf("number");
   job().billing.meteredFrom=Date.now()-600_000;await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null});
   expect(job().billing.spentCents).toBe(16);expect(job().cancelRequestedAt).toBeUndefined();
@@ -327,6 +329,23 @@ it("releases what a finished cloud job did not spend, and records its provenance
   expect(budget()).toMatchObject({reservedCents:0,spentCents:2});
   const detail=await call(get,ctx,{id});expect(detail.runnerName).toBe("Chat machine · 4 cores");
   expect(detail.provenance).toMatchObject({environment:cloudSpec.environment,command:cloudSpec.command,machine:"chat",backend:"modal-sandbox",exitCode:0,outputs:[{path:"beam/out/manifest.json",sha256:"hash",size:4}]});
+});
+it("meters a cloud machine from its launch and settles it at its confirmed stop",async()=>{
+  const {ctx,enqueue,budget,job}=cloudFixture();const id=await enqueue("c",cloudSpec as any);
+  await call(claim,ctx,{token:GATEWAY,id});
+  const claimedAt=Date.now()-60_000, launchedAt=claimedAt+1_000;job().startedAt=claimedAt;
+  // A launch time before the claim is not believed; one after it is.
+  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"},launchedAt:claimedAt-60_000});
+  expect(job().billing.meteredFrom).toBe(claimedAt);
+  job().billing.meteredFrom=undefined;
+  await call(report,ctx,{token:GATEWAY,id,state:"running",log:"",error:null,handle:{backend:"modal-sandbox",id:"sb-1"},launchedAt});
+  expect(job().billing.meteredFrom).toBe(launchedAt);
+  const meteredFrom=Date.now()-3600_000;job().billing.meteredFrom=meteredFrom;
+  await call(report,ctx,{token:GATEWAY,id,state:"failed",log:"",error:"x"});
+  // Stopped ten minutes in, though Convex hears of it only now: ten minutes are charged, not the hour.
+  await call(released,ctx,{token:GATEWAY,id,stoppedAt:meteredFrom+600_000});
+  expect(job().billing).toMatchObject({spentCents:16,reserved:false});
+  expect(budget()).toMatchObject({reservedCents:0,spentCents:16});
 });
 it("reserves an approval-gated cloud job only when approved, and releases it on cancel",async()=>{
   const {ctx,tables,budget,job}=cloudFixture();tables.agents![0].permissionMode="ask";

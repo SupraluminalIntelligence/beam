@@ -22,8 +22,8 @@ export async function reconcileJob(client: ConvexClient, token: string, executor
   if (!ended || !executor.release) return;
   // Beam settles the job's spend only once the machine is confirmed stopped; a failed release is
   // retried on the next pass, and the machine's own lifetime limit bounds it if every retry fails.
-  if (handle) await executor.release(handle);
-  await client.mutation(api.compute.released, { token, id: job._id });
+  const stoppedAt = handle ? await executor.release(handle) : undefined;
+  await client.mutation(api.compute.released, { token, id: job._id, ...(stoppedAt ? { stoppedAt } : {}) });
 }
 
 async function advance(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">): Promise<{ handle: ExecutionHandle | undefined; ended: boolean }> {
@@ -54,17 +54,23 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
     }
     // A launch the executor refuses outright (an image it cannot start, an invalid spec) ends the job;
     // an unanswered one is recovered on the next pass.
+    // A metered machine is charged from this launch, not from when the report reaches Convex.
+    const launchedAt = Date.now();
     try { handle = await executor.submit(id, spec, inputs); }
     catch (e) { return end("failed", job.log, known(e)); }
-    await client.mutation(api.compute.report, { token, id, state: "running", handle, log: job.log, error: null });
+    await client.mutation(api.compute.report, { token, id, state: "running", handle, log: job.log, error: null, ...(executor.release ? { launchedAt } : {}) });
   }
   const launched = handle;
   if (job.cancelRequestedAt) await executor.cancel(launched);
-  let status;
-  try { status = await executor.inspect(launched); }
-  catch (e) { return end("failed", job.log, known(e)); }
+  // Once publishing, the command's success is on record; a machine that has since stopped only
+  // matters if a result still needs reading from it.
+  let status: ExecutionStatus = { state: "succeeded", log: job.log, error: null, exitCode: job.exitCode ?? 0 };
+  if (job.state !== "publishing") {
+    try { status = await executor.inspect(launched); }
+    catch (e) { return end("failed", job.log, known(e)); }
+  }
   if (status.state === "running") {
-    if (job.state !== "publishing") await client.mutation(api.compute.report, { token, id, state: "running", handle: launched, log: status.log, error: null });
+    await client.mutation(api.compute.report, { token, id, state: "running", handle: launched, log: status.log, error: null });
     return { handle, ended: false };
   }
   if (status.state !== "succeeded" || job.cancelRequestedAt) return end(job.cancelRequestedAt ? "cancelled" : status.state, status.log, status.error, status.exitCode);
