@@ -508,9 +508,11 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .ask{border:1px solid var(--warn);background:var(--surface);padding:8px 12px;margin-top:8px;max-width:680px;font-family:var(--font-mono);font-size:12px}
 .ask.fail{border-color:var(--del)}
 .ask .askp{display:flex;flex-direction:column;gap:4px;color:var(--ink)}
+/* Prompts carry long unbroken paths and commands: wrap them inside the card instead of running past it. */
+.ask .askq{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
 .ask .k{font-size:10.5px;letter-spacing:var(--track-status);text-transform:uppercase;color:var(--warn)}
 .ask.fail .k{color:var(--del)}
-.ask .perm{margin-top:8px}
+.ask .perm{margin-top:8px;flex-wrap:wrap}
 .card .mt .err{color:var(--del)}
 .card .mt .hint{color:var(--ink-3);text-decoration:underline;text-underline-offset:2px}
 .stopbtn{border:1px solid var(--del);color:var(--del);background:transparent;padding:1px 8px;font-family:var(--font-mono);font-size:11px;margin-left:8px}

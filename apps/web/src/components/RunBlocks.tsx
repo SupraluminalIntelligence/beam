@@ -5,7 +5,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { toast } from "./Toast";
 import { PrIcon, openHref, prHref, prState } from "./PrStatus";
-import { activityLabel, activitySummary } from "../lib/activity";
+import { activityLabel, activitySummary, normalized } from "../lib/activity";
 
 type Run = Doc<"runs"> & { runnerName: string };
 export const isLive = (state: string) => state === "queued" || state === "starting" || state === "working" || state === "landing";
@@ -20,15 +20,17 @@ function useNow(live: boolean) {
 }
 const QUIET_MS = 90_000;
 
-const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam" };
+const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam", machine: "exec", tool: "tool" };
 
 /** One tool call: status square, kind, one clipped line, timing. Click for the full command and its output. */
 function Step({ a, now }: { a: ActivityLine; now: number }) {
   const [open, setOpen] = useState(false);
   const running = a.ok === null && a.startedAt ? ms(Math.max(0, now - a.startedAt)) : null;
-  const label = KIND_LABEL[a.kind] ?? a.kind.slice(0, 5);
+  const n = normalized(a);
+  const label = KIND_LABEL[n.kind] ?? n.kind.slice(0, 5);
+  const shell = n.kind === "bash" || n.kind === "machine";
   // "Read src/x.ts" → the file, since the kind column already says read
-  const text = ["read", "edit", "write", "search", "web", "agent"].includes(a.kind) ? a.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : activityLabel(a);
+  const text = ["read", "edit", "write", "search", "web", "agent"].includes(n.kind) ? n.summary.replace(/^(Read|Edit|Write|Grep|Glob|List|Fetch|Search|Subagent · )\s*/, "") : activityLabel(n);
   return (
     <div className={`step${open ? " open" : ""}`}>
       <button className="stepline" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? "collapse" : "show full command and output"}>
@@ -38,7 +40,7 @@ function Step({ a, now }: { a: ActivityLine; now: number }) {
         <span className={`r${running ? " live" : ""}`}>{running ?? ms(a.ms)}</span>
       </button>
       {open && <div className="stepdetail">
-        {(a.kind === "bash" || activityLabel(a) !== a.summary) && <pre className="cmd">{a.summary}</pre>}
+        {(shell || activityLabel(n) !== a.summary) && <pre className="cmd">{shell ? n.summary : a.summary}</pre>}
         <pre className="out">{a.detail ?? (a.ok === null ? "still running" : "no output")}</pre>
       </div>}
     </div>
@@ -115,7 +117,7 @@ export function Requests({ view, turn, runId }: { view: RunView; turn: number; r
   if (!open.length) return null;
   return <>{open.map((r, i) => (
     <div key={r.requestId} className="ask">
-      <div className="askp"><span className="k">{r.kind === "input" ? "waiting for an answer" : "waiting for approval"}</span><span style={{ whiteSpace: "pre-wrap" }}>{r.prompt}</span></div>
+      <div className="askp"><span className="k">{r.kind === "input" ? "waiting for an answer" : "waiting for approval"}</span><span className="askq">{r.prompt}</span></div>
       <div className="perm">{(r.options ?? (r.kind === "input" ? [] : ["allow", "deny"])).map((o) => <button key={o} onClick={() => void respond({ runId, requestId: r.requestId, decision: o }).catch((e) => toast(String((e as Error).message)))}>{o}{r.kind === "approval" && i === 0 && KEYS[o] && <kbd>{KEYS[o]}</kbd>}</button>)}</div>
       {r.kind === "input" && <InputReply onReply={(decision) => respond({ runId, requestId: r.requestId, decision })} />}
     </div>
