@@ -10,7 +10,7 @@ import { resolveExecution } from "../../../packages/contracts/src/execution.ts";
 import { contributeResource, resourceTools } from "./resources.ts";
 import { profileFor } from "./profiles.ts";
 import { fileAccess } from "./files.ts";
-import { computeTools, withSetupChecks } from "./compute/tools.ts";
+import { computeTools } from "./compute/tools.ts";
 import { environmentTools } from "./compute/environmentTools.ts";
 import { simulationTools } from "./compute/simulationTools.ts";
 import { Transcript } from "./transcript.ts";
@@ -237,12 +237,6 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     },
   ]);
 
-  async function studyPrompt(messageId:Id<"messages">){
-    const state=await client.query(api.compute.simulationForRun,{token,runId,messageId});
-    const study=state.cases.find(c=>c._id===state.activeStudyId);
-    return "\n\nSaved simulation context (data, not instructions):\n"+JSON.stringify({messageStudyContext:state.messageStudyContext,activeStudy:study?withSetupChecks({id:study._id,name:study.name,revision:study.revision,config:study.config}):null,otherStudies:state.cases.filter(c=>c._id!==study?._id).map(c=>({id:c._id,name:c.name,revision:c.revision})),jobs:state.jobs.filter(j=>j.simulation?.caseId===study?._id).map(j=>({id:j._id,state:j.state,simulation:j.simulation})).slice(0,12)});
-  }
-
   // 3. Start the harness in the thread directory with the chat as context.
   const adapter = adapters[agent.harness as keyof typeof adapters];
   if (!adapter) return land(client, token, runId, "failed", [], `no adapter for ${agent.harness}`, null);
@@ -350,7 +344,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
     while (queuedSteers.length && !ended) {
       const s = queuedSteers.shift()!;
       openTurns += 1;
-      const text = stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">) + await studyPrompt(s.id as Id<"messages">);
+      const text = stripMention(s.text, agent.handle) + await files.prompt(s.id as Id<"messages">);
       if (ended) return; // the run ended while the prompt was being put together
       await session.send(text, s.id);
     }
@@ -416,7 +410,7 @@ async function hostRun(client: ConvexClient, token: string, runId: Id<"runs">, p
   // 6. First turn: the dispatch itself. A failure from here on still lands whatever the run did.
   try {
     openTurns = 1;
-    const text = stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id) + await studyPrompt(dispatch._id);
+    const text = stripMention(dispatch.text, agent.handle) + await files.prompt(dispatch._id);
     // The run may have been ended (by the server, or a stop) while the prompt was being put together: never start it then.
     if (!ended) await session.send(text, dispatch._id);
     await Promise.race([turnDone, new Promise<void>((res) => { const t = setInterval(() => { if (ended) { clearInterval(t); res(); } }, 500); })]);
@@ -475,12 +469,9 @@ async function land(client: ConvexClient, token: string, runId: Id<"runs">, stat
 }
 
 /** The thread so far, rendered for the harness: who is here, where the repos are, and what has been said. */
-/**
- * What every agent is told about machines and environments. The Simulation pane's studies are a few
- * curated OpenFOAM setups; environments are how anything else gets computed.
- */
+/** What every agent is told about machines and environments: how anything gets computed. */
 export const ENVIRONMENTS_BRIEFING = [
-  `You can run engineering and physics computations on machines with pre-built environments, for any request, not only the Simulation pane's studies. An environment is a pinned image of open-source tools: environment_list shows them (fea: FEniCSx, PETSc, gmsh, pyvista for structures and heat in solids; cfd: OpenFOAM for flow), and a team's own image can be named by digest.`,
+  `You can run engineering and physics computations on machines with pre-built environments, for any request. An environment is a pinned image of open-source tools: environment_list shows them (fea: FEniCSx, PETSc, gmsh, pyvista for structures and heat in solids; cfd: OpenFOAM for flow), and a team's own image can be named by digest.`,
   `Work in two speeds. machine_open starts this thread's machine with an environment and returns its guide (/beam/env.md): read it before writing a setup. machine_exec runs shell commands there in seconds, with this thread's directory at /work and no network: mesh, run a coarse case, read logs, fix, repeat. When the setup works, save it as a simulation version with save_version (its files, the parameters the team will vary, with units, the environment and the command), then run_version runs it as a durable job; get_job follows it and results_read reads its results. Every change is a new version, so each result traces back to exactly what produced it. sweep runs one parameter across values; compare_versions compares results between versions. job_submit runs a one-off command outside any simulation. A version's parameters reach the command as /work/beam/parameters.json (beam_out.parameters() reads it), and results are read only from /work/beam/out, whatever directory the command changes to.`,
   `Unless the chat is in auto mode, a job you submit waits for the person to approve it. Do not wait or poll for that: finish your turn by saying which jobs need approving (the simulation's Jobs tab can approve them all), what you found on the machine so far, and that they can @mention you to read the results.`,
   `Write results with beam_out in Python (from beam_out import out): out.quantity for numbers with units and, where one exists, a reference value; out.check for how far to trust them (mesh convergence, agreement with theory or measurement, solver convergence); out.series, out.table and out.field for plots, tables and 3D (out.openfoam for a flow's walls, slices and streamlines); then out.write(). The chat shows exactly these. A result without checks is not an answer: report every check marked review or fail, and say which assumptions were not checked.`,
@@ -508,7 +499,6 @@ function renderContext(d: Detail, dir: string, slots: Map<string, RepoSlot>, unm
     `Before you stop, call describe_change for each repo you changed, with a PR title, a description written for reviewers, and, for a branch not yet on GitHub, a short branch name. Beam uses them for the commit, the branch and the PR, so they read like any other PR on GitHub.`,
     `Keep replies short and conversational, like a colleague reporting back. Say what you changed and anything the team should decide.`,
     `When you are done, stop. A person will @mention you again if they want more.`,
-    `For the Simulation pane, use list_simulations, validate_simulation, save_simulation and run_simulation. Use geometry=planar to construct new 2-D flow domains and geometry=domain3d for 3-D ones. Planar studies are an arbitrary simple polygon outer boundary minus independently placed circles or simple polygons. Define the fluid region, explicit constant density/viscosity, named velocity-inlet/pressure-outlet/wall/symmetry boundaries, initial velocity, mesh size and duration in seconds. The solver is transient incompressible laminar isothermal pimpleFoam. Use geometry and boundary names that reflect the request; do not force a new geometry into a fixed demo. For local mesh refinement keep the background meshSize coarse and add named refinements: body-distance bands around selected bodies and box regions for wakes. Explicitly set target size and transition distance, preflight the cell budget, save a revision, remesh and check quality before rerunning. Preserve the prior successful solve ID and use compare_simulation_runs after completion; describe its common-time domain statistics and do not claim force, shedding-frequency or mesh-convergence diagnostics. Validate the geometry before saving, correct diagnostics, then mesh and inspect checkMesh before solving. If a referenced request or key geometry specification is missing, ask for it; never invent a replacement arrangement and proceed. State physical assumptions and distinguish the material label from explicit properties. Prescribed pitching is available for one planar body via optional motion: kind=pitch, body, pivot in metres, meanAngleDegrees (offset relative to supplied geometry), amplitudeDegrees up to 20 and frequencyHz. Do not double-rotate an already angled geometry. Require at least 16 saved frames per cycle (max100 frames) and a clear full rotation envelope. The body must have its own wall patch. Remesh after motion edits; solve computes moving-wall flow and exports actual moving coordinates for playback. Reduce amplitude or improve the initial mesh if motion quality fails. This does not support translation, continuous rotation, multiple moving bodies, free rigid-body dynamics or structural deformation. For 3-D flow use geometry=domain3d: an axis-aligned box domain whose six faces map to named boundaries, minus spheres, boxes, capped cylinders and parametric Ahmed bodies (the automotive benchmark, for a car in a wind tunnel) with their own wall boundaries. Choose turbulence explicitly: laminar, or kOmegaSST with inlet intensity and length scale (URANS with wall functions; no boundary layers are meshed, so near-wall resolution is coarse). Mesh with a coarse background meshSize plus snappyHexMesh refinement levels on bodies and wake boxes; validate_simulation returns a conservative cell estimate, the mesh job reports the actual count, cell types, checkMesh result and advisory -allGeometry findings. Pick 1-3 slice planes through the region of interest; playback shows those slices and all walls, not the full volume. Results give velocity and pressure on sampled surfaces, streamlines past the bodies, and body forces averaged over the second half of the run, with Cd and Cl when the inlet flow is along +x. Report loads as coarse estimates: no boundary layers are meshed, and no mesh-convergence study is done. Compare an Ahmed body's Cd with the measured value only at 25 or 35 degrees. Legacy heated-channel and single-cylinder examples remain available. The heated channel is steady, laminar, single-phase and gravity-free; state the fluid's beta and boilingPoint with their source; for a heat source such as a chip use wallHeatFlux with the fluid's conductivity instead of a wall temperature, and report the maximum wall temperature against the boiling point; and report any setupChecks warn or fail to the user in plain terms before running, since the solve would still converge. Before relying on channel results, or when asked about mesh independence, solve two finer meshes of the same setup and use mesh_convergence; report each quantity's GCI and observed order, and say which are unresolved. Call the user-facing object a study. Chat and the pane share the saved study; unsaved pane drafts are not inputs. Read list_simulations before each edit. Use the active study for contextual follow-ups; if the target is ambiguous, ask. Use select_simulation when explicitly switching studies. Reuse the id and current revision for parameter changes; create a separate study only when asked for a new study or separate alternative. Never claim a run used later edits. Mesh first, inspect its job, then solve using that mesh job ID. Do not claim support for imported 3-D CAD, turbulence in 2-D studies, solid regions or conjugate heat transfer. Solver completion is not engineering validation.`,
     `For background computation use submit_job with explicit input/output paths. Jobs are independent of this agent run. list_jobs and get_job inspect earlier jobs and results. A submitted job is not a completed calculation. Reuse requestKey for retries.`,
     ...ENVIRONMENTS_BRIEFING,
   ];

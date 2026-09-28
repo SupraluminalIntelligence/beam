@@ -4,7 +4,7 @@ import { EnvironmentName, ImageRef } from "./environments.ts";
 
 /**
  * Simulations: the thing being investigated. Each saved version has a setup of one of two kinds:
- * - recipe: one of the Simulation pane's OpenFOAM studies, a SimulationCase config (simulation.ts);
+ * - recipe: a study from the retired Simulation pane (read-only now), a SimulationCase config (simulation.ts);
  * - files: files snapshotted from a thread, declared parameters, an environment and a command.
  * A version is immutable; editing makes the next version. Jobs run a version; results belong to it.
  * Stored in the simulationCases / simulationRevisions tables, which the studies used first.

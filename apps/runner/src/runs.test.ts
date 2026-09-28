@@ -73,7 +73,6 @@ function fakeClient(opts: { detailError?: string; detailDelay?: number; landFail
     "runs:detail": detail,
     "files:forRun": [],
     "files:contextForRun": [],
-    "compute:simulationForRun": { cases: [], jobs: [], activeStudyId: null, messageStudyContext: null },
     "runs:control": { state: opts.stateAfterClaim ?? "working", steers: [], resolutions: [], interruptRequestedAt: null },
   };
   const client = {
@@ -275,7 +274,7 @@ it("never starts the agent when the server ends the run while the prompt is bein
   const { watchRuns } = await import("./runs.ts");
   let told = false;
   const fake = fakeClient({ onQuery: (name) => {
-    if (name !== "compute:simulationForRun" || told) return;
+    if (name !== "files:contextForRun" || told) return;
     told = true;
     fake.control({ state: "failed", steers: [], resolutions: [], interruptRequestedAt: null });
   } });

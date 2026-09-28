@@ -1,6 +1,6 @@
 import { cadFormat, type CadReference } from "../cad/model";
 import { useSyncExternalStore } from "react";
-export interface PanelState { fitChat?: boolean; studyDraft?: boolean; simulationView?: {id:string;tab:"setup"|"jobs"|"results"|"compare";jobId?:string;key:number}; simulationSelection?: {studyId:string;stage:"setup"|"mesh"|"runs"|"results";jobId?:string;key:number}; cadReference?: CadReference | null; open: boolean; tabs: string[]; active: string | null; width: number; maximized: boolean; selectedFile?: string | null; selectedSource?: string | null; contextScope?: "chat" | "workspace"; browserUrl?: string; browserHome?: boolean; browserHistory?: {url:string;at:number}[] }
+export interface PanelState { simulationView?: {id:string;tab:"setup"|"jobs"|"results"|"compare";jobId?:string;key:number}; cadReference?: CadReference | null; open: boolean; tabs: string[]; active: string | null; width: number; maximized: boolean; selectedFile?: string | null; selectedSource?: string | null; contextScope?: "chat" | "workspace"; browserUrl?: string; browserHome?: boolean; browserHistory?: {url:string;at:number}[] }
 export const emptyPanel: PanelState = { open: false, tabs: [], active: null, width: 520, maximized: false };
 
 /** Per-person UI state: which workspace, which tabs, which chat. Never shared. */
@@ -19,11 +19,19 @@ export interface UiState {
   panels: Record<string, PanelState>;
 }
 const KEY = "beam.ui.v1";
+/** The Simulation pane (tool "cfd") is retired: a saved panel drops its tab and the layout it forced. */
+const RETIRED_TOOLS = ["cfd"];
 let state: UiState = load();
 const subs = new Set<() => void>();
 
+function withoutRetired(panels: Record<string, PanelState & { fitChat?: boolean; studyDraft?: boolean; simulationSelection?: unknown }>) {
+  return Object.fromEntries(Object.entries(panels).map(([chat, { fitChat: _f, studyDraft: _d, simulationSelection: _s, ...p }]) => {
+    const tabs = p.tabs.filter(t => !RETIRED_TOOLS.includes(t));
+    return [chat, { ...p, tabs, active: p.active && RETIRED_TOOLS.includes(p.active) ? tabs.at(-1) ?? null : p.active }];
+  }));
+}
 function load(): UiState {
-  try { const raw = localStorage.getItem(KEY); if (raw) return { pinnedChats: {}, sidebarHidden: false, navigation: [], navigationIndex: -1, prefs: { addToChat: "auto" }, collapsed: {}, sidebarWidth: 240, panels: {}, ...JSON.parse(raw), messageTarget: null }; } catch {}
+  try { const raw = localStorage.getItem(KEY); if (raw) { const saved = { pinnedChats: {}, sidebarHidden: false, navigation: [], navigationIndex: -1, prefs: { addToChat: "auto" }, collapsed: {}, sidebarWidth: 240, panels: {}, ...JSON.parse(raw), messageTarget: null }; return { ...saved, panels: withoutRetired(saved.panels) }; } } catch {}
   return { ws: null, tabs: {}, active: {}, pinnedChats: {}, sidebarHidden: false, navigation: [], navigationIndex: -1, prefs: { addToChat: "auto" }, collapsed: {}, sidebarWidth: 240, panels: {} };
 }
 function set(next: UiState) { state = next; try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {} subs.forEach((f) => f()); }
@@ -54,18 +62,11 @@ export const ui = {
   },
   panel: (chat: string, patch: Partial<PanelState>) => {
     const panel = { ...(state.panels[chat] ?? emptyPanel), ...patch };
-    const openingSimulation = panel.open && panel.active === "cfd" && (patch.active === "cfd" || patch.open === true);
-    // Keep chat at its minimum while Simulation takes the rest. A manual drag opts out.
-    if (patch.width !== undefined || (patch.active !== undefined && patch.active !== "cfd")) panel.fitChat = false;
-    if (openingSimulation) { panel.fitChat = true; panel.maximized = false; }
-    set({ ...state, sidebarHidden: openingSimulation ? true : state.sidebarHidden, panels: { ...state.panels, [chat]: panel } });
+    set({ ...state, panels: { ...state.panels, [chat]: panel } });
   },
   openSurface: (chat: string, id: string) => {
     const panel = state.panels[chat] ?? emptyPanel;
     ui.panel(chat, { open: true, active: id, tabs: panel.tabs.includes(id) ? panel.tabs : [...panel.tabs, id] });
-  },
-  openSimulation: (chat:string,studyId:string,stage:"setup"|"mesh"|"runs"|"results"="setup",jobId?:string) => {
-    ui.panel(chat,{simulationSelection:{studyId,stage,...(jobId?{jobId}:{}),key:Date.now()}});ui.openSurface(chat,"cfd");
   },
   openContext: (chat: string) => {
     ui.panel(chat, { selectedFile: null, selectedSource: null, contextScope: "chat" });
@@ -93,7 +94,7 @@ export const ui = {
   },
   openMessage: (ws: string, chatId: string, messageId?: string) => {
     ui.openChat(ws, chatId);
-    if (state.panels[chatId]?.open) ui.panel(chatId, { maximized: false, fitChat: false, open: false });
+    if (state.panels[chatId]?.open) ui.panel(chatId, { maximized: false, open: false });
     set({ ...state, messageTarget: messageId ? { chatId, messageId, key: Date.now() } : null });
   },
   clearMessageTarget: () => set({ ...state, messageTarget: null }),
