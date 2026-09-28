@@ -55,9 +55,9 @@ Convex only signs requests; it never reads or writes an object. The runner asks 
    npx convex env set R2_ENDPOINT https://…
    ```
    Add `--prod` for production. Convex reads them on each call, so no redeploy is needed.
-4. Bucket → Settings → CORS policy: allow `GET` (and `HEAD`) from the web app's origins so the 3D view can fetch preview buffers, and allow no `PUT`: the runner is not a browser and needs no CORS. For example:
+4. Bucket → Settings → CORS policy: allow `GET` (and `HEAD`) from any origin so the 3D view can fetch preview buffers, and allow no `PUT`: the runner is not a browser and needs no CORS. Any origin, because the packaged desktop app loads from `file://` (origin `null`), and because the signature is the access control: every URL Beam hands out is signed for one object and expires in 15 minutes.
    ```json
-   [{ "AllowedOrigins": ["https://<your web app origin>", "http://localhost:5173"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3600 }]
+   [{ "AllowedOrigins": ["*"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3600 }]
    ```
 5. Bucket → Settings → Object lifecycle rules: add "Abort incomplete multipart uploads" after 1 day, so an upload interrupted by a runner that never comes back stops costing storage.
 6. Check the bucket from your shell with the same signer Beam uses (it uploads a 70 MB object in parts, downloads it through a signed link, compares SHA-256, and deletes it):
