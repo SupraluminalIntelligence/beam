@@ -2,12 +2,13 @@ import { z } from "zod";
 import { PlanarCase } from "./planar.ts";
 import { ParallelChannelsCase, ParallelChannelsResults, parallelSetupChecks } from "./parallelChannels.ts";
 import { channelSetupChecks } from "./channelChecks.ts";
-import { Domain3DCase } from "./domain3d.ts";
+import { Domain3DCase, modelInputs } from "./domain3d.ts";
 export * from "./planar.ts";
 export * from "./parallelChannels.ts";
 export * from "./channelChecks.ts";
 export * from "./meshStudy.ts";
 export * from "./domain3d.ts";
+export * from "./model3d.ts";
 
 export const OPENFOAM_IMAGE = "opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319";
 /** First supported study: a 2-D laminar channel, prescribed wall temperature, no buoyancy. SI units. */
@@ -54,6 +55,8 @@ export const SimulationJob = z.object({image:z.literal(OPENFOAM_IMAGE).default(O
 export type SimulationJob = z.infer<typeof SimulationJob>;
 /** 3-D polyMesh snapshots are binary archives; 2-D snapshots remain inline JSON. */
 export const meshAssetPath = (config?:SimulationCase) => config?.geometry==="domain3d" ? "mesh.tar.gz" : "mesh.json";
+/** Mesh jobs read the stored surface of each imported body; other studies mesh from their settings alone. */
+export const simulationMeshInputs = (config:SimulationCase) => config.geometry==="domain3d" ? modelInputs(config) : [];
 export const meshInputPath = (config?:SimulationCase) => config?.geometry==="domain3d" ? "mesh-input.tar.gz" : "mesh-input.json";
 export const simulationOutputs = (stage: "mesh"|"solve",config?:SimulationCase) => config?.geometry==="domain3d" ? (stage==="mesh" ? ["report.json","mesh.tar.gz","mesh-view.json"] : ["report.json","fields.json","frames.bin","case.tar.gz"]) : stage === "mesh" ? ["report.json","mesh.json",...(config?.geometry==="planar"?["mesh-view.json"]:[])] : ["report.json","fields.json","case.tar.gz",...(config && config.geometry!=="channel" && config.geometry!=="parallel-channels"?["frames.bin",...(config.geometry==="planar"&&config.motion?["geometry.bin"]:[])]:[])];
 /** Heated-channel results a thermal engineer reads: flow-weighted outlet temperature, discrete energy balance, developed f·Re and local Nu(x) on 2H. */

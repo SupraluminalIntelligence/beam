@@ -6,7 +6,7 @@ import { requireChat, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { JobPath, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
-import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath } from "../packages/contracts/src/simulation";
+import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES } from "../packages/contracts/src/simulation";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
@@ -58,6 +58,12 @@ async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId:
       if(!mesh || mesh.chatId!==input.chatId || mesh.state!=="succeeded" || prior?.stage!=="mesh" || prior.caseId!==sim.caseId || meshKey(prior.config)!==meshKey(sim.config)) throw new Error("Build a matching mesh before solving");
       const asset=await ctx.db.get(spec.inputs[0]!.assetId as Id<"computeAssets">);
       if(!asset || !mesh.outputs.includes(asset._id) || asset.path!==meshAssetPath(sim.config)) throw new Error("Use the mesh output of the selected mesh job");
+    }
+    // An imported body meshes from exactly the stored surface its study names.
+    if(sim.stage==="mesh"&&sim.config.geometry==="domain3d")for(const b of sim.config.bodies){
+      if(b.shape!=="model")continue;
+      const input=spec.inputs.find(i=>i.path===modelInputPath(b)),asset=input&&input.assetId===b.model.assetId?await ctx.db.get(input.assetId as Id<"computeAssets">):null;
+      if(!asset||asset.sha256!==b.model.sha256)throw new Error(`Model ${b.model.file} for body ${b.name} is unavailable in this chat; import it again`);
     }
   }
   let size = 0;
@@ -150,7 +156,7 @@ async function enqueueSimulation(ctx:MutationCtx,chatId:Id<"chats">,runnerId:Id<
   if(prior){const old=ProcessJobSpec.parse(prior.spec).simulation;if(prior.runnerId!==runnerId||old?.caseId!==a.caseId||old.revision!==a.revision||old.stage!==a.stage||old.meshJobId!==a.meshJobId)throw new Error("Request key already used for a different job");return prior._id;}
   const model=await ctx.db.get(a.caseId);
   if(!model||model.chatId!==chatId||model.revision!==a.revision)throw new Error("Simulation revision changed; reload the case");
-  const inputs=[];
+  const inputs:{assetId:string;path:string}[]=a.stage==="mesh"?simulationMeshInputs(SimulationCase.parse(model.config)):[];
   if(a.stage==="solve"&&a.meshJobId){const mesh=await ctx.db.get(a.meshJobId);if(mesh?.chatId!==chatId)throw new Error("Mesh unavailable");const config=SimulationCase.parse(model.config);for(const id of mesh.outputs){const asset=await ctx.db.get(id);if(asset?.path===meshAssetPath(config))inputs.push({assetId:id,path:meshInputPath(config)});}}
   return enqueue(ctx,{chatId,runnerId,requestedBy:login,requestKey:a.requestKey,needsApproval,...(sourceRunId?{sourceRunId}:{}),spec:{version:1,kind:"process",title:`${model.name} · ${a.stage} · r${model.revision}`,executable:"beam:openfoam",args:[],inputs,outputs:simulationOutputs(a.stage,SimulationCase.parse(model.config)),timeoutSeconds:SimulationCase.parse(model.config).geometry==="domain3d"?4*3600:3600,simulation:{caseId:a.caseId,revision:model.revision,stage:a.stage,config:SimulationCase.parse(model.config),...(a.meshJobId?{meshJobId:a.meshJobId}:{})}}});
 }
@@ -299,6 +305,33 @@ export const importFile = mutation({ args: { fileId: v.id("files"), path: v.stri
   // Preserve the first immutable asset; remapping belongs in the job input manifest.
   const prior = await ctx.db.query("computeAssets").withIndex("by_storage", q => q.eq("storageId", file.storageId)).first();
   return prior?._id ?? asset(ctx, file.chatId, u.githubLogin!, file.storageId, a.path);
+} });
+/** Imported 3-D models: the pane uploads a normalized binary STL and keeps it as a compute asset of this chat. */
+export const modelUploadUrl = mutation({ args: { chatId: v.id("chats") }, handler: async (ctx, a) => {
+  await requireChat(ctx, a.chatId); return ctx.storage.generateUploadUrl();
+} });
+async function modelAsset(ctx: MutationCtx, chatId: Id<"chats">, author: string, storageId: Id<"_storage">) {
+  const meta = await ctx.db.system.get(storageId);
+  if (!meta || meta.size < 84 || (meta.size - 84) % 50 !== 0 || meta.size > 84 + 50 * MODEL_MAX_TRIANGLES) throw new Error("Upload a normalized binary STL of at most 200,000 triangles");
+  const id = await asset(ctx, chatId, author, storageId, "model.stl");
+  return { assetId: id, sha256: meta.sha256, size: meta.size };
+}
+export const stageModel = mutation({ args: { chatId: v.id("chats"), storageId: v.id("_storage") }, handler: async (ctx, a) => {
+  const { u } = await requireChat(ctx, a.chatId); return modelAsset(ctx, a.chatId, u.githubLogin!, a.storageId);
+} });
+export const stageModelForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), storageId: v.id("_storage") }, handler: async (ctx, a) => {
+  const { run } = await runAccess(ctx, a.token, a.runId); return modelAsset(ctx, run.chatId, run.dispatchedBy, a.storageId);
+} });
+/** Download links for the imported models a study draws, for anyone who can read their chat. */
+export const modelFiles = query({ args: { assetIds: v.array(v.string()) }, handler: async (ctx, a) => {
+  if (a.assetIds.length > 8) throw new Error("A study has at most 8 bodies");
+  return (await Promise.all(a.assetIds.map(async raw => {
+    const id = ctx.db.normalizeId("computeAssets", raw), row = id && await ctx.db.get(id);
+    if (!row || row.path !== "model.stl") return null;
+    await requireChat(ctx, row.chatId);
+    const url = await ctx.storage.getUrl(row.storageId);
+    return url ? { assetId: raw, url, size: row.size } : null;
+  }))).filter(r => r !== null);
 } });
 export const inputUploadUrl = readableMutation({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
   await runAccess(ctx, a.token, a.runId); return ctx.storage.generateUploadUrl();

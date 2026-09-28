@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AmbientLight, BoxGeometry, BufferAttribute, BufferGeometry, CylinderGeometry, DirectionalLight, DoubleSide, EdgesGeometry, Group, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Points, PointsMaterial, Quaternion, Scene, SphereGeometry, Vector3, WebGLRenderer, type Material } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { ahmedSurface, bodyBounds, type Domain3DCase, type Domain3DFields, type Domain3DMeshView } from "@beam/contracts";
+import { ahmedSurface, bodyBounds, placeSurface, type Domain3DCase, type Domain3DFields, type Domain3DMeshView } from "@beam/contracts";
 import { wakeColor } from "./WakeViewer";
+import { useModelSurfaces } from "./modelImport";
 
 type Field="speed"|"pressure"|"ux";
 type Surface={mesh:Mesh;colors:BufferAttribute;offset:number;count:number;name:string};
@@ -16,6 +17,7 @@ export default function Domain3DViewer({config,meshView=null,fields=null,frames=
  const host=useRef<HTMLDivElement>(null),tracers=useRef<Tracers|null>(null),three=useRef<{renderer:WebGLRenderer;scene:Scene;camera:PerspectiveCamera;controls:OrbitControls;content:Group}|null>(null),surfaces=useRef<Surface[]>([]);
  const [field,setField]=useState<Field>("speed"),[playing,setPlaying]=useState(true),[speed,setSpeed]=useState(1),[frame,setFrame]=useState(0),[hidden,setHidden]=useState<string[]>([]),[failure,setFailure]=useState("");
  const ready=!!fields&&!!frames,position=useRef(0);
+ const models=useModelSurfaces(config.bodies.flatMap(b=>b.shape==="model"?[b.model.assetId]:[]));
  const {min,max}=config.domain,centre=useMemo(()=>new Vector3((min[0]+max[0])/2,(min[1]+max[1])/2,(min[2]+max[2])/2),[config]),span=Math.max(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
  // Scene units: centred on the domain and scaled to unit span for GPU precision.
  const local=(x:number,y:number,z:number)=>[(x-centre.x)/span,(y-centre.y)/span,(z-centre.z)/span];
@@ -66,6 +68,16 @@ export default function Domain3DViewer({config,meshView=null,fields=null,frames=
     if(b.shape==="sphere"){mesh=new Mesh(new SphereGeometry(b.radius/span,48,24),solid);mesh.position.set(...local(...b.centre) as [number,number,number]);}
     else if(b.shape==="box"){mesh=new Mesh(new BoxGeometry((b.max[0]-b.min[0])/span,(b.max[1]-b.min[1])/span,(b.max[2]-b.min[2])/span),solid);mesh.position.set(...local((b.min[0]+b.max[0])/2,(b.min[1]+b.max[1])/2,(b.min[2]+b.max[2])/2) as [number,number,number]);}
     else if(b.shape==="ahmed"){const s=ahmedSurface(b),g=geometry(s.points,s.triangles).toNonIndexed();g.computeVertexNormals();mesh=new Mesh(g,solid);}
+    else if(b.shape==="model"){
+     // Until the stored surface arrives, its bounding box stands in, drawn as edges.
+     const stored=models.surfaces[b.model.assetId],bb=bodyBounds(b);
+     if(!stored){const g=new LineSegments(new EdgesGeometry(new BoxGeometry((bb.max[0]-bb.min[0])/span,(bb.max[1]-bb.min[1])/span,(bb.max[2]-bb.min[2])/span)),new LineBasicMaterial({color:0xd9e0e3}));g.position.set(...local((bb.min[0]+bb.max[0])/2,(bb.min[1]+bb.max[1])/2,(bb.min[2]+bb.max[2])/2) as [number,number,number]);g.name=b.name;t.content.add(g);continue;}
+     const s=placeSurface(b,stored),g=new BufferGeometry(),p=new Float32Array(s.points.length);
+     for(let i=0;i<p.length;i+=3)p.set(local(s.points[i]!,s.points[i+1]!,s.points[i+2]!),i);
+     g.setAttribute("position",new BufferAttribute(p,3));g.setIndex(new BufferAttribute(s.triangles,1));
+     // Flat shading keeps CAD edges crisp; smoothing across a shared vertex would round them.
+     const flat=g.toNonIndexed();flat.computeVertexNormals();mesh=new Mesh(flat,solid);
+    }
     else{const a=new Vector3(...b.start),e=new Vector3(...b.end),d=e.clone().sub(a);mesh=new Mesh(new CylinderGeometry(b.radius/span,b.radius/span,d.length()/span,48),solid);mesh.quaternion.copy(new Quaternion().setFromUnitVectors(new Vector3(0,1,0),d.normalize()));const m=a.add(e).multiplyScalar(.5);mesh.position.set(...local(m.x,m.y,m.z) as [number,number,number]);}
     mesh.name=b.name;t.content.add(mesh);
    }
@@ -81,7 +93,7 @@ export default function Domain3DViewer({config,meshView=null,fields=null,frames=
   }
   for(const child of t.content.children)if(child.name)child.visible=!hidden.includes(child.name);
   paint();
- },[config,meshView,fields,frames]);
+ },[config,meshView,fields,frames,models.surfaces]);
  // Frame the bodies rather than the whole domain: a car is small in its tunnel.
  const focus=config.bodies.length?JSON.stringify(config.bodies.map(bodyBounds)):"";
  useEffect(()=>{
@@ -119,7 +131,7 @@ export default function Domain3DViewer({config,meshView=null,fields=null,frames=
  return <div className="wake-viewer">
   <div className="sim-field-control">{ready&&<select aria-label="3D field" value={field} onChange={e=>setField(e.target.value as Field)}><option value="speed">Speed · m/s</option><option value="pressure">Gauge pressure · Pa</option><option value="ux">Velocity x · m/s</option></select>}<span>{ready?"Sampled slices and walls · interpolated snapshots":meshView?"Checked snappyHexMesh · slice cuts and snapped walls":`3-D fluid domain · pimpleFoam · ${turbulence}`}</span>
    <span className="sim-layers">{layers.map(l=><button key={l.name} aria-pressed={!hidden.includes(l.name)} onClick={()=>setHidden(h=>h.includes(l.name)?h.filter(n=>n!==l.name):[...h,l.name])}>{hidden.includes(l.name)?"□":"■"} {l.name}</button>)}</span></div>
-  <div className="wake-viewport" ref={host}>{failure&&<div className="wake-empty">{failure}</div>}</div>
+  <div className="wake-viewport" ref={host}>{(failure||models.error)&&<div className="wake-empty">{failure||`The imported model could not be drawn: ${models.error}`}</div>}</div>
   {ready&&<><div className="wake-scale"><span>{extent[0]!.toPrecision(3)}</span><i style={{background:`linear-gradient(to right,${Array.from({length:9},(_,i)=>wakeColor(i/8,field!=="speed")).join(",")})`}}/><span>{extent[1]!.toPrecision(3)} {field==="pressure"?"Pa":"m/s"}</span><span>Colour range spans all saved times</span></div>
   <div className="wake-playback"><button aria-label={playing?"Pause playback":"Play playback"} onClick={()=>setPlaying(!playing)}>{playing?"Ⅱ Pause":"▶ Play"}</button><button aria-label="Restart playback" onClick={()=>seek(0)}>↺</button><input aria-label="Simulation time" type="range" min="0" max={fields!.times.length-1} step="0.01" value={frame} onChange={e=>{setPlaying(false);seek(Number(e.target.value));}}/><span>{time.toFixed(3)} s</span><select aria-label="Playback speed" value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.25,.5,1,2].map(v=><option key={v} value={v}>{v}×</option>)}</select></div></>}
   <div className="sim-figure-caption"><span>Fig. 1 — {ready?`Computed ${turbulence} flow on sampled surfaces`:meshView?`${meshView.surfaces.length} mesh surfaces`:`${config.region.name} · ${config.bodies.length} bodies · ${config.slices.length} slices`}</span><span>{ready?`${fields!.times.length} saved times`:`Domain ${(max[0]-min[0]).toPrecision(3)} × ${(max[1]-min[1]).toPrecision(3)} × ${(max[2]-min[2]).toPrecision(3)} m · z up`}</span></div>

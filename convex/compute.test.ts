@@ -1,9 +1,9 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies } from "./compute";
+import { resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles } from "./compute";
 
-import { defaultChannel, defaultCylinder, defaultPlanar, OPENFOAM_IMAGE } from "../packages/contracts/src/simulation";
+import { defaultChannel, defaultCylinder, defaultPlanar, OPENFOAM_IMAGE, modelWindTunnel, type Model3D } from "../packages/contracts/src/simulation";
 
 const call=(fn:any,ctx:any,args:any)=>fn._handler(ctx,args);
 const spec={version:1,kind:"process",title:"Flow",executable:"python3",args:["analysis.py"],inputs:[],outputs:[],timeoutSeconds:60};
@@ -14,7 +14,7 @@ function fixture(){
     agents:[{_id:"agent",permissionMode:"auto"}],runs:[{_id:"run",chatId:"chat",runnerId:"runner",agentId:"agent",dispatchedBy:"alice",state:"working"}],
     simulationCases:[],simulationRevisions:[],computeJobs:[],computeAssets:[],files:[],messages:[],
   };
-  const db:any={get:async(id:string)=>Object.values(tables).flat().find(r=>r._id===id)??null,
+  const db:any={normalizeId:(_:string,id:string)=>id,get:async(id:string)=>Object.values(tables).flat().find(r=>r._id===id)??null,
     query:(table:string)=>{const filters:[string,unknown][]=[];let descending=false;const rows=()=>{const items=(tables[table]??[]).filter(r=>filters.every(([k,v])=>r[k]===v));return descending?items.slice().reverse():items;};const chain:any={withIndex:(_:string,fn:any)=>{const q={eq:(k:string,v:unknown)=>{filters.push([k,v]);return q;}};fn(q);return chain;},order:(dir:string)=>{descending=dir==="desc";return chain;},collect:async()=>rows(),take:async(n:number)=>rows().slice(0,n),first:async()=>rows()[0]??null};return chain;},
     insert:async(table:string,value:any)=>{const id=`${table}-${tables[table]!.length}`;tables[table]!.push({_id:id,_creationTime:Date.now(),...value});return id;},
     patch:async(id:string,value:any)=>Object.assign(await db.get(id),value),
@@ -202,4 +202,27 @@ it("only lets the owning runner resume a recoverable export and still requires o
  job.spec={...spec,outputs:["report.json"]};
  await expect(call(report,ctx,{token:"valid",id,state:"succeeded",log:"recovered",error:null})).rejects.toThrow("Outputs are not yet published");
  expect(await call(resumeSimulationExport,ctx,{token:"valid",id})).toBe(false);
+});
+
+it("stages imported models in the chat and meshes only from the surface a study names",async()=>{
+  const {ctx,tables}=fixture();tables.runners![0].openfoam={ready:true,image:OPENFOAM_IMAGE,message:"ready"};tables.runs![0].state="landed";
+  await expect(call(stageModel,ctx,{chatId:"chat",storageId:"blob"})).rejects.toThrow("binary STL");
+  const sha="n4bQgYhMfWWaL+qgxVrQFaO/TxsrC4Is0V1sFbDwCgg=";ctx.db.system.get=async()=>({size:84+50*12,sha256:sha,contentType:"application/octet-stream"});
+  expect(await call(modelUploadUrl,ctx,{chatId:"chat"})).toBe("https://storage.test/upload");
+  const staged=await call(stageModel,ctx,{chatId:"chat",storageId:"car-blob"});
+  expect(staged).toEqual({assetId:"computeAssets-0",sha256:sha,size:684});
+  const agent=await call(stageModelForRun,ctx,{token:"valid",runId:"run",storageId:"agent-blob"});
+  expect(tables.computeAssets![1]).toMatchObject({chatId:"chat",author:"alice",path:"model.stl"});expect(agent.assetId).toBe("computeAssets-1");
+  expect(await call(modelFiles,ctx,{assetIds:[staged.assetId,"missing"]})).toEqual([{assetId:staged.assetId,url:"https://storage.test/result",size:684}]);
+  const model:Model3D={assetId:staged.assetId,file:"car.stl",sha256:sha,triangles:12,min:[0,0,0],max:[4.5,1.8,1.4],area:41.4,volume:11.34,projectedArea:[2.52,6.3,8.1]};
+  const config=modelWindTunnel(model,{scale:1});
+  const saved=await call(saveSimulation,ctx,{chatId:"chat",name:"Car",config});
+  const args={chatId:"chat",runnerId:"runner",caseId:saved.id,revision:1,stage:"mesh",requestKey:"car-mesh"};
+  const mesh=await call(submitSimulation,ctx,args);
+  expect((await ctx.db.get(mesh)).spec.inputs).toEqual([{assetId:staged.assetId,path:"models/model.stl"}]);
+  // A study pointing at a surface with another checksum, or in another chat, cannot mesh.
+  const forged=await call(saveSimulation,ctx,{chatId:"chat",id:saved.id,revision:1,name:"Car",config:{...config,bodies:[{...config.bodies[0]!,model:{...model,sha256:"x".repeat(44)}}]}});
+  await expect(call(submitSimulation,ctx,{...args,revision:forged.revision,requestKey:"forged"})).rejects.toThrow("import it again");
+  tables.computeAssets![0].chatId="elsewhere";
+  await expect(call(modelFiles,ctx,{assetIds:[staged.assetId]})).rejects.toThrow();
 });
