@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { BUILT_IN_ENVIRONMENTS, type EnvironmentJobSpec } from "@beam/contracts";
+import { createHash } from "node:crypto";
+import { BUILT_IN_ENVIRONMENTS, EnvironmentJobSpec, PlanarCase, SimulationJob, SimulationReport, defaultChannel, defaultDomain3d, defaultParallelChannels, defaultPlanar, meshAssetPath, meshInputPath, simulationOutputs, type Domain3DCase, type ResultsManifest, type SimulationCase } from "@beam/contracts";
 import { closeLocalMachine, collectResults, environmentProcess, execOnLocalMachine, jobScript, machineContainer, openLocalMachine } from "./environment.ts";
 import { LocalExecutor } from "./local.ts";
 
@@ -117,4 +118,52 @@ describe.skipIf(!docker)("the fea environment on this computer", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 120_000);
+});
+
+// Studies as the cfd environment runs them: beam-recipe meshes, then solves on that mesh, and both write
+// standard results with the study's own files. Needs a cfd image with the recipes, by digest.
+const cfdImage = process.env["BEAM_TEST_CFD_IMAGE"];
+const studies: [string, SimulationCase, (m: ResultsManifest, report: SimulationReport) => void][] = [
+  ["heated channel", defaultChannel, (m, report) => {
+    // Developed laminar flow between plates: f·Re = 96; the solver's face fluxes conserve mass and energy.
+    expect(m.quantities.find(q => q.name === "f_re")?.value).toBeCloseTo(96, 0);
+    expect(m.checks.filter(c => c.status !== "pass" && c.status !== "not-evaluated")).toEqual([]);
+    expect(report.converged).toBe(true);
+  }],
+  ["parallel channels", { ...defaultParallelChannels, channels: [{ heatFlux: 0 }, { heatFlux: 0 }], gravity: "off", cellsAcross: 10, cellsAlong: 35, duration: 2, frames: 4 }, (m) => {
+    const [a, b] = ["flow_1", "flow_2"].map(n => m.quantities.find(q => q.name === n)!.value);
+    expect(Math.abs(a! / b! - 1)).toBeLessThan(1e-3);
+    expect(m.checks.find(c => c.id === "mass-balance")?.status).toBe("pass");
+  }],
+  ["2D fluid domain", PlanarCase.parse({ ...defaultPlanar, duration: .3, frames: 6 }), (m) => {
+    expect(m.files.map(f => f.path)).toContain("recipe/frames.bin");
+  }],
+  ["3D domain with a sphere", { ...structuredClone(defaultDomain3d), duration: .2, frames: 4 } as Domain3DCase, (m) => {
+    expect(m.files.map(f => f.path)).toContain("recipe/frames.bin");
+  }],
+];
+describe.skipIf(!docker || !cfdImage)("studies in the cfd environment", () => {
+  it.each(studies)("meshes and solves a %s through beam-recipe", async (_, config, expectations) => {
+    const home = await mkdtemp(join(tmpdir(), "beam-study-")), executor = new LocalExecutor(home);
+    const spec = (stage: "mesh" | "solve"): EnvironmentJobSpec => EnvironmentJobSpec.parse({ version: 1, kind: "environment", title: `Study ${stage}`, environment: { name: "cfd", image: cfdImage! }, command: "beam-recipe", inputs: stage === "mesh" ? [] : [{ assetId: "mesh", path: meshInputPath(config) }], machine: "local", timeoutSeconds: 1200, recipe: SimulationJob.parse({ caseId: "case", revision: 1, stage, config, ...(stage === "solve" ? { meshJobId: "mesh" } : {}) }) });
+    const run = async (id: string, s: EnvironmentJobSpec, inputs: Parameters<LocalExecutor["submit"]>[2]) => {
+      const handle = await executor.submit(id, s, inputs);
+      let status = await executor.inspect(handle);
+      for (let i = 0; i < 2000 && status.state === "running"; i++) { await new Promise(r => setTimeout(r, 500)); status = await executor.inspect(handle); }
+      expect(status.state, status.log).toBe("succeeded");
+      return { handle, results: await collectResults(path => executor.readOutput(handle, path)) };
+    };
+    try {
+      const mesh = await run("mesh", spec("mesh"), []);
+      expect(mesh.results.manifest?.checks.find(c => c.id === "mesh-quality")?.status).toBe("pass");
+      const bytes = Buffer.from(await executor.readOutput(mesh.handle, `beam/out/recipe/${meshAssetPath(config)}`));
+      const solve = await run("solve", spec("solve"), [{ path: meshInputPath(config), size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), url: `data:application/octet-stream;base64,${bytes.toString("base64")}` }]);
+      const m = solve.results.manifest!;
+      expect(m.provenance.image).toBe(cfdImage);
+      expect(m.files.map(f => f.path).sort()).toEqual(simulationOutputs("solve", config).map(p => `recipe/${p}`).sort());
+      const report = SimulationReport.parse(JSON.parse(new TextDecoder().decode(await executor.readOutput(solve.handle, "beam/out/recipe/report.json"))));
+      expect(report.image).toBe(cfdImage);
+      expectations(m, report);
+    } finally { await rm(home, { recursive: true, force: true }); }
+  }, 900_000);
 });

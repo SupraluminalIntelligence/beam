@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { OPENFOAM_IMAGE, defaultChannel, defaultCylinder, defaultParallelChannels, parallelSetupChecks, WakeFields, decodeWakeFrames, SimulationReport, SimulationFields, simulationOutputs, channelMeshStudy, fluxWallEstimate, type GridEstimate, type ProcessJobSpec } from "@beam/contracts";
-import { foamValues, residualHistory } from "./openfoam.ts";
+import { foamValues, residualHistory } from "@beam/cfd-recipes";
 import { LocalExecutor } from "./local.ts";
 
 it("reads uniform and nonuniform scalar/vector fields and rejects incomplete exports",()=>{
@@ -183,8 +183,8 @@ it.skipIf(process.env.BEAM_TEST_OPENFOAM!=="1")("exports a real transient cylind
 },330000);
 
 it("exports 100 snapshots after a long solve without spreading residuals or Courant samples onto the stack",async()=>{
- const {exportOpenFoam}=await import("./openfoam.ts");
- const {planarMesh,planarFiles}=await import("./planar.ts");
+ const {exportOpenFoam}=await import("@beam/cfd-recipes");
+ const {planarMesh,planarFiles}=await import("@beam/cfd-recipes");
  const {defaultPlanar}=await import("@beam/contracts");
  const config={...defaultPlanar,bodies:[],boundaries:defaultPlanar.boundaries.slice(0,3),meshSize:.01,duration:10,frames:100};
  const root=await mkdtemp(join(tmpdir(),"beam-large-export-"));

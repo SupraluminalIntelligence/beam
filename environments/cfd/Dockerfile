@@ -5,7 +5,7 @@ FROM mambaorg/micromamba:2.9.0-ubuntu24.04 AS micromamba
 FROM opencfd/openfoam-default:2512@sha256:33fb575aa9980d2bc42fd58c75ae698c489293ba30c991380fe3f899c622f319
 
 LABEL org.opencontainers.image.source="https://github.com/SupraluminalIntelligence/beam" \
-      org.opencontainers.image.description="Beam cfd environment: OpenFOAM 2512, pyvista and beam_out" \
+      org.opencontainers.image.description="Beam cfd environment: OpenFOAM 2512, pyvista, beam_out and Beam study recipes" \
       org.opencontainers.image.licenses="MIT"
 
 USER root
@@ -19,6 +19,11 @@ RUN micromamba create -y -p /opt/conda --file /tmp/lock.txt && micromamba clean 
 COPY base/beam_out /opt/beam/python/beam_out
 COPY cfd/env.md cfd/env.json /beam/
 COPY cfd/benchmarks /beam/benchmarks
+# Beam's study recipes (channel, cylinder, planar, parallel channels, 3D domain): readable sources, and the
+# bundle `pnpm --filter @beam/cfd-recipes bundle` builds from them, run as beam-recipe.
+COPY cfd/recipes/src /beam/recipes/src
+COPY cfd/recipes/dist/beam-recipe.mjs /beam/recipes/beam-recipe.mjs
+RUN printf '#!/bin/sh\nexec node /beam/recipes/beam-recipe.mjs "$@"\n' > /usr/local/bin/beam-recipe && chmod 755 /usr/local/bin/beam-recipe
 RUN mkdir -p /work && chmod 1777 /work \
  && micromamba list -p /opt/conda --json > /beam/packages.json
 

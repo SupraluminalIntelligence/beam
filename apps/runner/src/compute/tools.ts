@@ -4,11 +4,11 @@ import { isAbsolute, join, relative, basename, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { JobPath, ProcessJobSpec, SimulationCase, PlanarCase, WakeFields, decodeWakeFrames, decodeWakeGeometry, SimulationReport, channelMeshStudy, studySetupChecks, parallelLayout, estimateDomain3dCells, bodyLevel, frontalArea, referenceDrag, DOMAIN3D_CELL_BUDGET, normalizeModel, guessUnits, modelWindTunnel, bodyBounds, MODEL_UNITS, MODEL_MAX_FILE_BYTES, QuarterTurns, type Model3D, type ModelUnit } from "@beam/contracts";
+import { JobPath, ProcessJobSpec, jobStudy, studyOutput, SimulationCase, PlanarCase, WakeFields, decodeWakeFrames, decodeWakeGeometry, SimulationReport, channelMeshStudy, studySetupChecks, parallelLayout, estimateDomain3dCells, bodyLevel, frontalArea, referenceDrag, DOMAIN3D_CELL_BUDGET, normalizeModel, guessUnits, modelWindTunnel, bodyBounds, MODEL_UNITS, MODEL_MAX_FILE_BYTES, QuarterTurns, type Model3D, type ModelUnit } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { readJobFile } from "./local.ts";
-import { planarMesh } from "./planar.ts";
+import { planarMesh } from "@beam/cfd-recipes";
 import { comparePlanarFields } from "./compare.ts";
 import { uploadBytes } from "./watch.ts";
 
@@ -68,11 +68,12 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
     {name:"compare_simulation_runs",description:"Compare two succeeded planar solve jobs from the same study at their latest common physical time. Returns mesh quality, saved refinement settings and area-weighted speed, pressure and kinetic-energy statistics. Requires unchanged geometry and physics. Does not compute forces, shedding frequency or establish mesh convergence. Read-only; use after a refinement rerun and report the limitations.",schema:{baselineJobId:z.string(),candidateJobId:z.string()},run:async args=>{
       const load=async(id:string)=>{
         const job=await client.query(api.compute.forRun,{token,runId,id:id as Id<"computeJobs">});
-        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.kind!=="process"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="planar")throw new Error("Choose a succeeded planar solve job");
-        const read=async(path:string)=>{const asset=job.outputs.find(o=>o.path===path);if(!asset?.url||asset.size>20*1024*1024)throw new Error(`Missing or oversized ${path}`);const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`Cannot read ${path}`);const bytes=await response.arrayBuffer();if(bytes.byteLength!==asset.size)throw new Error(`Incomplete ${path}`);return bytes;};
+        const sim=Array.isArray(job)?undefined:jobStudy(job.spec);
+        if(Array.isArray(job)||job.state!=="succeeded"||sim?.stage!=="solve"||sim.config.geometry!=="planar")throw new Error("Choose a succeeded planar solve job");
+        const read=async(path:string)=>{const asset=studyOutput(job.outputs,path);if(!asset?.url||asset.size>20*1024*1024)throw new Error(`Missing or oversized ${path}`);const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`Cannot read ${path}`);const bytes=await response.arrayBuffer();if(bytes.byteLength!==asset.size)throw new Error(`Incomplete ${path}`);return bytes;};
         const [manifest,binary,reportBytes]=await Promise.all([read("fields.json"),read("frames.bin"),read("report.json")]);
         const fields=WakeFields.parse(JSON.parse(new TextDecoder().decode(manifest))),report=SimulationReport.parse(JSON.parse(new TextDecoder().decode(reportBytes)));
-        return{jobId:id,caseId:job.spec.simulation.caseId,revision:job.spec.simulation.revision,config:PlanarCase.parse(job.spec.simulation.config),fields,frames:decodeWakeFrames(binary,fields),...(fields.motion?{geometry:decodeWakeGeometry(await read("geometry.bin"),fields)}:{}),mesh:{cells:report.cells,checkMesh:report.meshOk,maxNonOrthogonality:report.maxNonOrthogonality,maxSkewness:report.maxSkewness,maxCourant:report.maxCourant}};
+        return{jobId:id,caseId:sim.caseId,revision:sim.revision,config:PlanarCase.parse(sim.config),fields,frames:decodeWakeFrames(binary,fields),...(fields.motion?{geometry:decodeWakeGeometry(await read("geometry.bin"),fields)}:{}),mesh:{cells:report.cells,checkMesh:report.meshOk,maxNonOrthogonality:report.maxNonOrthogonality,maxSkewness:report.maxSkewness,maxCourant:report.maxCourant}};
       };
       if(args["baselineJobId"]===args["candidateJobId"])throw new Error("Choose two different runs");
       const [a,b]=await Promise.all([load(String(args["baselineJobId"])),load(String(args["candidateJobId"]))]);
@@ -85,10 +86,11 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
       if(new Set(ids).size<3)throw new Error("Choose three different runs");
       const runs=await Promise.all(ids.map(async id=>{
         const job=await client.query(api.compute.forRun,{token,runId,id:id as Id<"computeJobs">});
-        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.kind!=="process"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="channel")throw new Error("Choose succeeded heated-channel solve jobs");
-        const asset=job.outputs.find(o=>o.path==="report.json");if(!asset?.url||asset.size>20*1024*1024)throw new Error("Missing or oversized report.json");
+        const sim=Array.isArray(job)?undefined:jobStudy(job.spec);
+        if(Array.isArray(job)||job.state!=="succeeded"||sim?.stage!=="solve"||sim.config.geometry!=="channel")throw new Error("Choose succeeded heated-channel solve jobs");
+        const asset=studyOutput(job.outputs,"report.json");if(!asset?.url||asset.size>20*1024*1024)throw new Error("Missing or oversized report.json");
         const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error("Cannot read report.json");
-        return{jobId:id,caseId:job.spec.simulation.caseId,revision:job.spec.simulation.revision,report:SimulationReport.parse(await response.json())};
+        return{jobId:id,caseId:sim.caseId,revision:sim.revision,report:SimulationReport.parse(await response.json())};
       }));
       if(new Set(runs.map(r=>r.caseId)).size>1)throw new Error("Choose runs from the same study");
       const study=channelMeshStudy(runs.map(r=>r.report));

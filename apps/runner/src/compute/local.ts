@@ -1,4 +1,4 @@
-import { foamProcess, stopFoamContainer } from "./openfoam.ts";
+import { foamProcess, stopFoamContainer } from "./legacyFoam.ts";
 import { environmentProcess, stopJobContainer } from "./environment.ts";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -6,7 +6,7 @@ import { mkdir, readFile, realpath, stat, writeFile, rename } from "node:fs/prom
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, parametersFile } from "@beam/contracts";
+import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, RECIPE_PATH, parametersFile } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 
 /** The real path of a job file, refusing one that resolves (through a link) outside the job directory. */
@@ -78,6 +78,10 @@ export class LocalExecutor implements ComputeExecutor {
       if (spec.kind === "environment" && spec.parameters) {
         const dest = join(root, "work", PARAMETERS_PATH);
         await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, parametersFile(spec.parameters), { flag: "wx" });
+      }
+      if (spec.kind === "environment" && spec.recipe) {
+        const dest = join(root, "work", RECIPE_PATH);
+        await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, JSON.stringify(spec.recipe), { flag: "wx" });
       }
       const launch = spec.kind === "environment" ? await environmentProcess(spec, root) : spec.simulation ? foamProcess(spec, root) : spec;
       await writeFile(join(root, "spec.json"), JSON.stringify(launch));

@@ -3,6 +3,13 @@ import { SimulationJob, simulationOutputs, meshInputPath, simulationMeshInputs }
 import { EnvironmentName, ImageRef } from "./environments.ts";
 import { MachineId } from "./machines.ts";
 
+/** A study's inputs: a mesh reads each imported body's surface; a solve reads the mesh it was checked against. */
+const recipeInputsMatch = (sim: SimulationJob, inputs: { path: string }[]) => sim.stage === "mesh"
+  ? JSON.stringify(inputs.map(i => i.path)) === JSON.stringify(simulationMeshInputs(sim.config).map(i => i.path))
+  : inputs.length === 1 && inputs[0]?.path === meshInputPath(sim.config) && !!sim.meshJobId;
+/** Where a study recipe's settings are written in an environment job, as parameters are. */
+export const RECIPE_PATH = "beam/recipe.json";
+
 /** Portable paths within a job's immutable input snapshot / private working directory. */
 export const JobPath = z.string().min(1).max(240).refine(
   value => !/[\\\x00-\x1f:]/.test(value) && value.split("/").every(p => p !== "" && p !== "." && p !== ".."),
@@ -21,7 +28,7 @@ export const ProcessJobSpec = z.object({
 }).strict().superRefine((spec, ctx) => {
   if (spec.simulation || spec.executable === "beam:openfoam") {
     const sim = spec.simulation;
-    if (!sim || spec.executable !== "beam:openfoam" || spec.args.length || JSON.stringify(spec.outputs)!==JSON.stringify(simulationOutputs(sim.stage,sim.config)) || (sim.stage==="mesh" ? JSON.stringify(spec.inputs.map(i=>i.path))!==JSON.stringify(simulationMeshInputs(sim.config).map(i=>i.path)) : spec.inputs.length!==1 || spec.inputs[0]?.path!==meshInputPath(sim.config) || !sim.meshJobId))
+    if (!sim || spec.executable !== "beam:openfoam" || spec.args.length || JSON.stringify(spec.outputs)!==JSON.stringify(simulationOutputs(sim.stage,sim.config)) || !recipeInputsMatch(sim, spec.inputs))
       ctx.addIssue({code:"custom",message:"Invalid OpenFOAM job manifest"});
   }
   if (JSON.stringify(spec).length > 48_000)
@@ -53,6 +60,8 @@ export const EnvironmentJobSpec = z.object({
   parameters: z.array(z.object({ name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/), value: z.union([z.number().finite(), z.string().max(200), z.boolean()]), unit: z.string().max(40) }).strict()).max(64).optional(),
   /** The simulation version this job runs. */
   simulation: z.object({ caseId: z.string().min(1).max(128), version: z.number().int().positive() }).strict().optional(),
+  /** A study run by the cfd environment's beam-recipe: its stage and settings, written to beam/recipe.json. */
+  recipe: SimulationJob.optional(),
 }).strict().superRefine((spec, ctx) => {
   if (JSON.stringify(spec).length > 48_000)
     ctx.addIssue({ code: "custom", message: "Job specification must be smaller than 48,000 characters" });
@@ -64,10 +73,14 @@ export const EnvironmentJobSpec = z.object({
     ctx.addIssue({ code: "custom", message: "beam/out is reserved for the job's results" });
   if (spec.parameters && paths.includes("beam/parameters.json"))
     ctx.addIssue({ code: "custom", message: "beam/parameters.json is written from the job's parameters" });
+  if (spec.recipe && (paths.includes(RECIPE_PATH) || !recipeInputsMatch(spec.recipe, spec.inputs)))
+    ctx.addIssue({ code: "custom", message: "Invalid study recipe job" });
 });
 export type EnvironmentJobSpec = z.infer<typeof EnvironmentJobSpec>;
 export const JobSpec = z.union([ProcessJobSpec, EnvironmentJobSpec]);
 export type JobSpec = z.infer<typeof JobSpec>;
+/** The study a job meshes or solves: an older process job's simulation, or a cfd environment job's recipe. */
+export const jobStudy = (spec: JobSpec): SimulationJob | undefined => spec.kind === "process" ? spec.simulation : spec.recipe;
 export const JobState = z.enum(["awaiting-approval", "queued", "preparing", "running", "publishing", "succeeded", "failed", "cancelled"]);
 export type JobState = z.infer<typeof JobState>;
 export const jobFinished = (state: string) => ["succeeded", "failed", "cancelled"].includes(state);

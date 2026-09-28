@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
-import { SimulationReport, channelMeshStudy, channelPhysicsKey, type ChannelMeshStudy, type GridEstimate, type SimulationCase } from "@beam/contracts";
+import { SimulationReport, channelMeshStudy, studyOutput, channelPhysicsKey, type ChannelMeshStudy, type GridEstimate, type SimulationCase } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -18,7 +18,7 @@ export function useMeshStudy(jobs: JobRow[], jobId: Id<"computeJobs"> | undefine
     if (others.length < 2 && j._id !== jobId && j.state === "succeeded" && j.simulation?.stage === "solve" && c?.geometry === "channel" && channelPhysicsKey(c) === key && meshOf(c) !== meshOf(config) && !others.some(o => meshOf(o.simulation!.config) === meshOf(c))) others.push(j);
   }
   const a = useQuery(api.compute.get, others[0] ? { id: others[0]._id } : "skip"), b = useQuery(api.compute.get, others[1] ? { id: others[1]._id } : "skip");
-  const urls = [a, b].map(d => d?.outputs.find(o => o.path === "report.json" && o.size <= 8e6)?.url ?? null), ready = others.length === 2 && urls.every(Boolean);
+  const urls = [a, b].map(d => { const r = d ? studyOutput(d.outputs, "report.json") : undefined; return r && r.size <= 8e6 ? r.url ?? null : null; }), ready = others.length === 2 && urls.every(Boolean);
   const [result, setResult] = useState<{ key: string; state: MeshStudyState } | null>(null), requestKey = `${jobId}:${urls.join(",")}`;
   useEffect(() => {
     if (!ready || !report) return;
