@@ -47,7 +47,7 @@ finally {
   finished = true; clearInterval(ticker); clearTimeout(timeout); clearTimeout(killing);
   // Jobs must not leave descendants running after their main process exits.
   killTree("SIGKILL");
-  if (/^beam-foam-[a-f0-9]{20}$/.test(spec.dockerContainer ?? "")) {
+  if (/^beam-(foam|env)-[a-f0-9]{20}$/.test(spec.dockerContainer ?? "")) {
     await new Promise(resolve => {
       const cleanup = spawn("docker", ["rm", "-f", spec.dockerContainer], { stdio: "ignore" });
       const deadline = setTimeout(() => { cleanup.kill("SIGKILL"); resolve(); }, 10000);

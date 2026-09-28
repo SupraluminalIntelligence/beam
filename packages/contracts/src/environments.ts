@@ -50,3 +50,12 @@ export const EnvironmentBuild = z.object({
   builtAt: z.number().int().positive(),
 });
 export type EnvironmentBuild = z.infer<typeof EnvironmentBuild>;
+
+/**
+ * Built-in environments Beam offers, each pinned to the image CI built, benchmarked and published from
+ * environments/<name> (.github/workflows/environments.yml). Update a digest only to a build whose
+ * benchmarks passed.
+ */
+export const BUILT_IN_ENVIRONMENTS: readonly { name: EnvironmentName; image: ImageRef; summary: string }[] = [
+  { name: "fea", image: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:ac545a2bd90c708d6f9ce74174b3d6dfea0c00eb6aa0539c5842e0dc53c7c105", summary: "Structures and heat in solids: FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista." },
+];

@@ -36,6 +36,20 @@ export async function importModel(client:ConvexClient,token:string,runId:Id<"run
   return{model,units,unitsGuessed:!options.units,scale,rotation,shells,sizeMetres:[0,1,2].map(i=>Number((b.max[i]!-b.min[i]!).toPrecision(4))),suggestedStudy:study,tunnelError,
     next:"Check sizeMetres: if the size is implausible, the units guess is wrong; import again with units. If the model lies on its side or faces the wrong way, import again with rotation (quarter turns about x, then y, then z; flow is +x and z is up; a y-up export usually needs [90,0,0]). Then validate_simulation and save_simulation with suggestedStudy, or put the model body into an existing domain3d study."};
 }
+/** Snapshot files from the thread directory into this chat's compute storage, for a job's input manifest. */
+export async function stageInputs(client: ConvexClient, token: string, runId: Id<"runs">, directory: string, paths: string[]) {
+  const inputs: { path: string; assetId: string }[] = [];
+  let total = 0;
+  for (const path of paths) {
+    const bytes = await readJobFile(directory, path); total += bytes.byteLength;
+    if (total > 100 * 1024 * 1024) throw new Error("Inputs exceed 100 MB");
+    const url = await client.mutation(api.compute.inputUploadUrl, { token, runId });
+    const storageId = await uploadBytes(url, bytes);
+    const assetId = await client.mutation(api.compute.stageInput, { token, runId, storageId, path });
+    inputs.push({ path, assetId });
+  }
+  return inputs;
+}
 export function computeTools(client: ConvexClient, token: string, runId: Id<"runs">, directory: string, permissionMode: string): BeamTool[] {
   return [
     {name:"validate_simulation",description:"Preflight a proposed study before saving. Validates geometry loops, body placement, boundary coverage and settings. For planar geometry, generates a candidate constrained mesh and returns its cell count. For domain3d, checks body clearance, surface resolution and returns a conservative cell estimate; the actual snappyHexMesh count is only known after meshing. For the heated channel, returns setupChecks: whether gravity-off (Richardson number), single-phase (stated boiling point), viscosity units and entry lengths hold for these inputs. For parallel channels, returns the cell count and setupChecks: laminar flow, buoyancy (Richardson number, and whether the Boussinesq approximation holds when gravity is on), heating from below (Rayleigh number), single phase by the end of the run, run length in flow-through times, and viscosity units. A fail means the model does not represent that flow; tell the user before running. This does NOT run OpenFOAM checkMesh. Correct errors, then save_simulation and run_simulation mesh. Read-only; no job is launched.",schema:{config:SimulationCase},run:async a=>{const c=SimulationCase.parse(a["config"]);return JSON.stringify(c.geometry==="domain3d"?{valid:true,region:c.region,turbulence:c.turbulence,bodies:c.bodies.map(b=>({name:b.name,shape:b.shape,boundary:b.boundary,surfaceLevel:bodyLevel(c,b),surfaceCellSize:c.meshSize/2**bodyLevel(c,b),frontalAreaM2:frontalArea(b)})),referenceDrag:referenceDrag(c),boundaries:c.boundaries,refinements:c.refinements??[],slices:c.slices,...estimateDomain3dCells(c),budget:DOMAIN3D_CELL_BUDGET,mesher:"blockMesh background + snappyHexMesh (castellate + snap, no boundary layers)",solver:"pimpleFoam",physics:c.turbulence.model==="laminar"?"3D incompressible laminar isothermal":"3D incompressible isothermal URANS k-omega SST with wall functions",next:"Save, then run mesh to obtain the actual cell count and checkMesh quality."}:c.geometry==="planar"?{valid:true,region:c.region,bodies:c.bodies.map(b=>({name:b.name,shape:b.shape,boundary:b.boundary})),boundaries:c.boundaries,refinements:c.refinements??[],motion:c.motion??null,candidateCells:planarMesh(PlanarCase.parse(c)).cells,solver:"pimpleFoam",physics:"2D incompressible laminar isothermal",next:"Save, then run mesh to obtain checkMesh quality diagnostics."}:{valid:true,geometry:c.geometry,...(c.geometry==="parallel-channels"?{cells:parallelLayout(c).cells,solver:"buoyantBoussinesqPimpleFoam",physics:"2D laminar transient, constant properties, Boussinesq buoyancy when gravity is on"}:{}),...(studySetupChecks(c)?{setupChecks:studySetupChecks(c)}:{})});}},
@@ -54,7 +68,7 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
     {name:"compare_simulation_runs",description:"Compare two succeeded planar solve jobs from the same study at their latest common physical time. Returns mesh quality, saved refinement settings and area-weighted speed, pressure and kinetic-energy statistics. Requires unchanged geometry and physics. Does not compute forces, shedding frequency or establish mesh convergence. Read-only; use after a refinement rerun and report the limitations.",schema:{baselineJobId:z.string(),candidateJobId:z.string()},run:async args=>{
       const load=async(id:string)=>{
         const job=await client.query(api.compute.forRun,{token,runId,id:id as Id<"computeJobs">});
-        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="planar")throw new Error("Choose a succeeded planar solve job");
+        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.kind!=="process"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="planar")throw new Error("Choose a succeeded planar solve job");
         const read=async(path:string)=>{const asset=job.outputs.find(o=>o.path===path);if(!asset?.url||asset.size>20*1024*1024)throw new Error(`Missing or oversized ${path}`);const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error(`Cannot read ${path}`);const bytes=await response.arrayBuffer();if(bytes.byteLength!==asset.size)throw new Error(`Incomplete ${path}`);return bytes;};
         const [manifest,binary,reportBytes]=await Promise.all([read("fields.json"),read("frames.bin"),read("report.json")]);
         const fields=WakeFields.parse(JSON.parse(new TextDecoder().decode(manifest))),report=SimulationReport.parse(JSON.parse(new TextDecoder().decode(reportBytes)));
@@ -71,7 +85,7 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
       if(new Set(ids).size<3)throw new Error("Choose three different runs");
       const runs=await Promise.all(ids.map(async id=>{
         const job=await client.query(api.compute.forRun,{token,runId,id:id as Id<"computeJobs">});
-        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="channel")throw new Error("Choose succeeded heated-channel solve jobs");
+        if(Array.isArray(job)||job.state!=="succeeded"||job.spec.kind!=="process"||job.spec.simulation?.stage!=="solve"||job.spec.simulation.config.geometry!=="channel")throw new Error("Choose succeeded heated-channel solve jobs");
         const asset=job.outputs.find(o=>o.path==="report.json");if(!asset?.url||asset.size>20*1024*1024)throw new Error("Missing or oversized report.json");
         const response=await fetch(asset.url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error("Cannot read report.json");
         return{jobId:id,caseId:job.spec.simulation.caseId,revision:job.spec.simulation.revision,report:SimulationReport.parse(await response.json())};
@@ -99,7 +113,7 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
     { name: "cancel_job", description: "Request cancellation of your compute job in this chat. Auto mode only; otherwise the requester uses the Jobs pane.", schema: { id: z.string() }, run: async a => { await client.mutation(api.compute.cancelForRun, { token, runId, id: String(a["id"]) as Id<"computeJobs"> }); return "Cancellation requested. Inspect the job for acknowledgement."; } },
     {
       name: "submit_job",
-      description: "Submit a local background computation and return immediately with its durable job ID. Input paths are snapshotted from the thread directory into a separate job directory. Only explicit output paths are published. No shell is inserted; use an installed executable and argument list. Reuse requestKey when retrying the same logical submission. Do not assume success until get_job reports succeeded. In non-auto modes the requester approves in Jobs; unavailable in plan mode. Limits: 64 inputs, 20 MB/file, 100 MB total input, 16 outputs, 24 hours.",
+      description: "Submit a local background computation that runs an executable installed on this computer, and return immediately with its durable job ID. For engineering or physics tools, prefer job_submit, which runs in a pinned environment and publishes structured results. Input paths are snapshotted from the thread directory into a separate job directory. Only explicit output paths are published. No shell is inserted; use an installed executable and argument list. Reuse requestKey when retrying the same logical submission. Do not assume success until get_job reports succeeded. In non-auto modes the requester approves in Jobs; unavailable in plan mode. Limits: 64 inputs, 20 MB/file, 100 MB total input, 16 outputs, 24 hours.",
       schema: { requestKey: z.string().min(1).max(160), title: z.string(), executable: z.string(), args: z.array(z.string()), inputPaths: z.array(JobPath).max(64), outputs: z.array(JobPath).max(16), timeoutSeconds: z.number().int().min(1).max(86400) },
       run: async a => {
         if (permissionMode === "plan") throw new Error("Plan mode cannot submit compute jobs");
@@ -112,16 +126,7 @@ export function computeTools(client: ConvexClient, token: string, runId: Id<"run
           if (canonical(ProcessJobSpec.parse(prior.spec)) !== canonical(base)) throw new Error("Request key belongs to a different job");
           return JSON.stringify({ id: prior._id, state: prior.state, reused: true });
         }
-        const inputs: { path: string; assetId: string }[] = [];
-        let total = 0;
-        for (const path of paths) {
-          const bytes = await readJobFile(directory, path); total += bytes.byteLength;
-          if (total > 100 * 1024 * 1024) throw new Error("Inputs exceed 100 MB");
-          const url = await client.mutation(api.compute.inputUploadUrl, { token, runId });
-          const storageId = await uploadBytes(url, bytes);
-          const assetId = await client.mutation(api.compute.stageInput, { token, runId, storageId, path });
-          inputs.push({ path, assetId });
-        }
+        const inputs = await stageInputs(client, token, runId, directory, paths);
         const id = await client.mutation(api.compute.submitForRun, { token, runId, requestKey, spec: { ...base, inputs } });
         return JSON.stringify({ id, submitted: true, note: "Use get_job for status and results. Approval may be required in Jobs." });
       },

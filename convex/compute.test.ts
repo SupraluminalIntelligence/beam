@@ -1,7 +1,8 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles } from "./compute";
+import { resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
+import { readFileSync } from "node:fs";
 
 import { defaultChannel, defaultCylinder, defaultPlanar, OPENFOAM_IMAGE, modelWindTunnel, type Model3D } from "../packages/contracts/src/simulation";
 
@@ -225,4 +226,42 @@ it("stages imported models in the chat and meshes only from the surface a study 
   await expect(call(submitSimulation,ctx,{...args,revision:forged.revision,requestKey:"forged"})).rejects.toThrow("import it again");
   tables.computeAssets![0].chatId="elsewhere";
   await expect(call(modelFiles,ctx,{assetIds:[staged.assetId]})).rejects.toThrow();
+});
+
+const envSpec={version:1,kind:"environment",title:"Cantilever",environment:{name:"fea",image:"ghcr.io/supraluminalintelligence/beam-env-fea@sha256:"+"a".repeat(64)},command:"mpirun -n 2 python /beam/benchmarks/cantilever.py",inputs:[],machine:"local",timeoutSeconds:600};
+const cantilever=JSON.parse(readFileSync(new URL("../packages/contracts/src/fixtures/cantilever/manifest.json",import.meta.url),"utf8"));
+it("runs environment jobs on the local machine only",async()=>{
+  const {tables,enqueue}=fixture();
+  await expect(enqueue("cloud",{...envSpec,machine:"32-core"} as any)).rejects.toThrow("not available yet");
+  await enqueue("env",envSpec as any);
+  expect(tables.computeJobs![0]).toMatchObject({state:"queued",spec:{kind:"environment",command:envSpec.command}});
+  expect(tables.messages![0].text).toBe("Compute job: Cantilever");
+});
+it("publishes an environment job's beam/out files and a validated manifest before success",async()=>{
+  const {ctx,tables,enqueue}=fixture();const id=await enqueue("env",envSpec as any);
+  await call(claim,ctx,{token:"valid",id});const done={token:"valid",id,state:"succeeded",log:"",error:null};
+  await call(report,ctx,{...done,state:"publishing"});
+  await expect(call(publishOutput,ctx,{token:"valid",id,path:"notes.txt",storageId:"b0"})).rejects.toThrow("not requested");
+  const results={token:"valid",id,manifest:cantilever,unpublished:[]};
+  await expect(call(publishResults,ctx,results)).rejects.toThrow("manifest.json first");
+  await call(publishOutput,ctx,{token:"valid",id,path:"beam/out/manifest.json",storageId:"b1"});
+  await call(publishOutput,ctx,{token:"valid",id,path:"beam/out/preview/beam.json",storageId:"b2"});
+  await expect(call(report,ctx,done)).rejects.toThrow("Results are not yet published");
+  await expect(call(publishResults,ctx,{...results,manifest:{...cantilever,checks:[{...cantilever.checks[0],status:"maybe"}]}})).rejects.toThrow();
+  await expect(call(publishResults,ctx,{...results,unpublished:[{path:"/etc/passwd",reason:"x"}]})).rejects.toThrow("unpublished");
+  await call(publishResults,ctx,{...results,unpublished:[{path:"beam/out/fields/beam.vtu",reason:"larger than 20 MB; kept on the machine"}]});
+  await call(report,ctx,done);
+  expect(tables.computeJobs![0].state).toBe("succeeded");
+  expect(tables.computeJobs![0].results.manifest.quantities[0].name).toBe("tip_deflection");
+  const detail=await call(forRun,ctx,{token:"valid",runId:"run",id});
+  expect(detail.spec.kind).toBe("environment");expect(detail.outputs).toHaveLength(2);
+  expect((await call(forRun,ctx,{token:"valid",runId:"run"}))[0]).toMatchObject({title:"Cantilever",environment:"fea",simulation:null});
+});
+it("keeps a job that wrote no manifest successful, with no results",async()=>{
+  const {ctx,tables,enqueue}=fixture();const id=await enqueue("env",envSpec as any);
+  await call(claim,ctx,{token:"valid",id});await call(report,ctx,{token:"valid",id,state:"publishing",log:"",error:null});
+  await call(publishResults,ctx,{token:"valid",id,manifest:null,unpublished:[]});
+  await call(report,ctx,{token:"valid",id,state:"succeeded",log:"",error:null});
+  expect(tables.computeJobs![0]).toMatchObject({state:"succeeded",results:{manifest:null}});
+  await expect(call(publishResults,ctx,{token:"valid",id,manifest:null,unpublished:[]})).rejects.toThrow("not publishing");
 });
