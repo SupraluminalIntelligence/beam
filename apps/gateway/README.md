@@ -30,5 +30,5 @@ MODAL_TOKEN_ID=… MODAL_TOKEN_SECRET=… pnpm --filter @beam/gateway smoke 8-co
 ## Not yet
 
 - The gateway process: registering with Convex, claiming jobs for cloud machines and running the reconcile loop with this executor. That needs Convex to route jobs by machine, which PR #40 is changing now.
-- Modal Functions for batch jobs. They cost about a third of a Sandbox per core-second but can only be defined in Python, so every size runs as a Sandbox for now.
+- Modal Functions for restartable batch jobs. They cost about a third of a Sandbox per core-second but may be preempted, and can only be defined in Python.
 - EC2 whole nodes for the 32- and 96-core machines, metering and budget caps, results in R2.

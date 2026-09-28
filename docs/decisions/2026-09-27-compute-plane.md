@@ -8,10 +8,10 @@ Any agent in Beam can run physics tools on compute Beam allocates, iterate on a 
 
 - **Agents keep using the engineer's own provider login.** An agent runs on the engineer's machine or on a cloud machine; on a cloud machine the engineer signs in there, and the login stays in that machine's profile. Beam never copies or stores it.
 - **Generality comes from environments, not recipes.** Pinned OCI images of open-source tools, in built-in families with a shared base, plus custom environments teams bring. The existing OpenFOAM recipes become worked examples in the `cfd` environment instead of code paths in Beam.
-- **Two speeds of compute.** A small cloud machine per chat where the agent runs commands in seconds, and durable jobs on bigger machines that need an approval showing cost.
-- **Modal is the serverless provider** for chat machines (Sandboxes), jobs up to 8 cores and GPUs (Functions). Whole-node EC2 runs 32- and 96-core machines; the spike showed MPI solves on Modal stop speeding up beyond about 8 processes. AWS Parallel Computing Service runs multi-node MPI later.
-- **A new compute gateway** is the only component holding Beam's cloud credentials. It implements `ComputeExecutor` for each provider, meters usage, enforces budget caps and streams logs to Convex.
-- **Results live in R2**, not Convex chat storage. Convex keeps the job record, the results manifest and small previews; viewers load previews from R2 with signed URLs.
+- **Two speeds of compute.** A small cloud machine per chat where the agent runs commands in seconds, and durable jobs on bigger machines that need an approval showing cost. The approval card states the expected cost and the authorized limit ("expected $3–5, authorized up to $8"), never a promised maximum.
+- **Modal is the serverless provider** for chat machines and jobs up to 8 cores and GPUs, as Sandboxes. Functions run only work that can restart or resume from a checkpoint, since Modal may preempt them. Whole-node EC2 runs 32- and 96-core machines; the spike showed MPI solves on Modal stop speeding up beyond about 8 processes. AWS Parallel Computing Service runs multi-node MPI later.
+- **A new compute gateway** is the only component holding Beam's cloud credentials. It implements `ComputeExecutor` for each provider, meters usage, enforces budget caps and streams logs to Convex. Before it starts any cloud machine, chat machines included, it reserves the job's authorized spend against the workspace budget in one atomic step, and it stops the machine when the reservation runs out. It also writes each job's provenance itself (image digest, input and output hashes, command, machine, times, exit code), so nothing a job writes can mark its own results as validated.
+- **Results are referenced by location**, not stored in Convex chat storage. The manifest names where each file lives; R2 is the default store, not a requirement, since Modal bills egress from 1 Oct 2026. Convex keeps the job record, the results manifest and small previews; viewers load previews with signed URLs.
 
 ## Vocabulary
 
@@ -45,17 +45,17 @@ Compared on 27 Sep 2026 with Vercel Sandbox, E2B and fal:
 | 1 h, 8 vCPU, 16 GB | $0.32 as a Function, $0.95 as a Sandbox | $1.36 | $0.66 | n/a |
 | Free tier | $30 credit a month | 5 CPU-hours a month | $100 credit once | not assessed |
 
-Modal is the only one that covers chat machines, jobs and GPUs with one image definition, and it has a TypeScript SDK. Long jobs run as Functions, because Sandbox CPU costs three times as much per core-second. Vercel Sandbox is the fallback for chat machines. Lock-in stays low: providers sit behind `ComputeExecutor`, and environments are plain OCI images that also run under Docker and Apptainer.
+Modal is the only one that covers chat machines, jobs and GPUs with one image definition, and it has a TypeScript SDK. Restartable batch work can run as Functions, which cost a third as much per core-second as Sandboxes; everything else runs as a Sandbox, which Modal does not preempt. Vercel Sandbox is the fallback for chat machines. Lock-in stays low: providers sit behind `ComputeExecutor`, and environments are plain OCI images that also run under Docker and Apptainer.
 
 ## Machines
 
 | Machine | Shape | Backed by |
 | --- | --- | --- |
 | chat machine | 4 cores, 16 GB, stops when idle | Modal Sandbox |
-| 8-core | 8 cores, 32 GB | Modal Function |
+| 8-core | 8 cores, 32 GB | Modal Sandbox; Function when restartable |
 | 32-core | 32 cores, 128 GB, whole node | EC2 (c7a or hpc7a) |
 | 96-core | 96 cores, 768 GB, whole node | EC2 hpc7a |
-| 1 GPU / 8 GPUs | L40S / H100 | Modal Function |
+| 1 GPU / 8 GPUs | L40S / H100 | Modal Sandbox; Function when restartable |
 | cluster | N × 96-core with EFA | AWS PCS, later |
 
 ## Environments
@@ -85,13 +85,17 @@ The browser never receives a volume: the environment turns fields into bounded s
 
 ## Build order
 
-1. Gateway with the Modal adapter, the built-in `fea` environment, and the machine tools.
-2. Results in the standard layout, R2, generic 3D and plot views; move the OpenFOAM recipes into the `cfd` environment.
-3. Cost estimates in approval cards, Stripe credits and workspace budgets, before any outside startup uses it.
+1. Gateway with the Modal adapter, the built-in `fea` environment, and the machine tools, with budget reservations, metering and the kill path from the start (a Convex schema change). The milestone is one replayable study: an agent sets up the FEniCSx cantilever, runs a small case, promotes it to a batch job, publishes a report, and Beam replays it from the gateway's provenance record. It must survive a lost response, a laptop disconnect, a cancel, and edits made while approval is pending.
+2. Results in the standard layout, generic 3D and plot views; move the OpenFOAM recipes into the `cfd` environment.
+3. Stripe credits and workspace budget settings, before any outside startup uses it.
 4. Whole-node EC2 for 96-core machines, custom environments, then more built-in environments as customers ask.
 5. Later: AWS PCS, remote visualization, a bare-metal pool.
 
 Spike results (27 Sep 2026, [environments/spike/REPORT.md](../../environments/spike/REPORT.md)): one image gives identical results locally and on Modal; Modal accepts at most 64 cores, starts a cached sandbox in 1.7 s and turns a command around in under 0.4 s; a 2M-unknown MPI solve on a 64-core Modal Function was fastest on 8 processes (41.6 s) and slower on 64 (72.6 s). EC2 scaling is the next measurement.
+
+## Revisions
+
+28 Sep 2026, after a design review, agreed by Apekshik and George: budget reservations and the kill path move into phase 1; Functions only for restartable work; results referenced by location with R2 optional; the first milestone is a replayable study rather than the provider catalog; approval cards show expected cost and the authorized limit. The AGENTS.md line reserving cloud providers for the gateway landed with the gateway.
 
 ## Open
 
@@ -99,4 +103,3 @@ Spike results (27 Sep 2026, [environments/spike/REPORT.md](../../environments/sp
 - Export control: some startup data falls under ITAR or EAR, which may mean US-only regions.
 - Long jobs: agents speak only when spoken to, so a multi-hour job probably needs an approved "when this finishes, continue" step.
 - Simulations at workspace level replace today's rule that a study belongs to one chat.
-- AGENTS.md needs a line saying the gateway may call cloud providers and nothing else in the repo may.

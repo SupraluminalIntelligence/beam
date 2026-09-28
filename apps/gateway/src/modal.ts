@@ -47,9 +47,9 @@ async function readTextOrNull(sandbox: SandboxPort, path: string) {
  * image by digest, with no network. The job's handle is the sandbox ID. Like the local executor, a launch
  * whose outcome is uncertain is inspected and never replayed.
  *
- * Long batch solves belong on Modal Functions, which cost about a third as much per core-second
- * (docs/decisions/2026-09-27-compute-plane.md). Functions can only be defined in Python, so this first
- * executor runs every size as a Sandbox.
+ * Modal Functions cost about a third as much per core-second but may be preempted, so they suit only
+ * work that can restart or checkpoint (docs/decisions/2026-09-27-compute-plane.md). Every job here runs
+ * as a Sandbox.
  */
 export class ModalExecutor implements ComputeExecutor {
   readonly backend = "modal-sandbox";

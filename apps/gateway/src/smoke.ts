@@ -8,10 +8,11 @@
  * for Modal to import the image, about 100 seconds in the spike. Costs cents on the free credit.
  */
 import { randomUUID } from "node:crypto";
+import { BUILT_IN_ENVIRONMENTS } from "@beam/contracts";
 import { ModalExecutor } from "./modal.ts";
 import { modalPort } from "./port.ts";
 
-const FEA = "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:52b46d54c99ce66680ced634a6fca2aa900d118b6089f2df0324184ed940ec0b";
+const FEA = BUILT_IN_ENVIRONMENTS.find(e => e.name === "fea")!.image;
 const machine = (process.argv[2] ?? "chat") as "chat" | "8-core";
 const executor = new ModalExecutor(modalPort("beam-compute-smoke"));
 const jobId = `smoke-${randomUUID().slice(0, 8)}`;
