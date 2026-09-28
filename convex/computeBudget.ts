@@ -9,7 +9,8 @@ import { chargeCents, formatCents } from "../packages/contracts/src/machines";
  * Cloud compute spend. A job reserves its authorized amount (its machine's whole capped life) against
  * the workspace allowance when it is queued, in the same transaction, so two approvals can never
  * overdraw it. While it runs, each report meters its time; it is stopped when it reaches what was
- * authorized. When it ends, the metered amount is spent and the rest of the reservation is released.
+ * authorized. When its machine is confirmed stopped, the metered amount is spent and the rest of the
+ * reservation is released.
  */
 type Billing = NonNullable<Doc<"computeJobs">["billing"]>;
 
@@ -27,15 +28,15 @@ export async function reserve(ctx: MutationCtx, workspaceId: Id<"workspaces">, b
   return { ...billing, reserved: true };
 }
 
-/** What a running job has spent so far: its machine's time since the job was claimed, never more than authorized. */
-export const metered = (billing: Billing, startedAt: number | undefined, now: number) =>
-  Math.min(billing.authorizedCents, startedAt ? chargeCents(billing.centsPerHour, (now - startedAt) / 1000) : 0);
+/** What a job has spent so far: its machine's time since the machine was created, never more than authorized. */
+export const metered = (billing: Billing, now: number) =>
+  Math.min(billing.authorizedCents, billing.meteredFrom ? chargeCents(billing.centsPerHour, (now - billing.meteredFrom) / 1000) : 0);
 
-/** Moves a finished job's metered spend into the workspace total and releases the rest of its reservation. Idempotent. */
+/** Moves a job's metered spend into the workspace total and releases the rest of its reservation, once its machine is gone. Idempotent. */
 export async function settle(ctx: MutationCtx, job: Doc<"computeJobs">, now: number) {
   if (!job.billing?.reserved) return job.billing;
   const chat = await ctx.db.get(job.chatId);
-  const spentCents = metered(job.billing, job.startedAt, now);
+  const spentCents = metered(job.billing, now);
   const budget = chat && await budgetFor(ctx, chat.workspaceId);
   if (budget) await ctx.db.patch(budget._id, { reservedCents: Math.max(0, budget.reservedCents - job.billing.authorizedCents), spentCents: budget.spentCents + spentCents, updatedAt: now });
   return { ...job.billing, spentCents, reserved: false };

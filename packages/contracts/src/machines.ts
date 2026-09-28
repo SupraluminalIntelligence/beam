@@ -63,6 +63,9 @@ export function cloudCentsPerHour(machine: MachineShape): number | null {
 export const CLOUD_LAUNCH_WINDOW_SECONDS = 300;
 export const CLOUD_COLLECT_WINDOW_SECONDS = 1800;
 export const cloudMachineSeconds = (timeoutSeconds: number) => CLOUD_LAUNCH_WINDOW_SECONDS + timeoutSeconds + CLOUD_COLLECT_WINDOW_SECONDS;
+/** Modal's longest sandbox life, so the longest job timeout a cloud machine can take. */
+export const CLOUD_MAX_MACHINE_SECONDS = 24 * 3600;
+export const CLOUD_MAX_TIMEOUT_SECONDS = CLOUD_MAX_MACHINE_SECONDS - CLOUD_LAUNCH_WINDOW_SECONDS - CLOUD_COLLECT_WINDOW_SECONDS;
 /** Cents charged for a machine's time, rounded up to the cent. */
 export const chargeCents = (centsPerHour: number, seconds: number) => Math.ceil((centsPerHour * Math.max(0, seconds)) / 3600);
 /**

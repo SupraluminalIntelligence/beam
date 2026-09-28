@@ -1,5 +1,5 @@
 import type { ConvexClient } from "convex/browser";
-import { collectResults, JobSpec, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
+import { collectResults, ExecutorUnavailable, jobFinished, JobSpec, type ComputeExecutor, type ExecutionHandle, type ExecutionStatus } from "@beam/contracts";
 import { api } from "../../../convex/_generated/api.js";
 import type { Doc, Id } from "../../../convex/_generated/dataModel.js";
 
@@ -17,13 +17,13 @@ export async function uploadBytes(url: string, bytes: Uint8Array): Promise<Id<"_
 }
 
 export async function reconcileJob(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">) {
-  const { handle, ended } = await advance(client, token, executor, job);
-  // The outcome is recorded, so the machine has nothing left to hold. A release lost to a crash is
-  // bounded by the machine's own lifetime limit.
-  if (ended && handle && executor.release) {
-    try { await executor.release(handle); }
-    catch (e) { console.error("compute release", (e as Error).message); }
-  }
+  // A finished cloud job whose machine is not yet confirmed stopped: only the release is left to do.
+  const { handle, ended } = jobFinished(job.state) ? { handle: job.handle, ended: true } : await advance(client, token, executor, job);
+  if (!ended || !executor.release) return;
+  // Beam settles the job's spend only once the machine is confirmed stopped; a failed release is
+  // retried on the next pass, and the machine's own lifetime limit bounds it if every retry fails.
+  if (handle) await executor.release(handle);
+  await client.mutation(api.compute.released, { token, id: job._id });
 }
 
 async function advance(client: ConvexClient, token: string, executor: ComputeExecutor, job: Doc<"computeJobs">): Promise<{ handle: ExecutionHandle | undefined; ended: boolean }> {
@@ -34,6 +34,8 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
     await client.mutation(api.compute.report, { token, id, state, log, error, ...(exitCode !== undefined ? { exitCode } : {}) });
     return { handle, ended: true };
   };
+  // An unreachable provider leaves the job as it is, to be tried again; only a known outcome ends it.
+  const known = (e: unknown) => { if (e instanceof ExecutorUnavailable) throw e; return (e as Error).message; };
   if (!handle && job.cancelRequestedAt) await executor.cancelSubmission(id);
   if (!handle) {
     const recovered = await executor.recover(id);
@@ -57,7 +59,7 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
   if (job.cancelRequestedAt) await executor.cancel(launched);
   let status;
   try { status = await executor.inspect(launched); }
-  catch (e) { return end("failed", job.log, (e as Error).message); }
+  catch (e) { return end("failed", job.log, known(e)); }
   if (status.state === "running") {
     if (job.state !== "publishing") await client.mutation(api.compute.report, { token, id, state: "running", handle: launched, log: status.log, error: null });
     return { handle, ended: false };
@@ -65,31 +67,49 @@ async function advance(client: ConvexClient, token: string, executor: ComputeExe
   if (status.state !== "succeeded" || job.cancelRequestedAt) return end(job.cancelRequestedAt ? "cancelled" : status.state, status.log, status.error, status.exitCode);
   await client.mutation(api.compute.report, { token, id, state: "publishing", log: status.log, error: null, exitCode: status.exitCode });
   const fail = (error: string) => end("failed", status.log, error, status.exitCode);
-  let files: { path: string; read: () => Promise<Uint8Array> }[];
-  let results: Awaited<ReturnType<typeof collectResults>> | null = null;
+  // Publication is idempotent per path, so a pass after a reconnect skips what is already published.
+  // A cancel stops it; a failed upload is retried on the next pass rather than failing the job.
+  const wanted = async (path: string) => {
+    let publishing, published;
+    try { publishing = await stillPublishing(client, token, id, status); published = publishing && await client.query(api.compute.hasOutput, { token, id, path }); }
+    catch (e) { throw new Retry(e); }
+    if (!publishing) throw new Stopped();
+    return !published;
+  };
+  const upload = async (path: string, bytes: Uint8Array) => {
+    try {
+      const url = await client.mutation(api.compute.outputUploadUrl, { token, id });
+      await client.mutation(api.compute.publishOutput, { token, id, path, storageId: await uploadBytes(url, bytes) });
+    } catch (e) { throw new Retry(e); }
+  };
+  const settled = (e: unknown) => { if (e instanceof Retry) throw e.error; return e instanceof Stopped; };
   if (spec.kind === "environment") {
-    try { results = await collectResults(path => executor.readOutput(launched, path)); }
-    catch (e) { return fail(`Results: ${(e as Error).message}`); }
-    files = results.files.map(f => ({ path: f.path, read: async () => f.bytes }));
-  } else files = spec.outputs.map(path => ({ path, read: () => executor.readOutput(launched, path) }));
-  for (const file of files) {
-    // Already-published outputs are skipped after reconnect; publication is idempotent per path.
-    if (!(await stillPublishing(client, token, id, status))) return { handle, ended: true };
-    if (await client.query(api.compute.hasOutput, { token, id, path: file.path })) continue;
-    let bytes;
-    try { bytes = await file.read(); }
-    catch (e) { return fail(`Could not collect ${file.path}: ${(e as Error).message}`); }
-    const url = await client.mutation(api.compute.outputUploadUrl, { token, id });
-    const storageId = await uploadBytes(url, bytes);
-    await client.mutation(api.compute.publishOutput, { token, id, path: file.path, storageId });
+    let results;
+    // Each file is published as soon as it is read, so at most one is held in memory.
+    const oversize = executor.release ? "not kept, since the cloud machine is released" : "kept on the machine";
+    const onFile = async (f: { path: string; bytes: Uint8Array }) => { if (await wanted(f.path)) await upload(f.path, f.bytes); };
+    try { results = await collectResults(path => executor.readOutput(launched, path), { onFile, oversize }); }
+    catch (e) { if (settled(e)) return { handle, ended: true }; return fail(`Results: ${known(e)}`); }
+    await client.mutation(api.compute.publishResults, { token, id, manifest: results.manifest, unpublished: results.unpublished });
+  } else {
+    for (const path of spec.outputs) {
+      try { if (!(await wanted(path))) continue; }
+      catch (e) { if (settled(e)) return { handle, ended: true }; throw e; }
+      let bytes;
+      try { bytes = await executor.readOutput(launched, path); }
+      catch (e) { return fail(`Could not collect ${path}: ${known(e)}`); }
+      try { await upload(path, bytes); } catch (e) { settled(e); throw e; }
+    }
   }
-  if (results) await client.mutation(api.compute.publishResults, { token, id, manifest: results.manifest, unpublished: results.unpublished });
   return end("succeeded", status.log, null, status.exitCode);
 }
 
+class Stopped extends Error {}
+class Retry { readonly error: unknown; constructor(error: unknown) { this.error = error; } }
+
 async function stillPublishing(client: ConvexClient, token: string, id: Id<"computeJobs">, status: ExecutionStatus) {
   const latest = (await client.query(api.compute.pending, { token })).find(j => j._id === id);
-  if (latest && !latest.cancelRequestedAt) return true;
-  if (latest) await client.mutation(api.compute.report, { token, id, state: "cancelled", log: status.log, error: "Cancelled during publication" });
+  if (latest && !jobFinished(latest.state) && !latest.cancelRequestedAt) return true;
+  if (latest && !jobFinished(latest.state)) await client.mutation(api.compute.report, { token, id, state: "cancelled", log: status.log, error: "Cancelled during publication" });
   return false;
 }

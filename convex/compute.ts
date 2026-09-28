@@ -8,15 +8,13 @@ import { ownRun } from "./runs";
 import { isGatewayToken } from "./gateway";
 import { metered, reserve, settle } from "./computeBudget";
 import { JobPath, JobSpec, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
-import { ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
-import { MACHINES, authorizedCents, cloudCentsPerHour, formatCents } from "../packages/contracts/src/machines";
+import { MAX_RESULT_FILES, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
+import { CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, authorizedCents, cloudCentsPerHour, formatCents } from "../packages/contracts/src/machines";
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES } from "../packages/contracts/src/simulation";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
 const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: s.kind === "process" ? s.simulation ?? null : null, environment: s.kind === "environment" ? s.environment.name : null }; };
-/** An environment job publishes at most this many files from beam/out. */
-const MAX_RESULT_FILES = 128;
 
 async function chatAccess(ctx: Ctx, chatId: Id<"chats">, login: string) {
   const chat = await ctx.db.get(chatId);
@@ -45,6 +43,7 @@ function cloudBilling(spec: JobSpec) {
   if (spec.kind !== "environment" || spec.machine === "local") return null;
   const machine = MACHINES[spec.machine], centsPerHour = cloudCentsPerHour(machine);
   if (centsPerHour === null) throw new Error(`The ${machine.label} is not available yet. Cloud jobs can use: ${Object.values(MACHINES).filter(m => cloudCentsPerHour(m) !== null).map(m => m.id).join(", ")}.`);
+  if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours (timeoutSeconds ${CLOUD_MAX_TIMEOUT_SECONDS})`);
   return { centsPerHour, authorizedCents: authorizedCents(centsPerHour, spec.timeoutSeconds), spentCents: 0, reserved: false };
 }
 async function targetAccess(ctx: Ctx, chatId: Id<"chats">, runnerId: Id<"runners">, login: string) {
@@ -286,7 +285,10 @@ export const targets = query({ args: { chatId: v.id("chats") }, handler: async (
 export const pending = readableQuery({ args: { token: v.string() }, handler: async (ctx, { token }) => {
   const states = [...executing, "queued"];
   if (await isGatewayToken(token))
-    return (await Promise.all(states.map(state => ctx.db.query("computeJobs").withIndex("by_backend_state", q => q.eq("backend", "modal-sandbox").eq("state", state)).take(100)))).flat();
+    return (await Promise.all([
+      ...states.map(state => ctx.db.query("computeJobs").withIndex("by_backend_state", q => q.eq("backend", "modal-sandbox").eq("state", state)).take(100)),
+      ctx.db.query("computeJobs").withIndex("by_backend_release", q => q.eq("backend", "modal-sandbox").eq("awaitingRelease", true)).take(100),
+    ])).flat();
   const runner = await runnerForToken(ctx, token);
   return (await Promise.all(states.map(state => ctx.db.query("computeJobs").withIndex("by_runner_state", q => q.eq("runnerId", runner._id).eq("state", state)).take(100)))).flat().filter(j => j.backend === "local-process");
 } });
@@ -342,15 +344,26 @@ export const report = readableMutation({ args: { token: v.string(), id: v.id("co
   }
   const now = Date.now();
   let billing = job.billing, error = a.error?.slice(0, 2000) ?? null, cancelRequestedAt = job.cancelRequestedAt;
+  const machine = !!(job.handle ?? a.handle), finished = jobFinished(state);
   if (billing) {
-    // Metering: a job that reaches what approval authorized is stopped on the gateway's next pass.
-    billing = jobFinished(state) ? await settle(ctx, job, now) : { ...billing, spentCents: metered(billing, job.startedAt, now) };
-    if (billing && billing.spentCents >= billing.authorizedCents && (state === "cancelled" || !jobFinished(state))) {
+    // Metering runs from the first report of a machine. A job that reaches what approval authorized is
+    // stopped on the gateway's next pass; a finished one settles once its machine is released.
+    if (!billing.meteredFrom && a.handle) billing = { ...billing, meteredFrom: now };
+    billing = finished && !machine ? await settle(ctx, { ...job, billing }, now) : { ...billing, spentCents: metered(billing, now) };
+    if (billing && billing.spentCents >= billing.authorizedCents && (state === "cancelled" || !finished)) {
       cancelRequestedAt ??= now;
       error = `Stopped at its authorized limit of ${formatCents(billing.authorizedCents)}`;
     }
   }
-  await ctx.db.patch(job._id, { state, log: a.log.slice(-16000), error, updatedAt: now, ...(a.handle ? { handle: a.handle } : {}), ...(a.exitCode !== undefined ? { exitCode: a.exitCode } : {}), ...(jobFinished(state) ? { endedAt: now } : {}), ...(billing ? { billing } : {}), ...(cancelRequestedAt ? { cancelRequestedAt } : {}) });
+  await ctx.db.patch(job._id, { state, log: a.log.slice(-16000), error, updatedAt: now, ...(a.handle ? { handle: a.handle } : {}), ...(a.exitCode !== undefined ? { exitCode: a.exitCode } : {}), ...(jobFinished(state) ? { endedAt: now } : {}), ...(billing ? { billing } : {}), ...(cancelRequestedAt ? { cancelRequestedAt } : {}), ...(billing && finished && machine ? { awaitingRelease: true } : {}) });
+} });
+/** The gateway confirmed a finished cloud job's machine has stopped: its metered spend settles now. */
+export const released = readableMutation({ args: { token: v.string(), id: v.id("computeJobs") }, handler: async (ctx, a) => {
+  const { job, runner } = await workerAccess(ctx, a.token, a.id);
+  if (runner) throw new Error("Only the gateway releases cloud machines");
+  if (!jobFinished(job.state)) throw new Error("Job has not finished");
+  const billing = await settle(ctx, job, Date.now());
+  await ctx.db.patch(job._id, { awaitingRelease: undefined, updatedAt: Date.now(), ...(billing ? { billing } : {}) });
 } });
 
 async function asset(ctx: MutationCtx, chatId: Id<"chats">, author: string, storageId: Id<"_storage">, path: string, jobId?: Id<"computeJobs">) {
@@ -431,7 +444,7 @@ export const publishResults = readableMutation({ args: { token: v.string(), id: 
     const published = new Set((await Promise.all(job.outputs.map(id => ctx.db.get(id)))).map(asset => asset?.path));
     if (!published.has(`${RESULTS_ROOT}/manifest.json`)) throw new Error("Publish beam/out/manifest.json first");
   }
-  if (a.unpublished.length > MAX_RESULT_FILES || a.unpublished.some(u => !u.path.startsWith(`${RESULTS_ROOT}/`))) throw new Error("Invalid unpublished list");
+  if (a.unpublished.length > 1024 || a.unpublished.some(u => !u.path.startsWith(`${RESULTS_ROOT}/`))) throw new Error("Invalid unpublished list");
   await ctx.db.patch(job._id, { results: { manifest, unpublished: a.unpublished.map(u => ({ path: u.path, reason: u.reason.slice(0, 200) })) }, updatedAt: Date.now() });
 } });
 export const hasOutput = readableQuery({ args: { token: v.string(), id: v.id("computeJobs"), path: v.string() }, handler: async (ctx, a) => {

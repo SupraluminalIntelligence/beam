@@ -1,14 +1,12 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path/posix";
-import { CLOUD_COLLECT_WINDOW_SECONDS, CLOUD_LAUNCH_WINDOW_SECONDS, cloudMachineSeconds, JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
+import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, usefulProcesses } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 import { FileMissing, type ModalPort, type SandboxPort } from "./port.ts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
 
 export const JOB_DIR = "/tmp/beam-job";
 export const WORK = "/work";
-/** Modal's longest sandbox lifetime. */
-const MODAL_MAX_SECONDS = 24 * 3600;
 const LOG_BYTES = 16_000;
 
 export const sandboxName = (jobId: string) => `beam-job-${jobId}`;
@@ -34,6 +32,14 @@ async function download(input: ComputeInput, deadline: AbortSignal): Promise<Uin
 }
 
 const text = (s: string) => new TextEncoder().encode(s);
+/**
+ * A call to Modal that failed without an answer (a network error, an outage) leaves the job's state
+ * unknown, so it is retried rather than recorded as a failure. A missing file is an answer.
+ */
+async function unreachable<T>(call: () => Promise<T>): Promise<T> {
+  try { return await call(); }
+  catch (e) { if (e instanceof FileMissing || e instanceof ExecutorUnavailable) throw e; throw new ExecutorUnavailable(`Modal did not answer: ${(e as Error).message}`); }
+}
 async function readTextOrNull(sandbox: SandboxPort, path: string) {
   try { return new TextDecoder().decode(await sandbox.readBytes(path)); }
   catch (e) { if (e instanceof FileMissing) return null; throw e; }
@@ -51,7 +57,9 @@ async function readTextOrNull(sandbox: SandboxPort, path: string) {
 export class ModalExecutor implements ComputeExecutor {
   readonly backend = "modal-sandbox";
   private readonly cancelled = new Set<string>();
-  constructor(private readonly modal: ModalPort) {}
+  // No parameter properties: the gateway runs under Node's type stripping.
+  private readonly modal: ModalPort;
+  constructor(modal: ModalPort) { this.modal = modal; }
 
   private async sandbox(handle: ExecutionHandle) {
     if (handle.backend !== this.backend) throw new Error("Invalid Modal execution handle");
@@ -73,9 +81,8 @@ export class ModalExecutor implements ComputeExecutor {
     if (spec.kind !== "environment") throw new Error("Cloud machines run environment jobs. OpenFOAM study jobs run on the engineer's computer.");
     if (this.cancelled.has(jobId)) throw new Error("Cancelled before launch");
     const shape = sandboxShape(spec.machine);
+    if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours`);
     const lifetime = cloudMachineSeconds(spec.timeoutSeconds);
-    if (lifetime > MODAL_MAX_SECONDS)
-      throw new Error(`Cloud jobs can run for at most ${Math.floor((MODAL_MAX_SECONDS - CLOUD_LAUNCH_WINDOW_SECONDS - CLOUD_COLLECT_WINDOW_SECONDS) / 360) / 10} hours`);
     if (inputs.length !== spec.inputs.length || inputs.some((input, n) => input.path !== spec.inputs[n]?.path) || inputs.reduce((n, i) => n + i.size, 0) > MAX_COMPUTE_INPUT_BYTES)
       throw new Error("Invalid input manifest");
 
@@ -114,6 +121,11 @@ export class ModalExecutor implements ComputeExecutor {
   }
 
   async inspect(handle: ExecutionHandle): Promise<ExecutionStatus> {
+    if (handle.backend !== this.backend) throw new Error("Invalid Modal execution handle");
+    return unreachable(() => this.status(handle));
+  }
+
+  private async status(handle: ExecutionHandle): Promise<ExecutionStatus> {
     const sandbox = await this.sandbox(handle);
     const failed = (error: string, log = "", exitCode: number | null = null): ExecutionStatus => ({ state: "failed", log, error, exitCode });
     if (!sandbox) return failed("The cloud machine for this job no longer exists. The job was not run again.");
@@ -137,11 +149,11 @@ export class ModalExecutor implements ComputeExecutor {
   async cancel(handle: ExecutionHandle) { await (await this.sandbox(handle))?.terminate(); }
 
   async readOutput(handle: ExecutionHandle, path: string): Promise<Uint8Array> {
-    const sandbox = await this.sandbox(handle);
-    if (!sandbox) throw new Error("The cloud machine for this job no longer exists");
     const file = `${WORK}/${JobPath.parse(path)}`;
-    if (await sandbox.size(file) > MAX_COMPUTE_FILE_BYTES) throw new Error("Job files must be regular files of 20 MB or less");
-    const bytes = await sandbox.readBytes(file);
+    const sandbox = await unreachable(() => this.sandbox(handle));
+    if (!sandbox) throw new Error("The cloud machine for this job no longer exists");
+    if (await unreachable(() => sandbox.size(file)) > MAX_COMPUTE_FILE_BYTES) throw new Error("Job files must be regular files of 20 MB or less");
+    const bytes = await unreachable(() => sandbox.readBytes(file));
     if (bytes.length > MAX_COMPUTE_FILE_BYTES) throw new Error("Job file grew beyond the size limit");
     return bytes;
   }

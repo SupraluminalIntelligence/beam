@@ -68,6 +68,14 @@ export const jobFinished = (state: string) => ["succeeded", "failed", "cancelled
 export const MAX_COMPUTE_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_COMPUTE_INPUT_BYTES = 100 * 1024 * 1024;
 
+/**
+ * An executor could not reach its provider, so the job's state is unknown, not failed. Reconciliation
+ * leaves the job as it is and tries again on the next pass, until the provider answers.
+ */
+export class ExecutorUnavailable extends Error {
+  constructor(message: string) { super(message); this.name = "ExecutorUnavailable"; }
+}
+
 /** Scheduler-neutral resource reference. Future backends own their handle's format. */
 export interface ExecutionHandle { backend: string; id: string }
 export interface ComputeInput { path: string; url: string; size: number; sha256: string }

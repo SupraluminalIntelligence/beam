@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComputeInput, EnvironmentJobSpec } from "@beam/contracts";
 import { JOB_DIR, ModalExecutor, WORK, sandboxName, sandboxShape } from "./modal.ts";
+import { ExecutorUnavailable } from "@beam/contracts";
 import { FakeModal } from "./fake.ts";
+import { FileMissing } from "./port.ts";
 
 const IMAGE = `ghcr.io/supraluminalintelligence/beam-env-fea@sha256:${"a".repeat(64)}`;
 const job = (over: Partial<EnvironmentJobSpec> = {}): EnvironmentJobSpec => ({
@@ -145,6 +147,18 @@ describe("ModalExecutor", () => {
     await executor.cancel(handle);
     expect(modal.byName.get(sandboxName("job1"))!.terminated).toBe(true);
     expect(await executor.inspect(handle)).toMatchObject({ state: "failed" });
+  });
+
+  it("reports an unanswered call to Modal as unavailable, so the job is retried rather than failed", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal);
+    const handle = await executor.submit("job1", job(), []);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    vi.spyOn(sandbox, "poll").mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(executor.inspect(handle)).rejects.toBeInstanceOf(ExecutorUnavailable);
+    vi.spyOn(modal, "fromId").mockRejectedValueOnce(new Error("503"));
+    await expect(executor.readOutput(handle, "beam/out/manifest.json")).rejects.toBeInstanceOf(ExecutorUnavailable);
+    await expect(executor.readOutput(handle, "beam/out/manifest.json")).rejects.toThrow(FileMissing);
+    expect(await executor.inspect(handle)).toEqual({ state: "running", log: "" });
   });
 
   it("releases the sandbox once results are collected", async () => {

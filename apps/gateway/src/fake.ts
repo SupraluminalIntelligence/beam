@@ -10,7 +10,9 @@ export class FakeSandbox implements SandboxPort {
   dirs = new Set<string>();
   stopped: number | null = null;
   terminated = false;
-  constructor(readonly id: string, readonly spec: SandboxSpec) {}
+  readonly id: string;
+  readonly spec: SandboxSpec;
+  constructor(id: string, spec: SandboxSpec) { this.id = id; this.spec = spec; }
   async poll() { return this.stopped; }
   async exec(command: string[]) {
     this.alive();

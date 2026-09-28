@@ -148,9 +148,11 @@ export default defineSchema({
     outputs: v.array(v.id("computeAssets")),
     /** Environment jobs: the ResultsManifest (packages/contracts/src/results.ts), or null when the job wrote none. */
     results: v.optional(v.object({ manifest: v.any(), unpublished: v.array(v.object({ path: v.string(), reason: v.string() })) })),
-    /** Cloud jobs: the machine's rate, the most approval authorized, and what was metered. Reserved while the job may still spend. */
-    billing: v.optional(v.object({ centsPerHour: v.number(), authorizedCents: v.number(), spentCents: v.number(), reserved: v.boolean() })),
-  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]),
+    /** Cloud jobs: the machine's rate, the most approval authorized, and what was metered from when the machine was created. Reserved while the job may still spend. */
+    billing: v.optional(v.object({ centsPerHour: v.number(), authorizedCents: v.number(), spentCents: v.number(), reserved: v.boolean(), meteredFrom: v.optional(v.number()) })),
+    /** A finished cloud job whose machine the gateway has not yet confirmed stopped. Its spend settles then. */
+    awaitingRelease: v.optional(v.boolean()),
+  }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]).index("by_backend_release", ["backend", "awaitingRelease"]),
   /** A workspace's cloud compute allowance. Reservations hold each approved job's authorized amount until it settles. */
   computeBudgets: defineTable({ workspaceId: v.id("workspaces"), allowanceCents: v.number(), reservedCents: v.number(), spentCents: v.number(), updatedAt: v.number(), updatedBy: v.string() }).index("by_workspace", ["workspaceId"]),
   computeAssets: defineTable({
