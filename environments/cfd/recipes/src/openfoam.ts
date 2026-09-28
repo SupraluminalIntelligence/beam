@@ -1,28 +1,16 @@
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createHash } from "node:crypto";
 import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { ChannelCase, SimulationJob, parallelLayout, SimulationReport, SimulationFields, WakeFields, OPENFOAM_IMAGE, meshKey, canonicalMeshKey, type ProcessJobSpec } from "@beam/contracts";
+import { ChannelCase, SimulationJob, parallelLayout, SimulationReport, SimulationFields, WakeFields, meshKey, canonicalMeshKey } from "@beam/contracts";
 import { cylinderFiles, meshPolygons } from "./cylinder.ts";
 import { exportMovingMesh } from "./movingMesh.ts";
 import { planarFiles, planarMesh } from "./planar.ts";
 import { channelPatches, channelResults, labelList } from "./channelMetrics.ts";
 import { parallelFiles, parallelResults } from "./parallelChannels.ts";
 import { runDomain3d } from "./domain3d.ts";
+import { recipeImage } from "./image.ts";
 const exec = promisify(execFile);
-export async function probeOpenFoam(){
-  try{await exec("docker",["info","--format","{{.OSType}}"],{timeout:6000});await exec("docker",["image","inspect",OPENFOAM_IMAGE],{timeout:6000,maxBuffer:1024*1024});return{ready:true,message:"OpenFOAM 2512 · local Docker",image:OPENFOAM_IMAGE};}
-  catch{return{ready:false,message:`Start Docker and install the OpenFOAM runtime: docker pull ${OPENFOAM_IMAGE}`,image:OPENFOAM_IMAGE};}
-}
-const containerName=(root:string)=>"beam-foam-"+createHash("sha256").update(root).digest("hex").slice(0,20);
-export async function stopFoamContainer(root:string){await exec("docker",["rm","-f",containerName(root)],{timeout:10000});}
-export function foamProcess(spec:ProcessJobSpec,root:string){
-  const name=containerName(root);
-  const cli=fileURLToPath(import.meta.url.endsWith(".mjs")?new URL(import.meta.url):new URL("../cli.ts",import.meta.url));
-  return {...spec,executable:process.execPath,args:[...(cli.endsWith(".ts")?["--experimental-strip-types"]:[]),cli,"openfoam-job",JSON.stringify(spec.simulation),name],dockerContainer:name};
-}
 const header=(object:string,klass="dictionary")=>`FoamFile { version 2.0; format ascii; class ${klass}; object ${object}; }\n`;
 /** One-cell extrusion of the 2-D channel, in metres. */
 const CHANNEL_DEPTH=0.001;
@@ -55,11 +43,12 @@ export function foamValues(text:string,expected:number,components=1):number[]{
 }
 export function residualHistory(log:string,transient=false){let iteration=0;const rows:{iteration:number;field:string;initial:number;final:number}[]=[];for(const line of log.split("\n")){const t=line.match(/^Time = ([\deE+.\-]+)/);if(t)iteration=transient?iteration+1:Number(t[1]);const r=line.match(/Solving for (\w+), Initial residual = ([\deE+.\-]+), Final residual = ([\deE+.\-]+)/);if(r)rows.push({iteration,field:r[1]!,initial:Number(r[2]),final:Number(r[3])});}return rows.filter(r=>Number.isFinite(r.initial)&&Number.isFinite(r.final));}
 const metric = (text:string, re:RegExp) => { const found=text.match(re); return found ? Number(found[1]) : null; };
-export async function runOpenFoam(raw:unknown,name:string){
-  const sim=SimulationJob.parse(raw),c=sim.config,dir=process.cwd();
-  if(!/^beam-foam-[a-f0-9]{20}$/.test(name))throw new Error("Invalid container handle");
-  const ready=await probeOpenFoam();if(!ready.ready)throw new Error(ready.message);
-  if(c.geometry==="domain3d")return runDomain3d(sim,dir,(script,resources)=>foamContainer(dir,name,script,resources,["mesh.log","snappy.log","patch.log","check.log","meshview.log","decompose.log","solve.log","reconstruct.log"]),residualHistory);
+/** Runs OpenFOAM commands in a case directory; on failure, prints the tails of the named logs and throws. */
+export type FoamShell=(dir:string,commands:string,logs:string[])=>Promise<void>;
+/** Mesh or solve a study in this directory, and write its report and outputs there. By default OpenFOAM runs here, in the cfd environment. */
+export async function runRecipe(raw:unknown,dir:string,shell:FoamShell=foamShell){
+  const sim=SimulationJob.parse(raw),c=sim.config;
+  if(c.geometry==="domain3d")return runDomain3d(sim,dir,script=>shell(dir,script,["mesh.log","snappy.log","patch.log","check.log","meshview.log","decompose.log","solve.log","reconstruct.log"]),residualHistory);
   for(const [path,text] of Object.entries(c.geometry==="channel"?channelFiles(c):c.geometry==="planar"?planarFiles(c):c.geometry==="parallel-channels"?parallelFiles(c):cylinderFiles(c))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
   if(c.geometry==="planar"&&sim.stage==="mesh"){const generated=planarMesh(c);await writeFile(join(dir,"mesh-view.json"),JSON.stringify({version:1,polygons:generated.polygons}));for(const [path,text] of Object.entries(generated.files)){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}}
   const meshNames=foamMeshNames;
@@ -68,17 +57,20 @@ export async function runOpenFoam(raw:unknown,name:string){
     if(saved.version!==1||canonicalMeshKey(saved.key)!==meshKey(c)||!saved.files||Object.keys(saved.files).sort().join()!==meshNames.slice().sort().join())throw new Error("Mesh snapshot does not match the case");
     await mkdir(join(dir,"constant/polyMesh"),{recursive:true});for(const file of meshNames){if(typeof saved.files[file]!=="string"||saved.files[file].length>20e6)throw new Error("Invalid mesh snapshot");await writeFile(join(dir,"constant/polyMesh",file),saved.files[file]);}
   }
-  console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM image ${OPENFOAM_IMAGE}`);
+  console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM 2512 · ${recipeImage()}`);
   const commands=[sim.stage==="mesh"&&c.geometry!=="planar"?"blockMesh > mesh.log 2>&1":"true","checkMesh -allTopology -allGeometry > check.log 2>&1","cat check.log","grep -q 'Mesh OK' check.log",...(sim.stage==="solve"?["echo BEAM_STAGE solving",`${c.geometry==="channel"?"buoyantBoussinesqSimpleFoam":c.geometry==="parallel-channels"?"buoyantBoussinesqPimpleFoam":"pimpleFoam"} > solve.log 2>&1`,"cat solve.log","echo BEAM_STAGE exporting","postProcess -func writeCellCentres -latestTime > centres.log 2>&1",...(c.geometry==="planar"&&c.motion?["checkMesh -allTopology -allGeometry -time '0:' > motion-check.log 2>&1"]:[])]:[])];
-  await foamContainer(dir,name,commands.join("; "),{cpus:2,memory:"2g"},["mesh.log","check.log","solve.log","centres.log","motion-check.log"]);
+  await shell(dir,commands.join("; "),["mesh.log","check.log","solve.log","centres.log","motion-check.log"]);
   await exportOpenFoam(sim,dir);
 }
-async function foamContainer(dir:string,name:string,commands:string,resources:{cpus:number;memory:string},logs:string[]){
-  const script="source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd /case; set -e; "+commands;
-  // No network, credentials or host mounts beyond this job directory. Images are installed explicitly.
-  const child=spawn("docker",["run","--rm","--pull=never","--name",name,"--network","none","--cpus",String(resources.cpus),"--memory",resources.memory,"--pids-limit","256","-v",`${dir}:/case`,"-w","/case","--entrypoint","/bin/bash",OPENFOAM_IMAGE,"-lc",script],{stdio:["ignore","pipe","pipe"]});
+/**
+ * Run OpenFOAM commands in this directory. The job's container already isolates the work (no network,
+ * only the job directory mounted); OpenFOAM's own environment is sourced explicitly so a plain shell works too.
+ */
+export async function foamShell(dir:string,commands:string,logs:string[]){
+  const script="source /usr/lib/openfoam/openfoam2512/etc/bashrc; cd \"$BEAM_CASE\"; set -e; "+commands;
+  const child=spawn("bash",["-c",script],{stdio:["ignore","pipe","pipe"],env:{...process.env,BEAM_CASE:dir}});
   child.stdout.on("data",d=>process.stdout.write(d));child.stderr.on("data",d=>process.stderr.write(d));
-  // Tail the solver log while it runs; the durable supervisor keeps the bounded live log.
+  // Tail the solver log while it runs; the job's supervisor keeps the bounded live log.
   let offset=0,reading=false;const timer=setInterval(async()=>{if(reading)return;reading=true;try{const s=await readFile(join(dir,"solve.log"),"utf8");if(s.length>offset){process.stdout.write(s.slice(offset));offset=s.length;}}catch{}finally{reading=false;}},1000);
   const code=await new Promise<number|null>((resolve,reject)=>{child.once("error",reject);child.once("close",resolve);}).finally(()=>clearInterval(timer));
   if(code!==0){for(const path of logs){try{console.error((await readFile(join(dir,path),"utf8")).slice(-4000));}catch{}}throw new Error(`OpenFOAM exited with code ${code}`);}
@@ -94,7 +86,7 @@ export async function exportOpenFoam(raw:unknown,dir:string){
   const solve=sim.stage==="solve"?await readFile(join(dir,"solve.log"),"utf8"):"",residuals=residualHistory(solve,c.geometry!=="channel");
   if(!check.includes("Mesh OK")||/Failed \d+ mesh checks/.test(check))throw new Error("Cannot export a mesh that failed quality checks");
   if(sim.stage==="solve"&&(!/^End\s*$/m.test(solve)||/FOAM FATAL/.test(solve)))throw new Error("Cannot export an incomplete or failed solver log");
-  const report:SimulationReport={version:1,stage:sim.stage,config:c,image:OPENFOAM_IMAGE,cells,meshOk:check.includes("Mesh OK"),maxNonOrthogonality:metric(check, /non-orthogonality Max:\s*([\d.eE+-]+)/i),maxSkewness:metric(check, /Max skewness\s*=\s*([\d.eE+-]+)/i),iterations:residuals.reduce((max,r)=>Math.max(max,r.iteration),0),converged:/SIMPLE solution converged/.test(solve),residuals:residuals.filter((_,i)=>i%Math.max(1,Math.ceil(residuals.length/25000))===0),massImbalance:null,pressureDropPa:null,outletTemperatureK:null,thermalBalance:"not-evaluated",meshSensitivity:"not-studied"};
+  const report:SimulationReport={version:1,stage:sim.stage,config:c,image:recipeImage(),cells,meshOk:check.includes("Mesh OK"),maxNonOrthogonality:metric(check, /non-orthogonality Max:\s*([\d.eE+-]+)/i),maxSkewness:metric(check, /Max skewness\s*=\s*([\d.eE+-]+)/i),iterations:residuals.reduce((max,r)=>Math.max(max,r.iteration),0),converged:/SIMPLE solution converged/.test(solve),residuals:residuals.filter((_,i)=>i%Math.max(1,Math.ceil(residuals.length/25000))===0),massImbalance:null,pressureDropPa:null,outletTemperatureK:null,thermalBalance:"not-evaluated",meshSensitivity:"not-studied"};
   if(sim.stage==="mesh"){
     const files:Record<string,string>={};for(const file of meshNames)files[file]=await readFile(join(dir,"constant/polyMesh",file),"utf8");await writeFile(join(dir,"mesh.json"),JSON.stringify({version:1,key:meshKey(c),files}));
   }else{

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 import { defaultDomain3d, defaultAhmedTunnel, ahmedSurface, encodeStl, normalizeModel, decodeModel, measureModel, modelWindTunnel, windsorTunnel, modelInputPath, bodyBounds, type Model3D, insideBody, Domain3DFields, Domain3DMeshView, SimulationReport, decodeDomain3dFrames, type Domain3DCase } from "@beam/contracts";
-import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses, writeModelSurfaces } from "./domain3d.ts";
-import { runOpenFoam } from "./openfoam.ts";
+import { domain3dFiles, domain3dSolveCommands, parseVtkSurface, readDat, streamlineSeeds, triangulateFaces, safeMeshEntries, sliceOffset, domain3dProcesses, writeModelSurfaces } from "@beam/cfd-recipes";
+import { runOpenFoam } from "./legacyFoam.ts";
 
 it("generates snappyHexMesh geometry, merged wall patches and turbulence fields",()=>{
  const files=domain3dFiles(defaultDomain3d,4);

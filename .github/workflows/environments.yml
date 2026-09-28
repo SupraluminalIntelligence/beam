@@ -7,9 +7,9 @@ name: Environments
 on:
   push:
     branches: [main]
-    paths: ["environments/**", ".github/workflows/environments.yml"]
+    paths: ["environments/**", "packages/contracts/**", ".github/workflows/environments.yml"]
   pull_request:
-    paths: ["environments/**", ".github/workflows/environments.yml"]
+    paths: ["environments/**", "packages/contracts/**", ".github/workflows/environments.yml"]
   workflow_dispatch:
 
 permissions:
@@ -46,6 +46,18 @@ jobs:
       # The images are ~4.5 GB; hosted runners start with ~14 GB free.
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+
+      # cfd carries Beam's study recipes, bundled from environments/cfd/recipes with the contracts they use.
+      - if: matrix.environment == 'cfd'
+        uses: pnpm/action-setup@v4
+      - if: matrix.environment == 'cfd'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Bundle study recipes
+        if: matrix.environment == 'cfd'
+        run: pnpm install --frozen-lockfile --filter @beam/cfd-recipes... && pnpm --filter @beam/cfd-recipes bundle
 
       - uses: docker/setup-buildx-action@v3
 

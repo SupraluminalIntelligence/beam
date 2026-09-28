@@ -7,14 +7,15 @@ import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
 import { isGatewayToken } from "./gateway";
 import { metered, reserve, settle } from "./computeBudget";
-import { JobPath, JobSpec, ProcessJobSpec, jobFinished, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
+import { JobPath, JobSpec, ProcessJobSpec, jobFinished, jobStudy, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
 import { MAX_RESULT_FILES, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
 import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, authorizedCents, cloudCentsPerHour, formatCents } from "../packages/contracts/src/machines";
-import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES } from "../packages/contracts/src/simulation";
+import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
+import { isCfdImage } from "../packages/contracts/src/environments";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
-export const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: s.kind === "process" ? s.simulation ?? null : null, environment: s.kind === "environment" ? s.environment.name : null, simulationVersion: s.kind === "environment" ? s.simulation ?? null : null }; };
+export const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: jobStudy(s) ?? null, environment: s.kind === "environment" ? s.environment.name : null, simulationVersion: s.kind === "environment" ? s.simulation ?? null : null }; };
 /** Studies were the first simulations. Installed apps and runners understand only recipe simulations, so the study functions return only those. */
 export const isRecipe = (s: Doc<"simulationCases">) => (s.kind ?? "recipe") === "recipe";
 
@@ -69,16 +70,17 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
   }
   // A cloud job runs on the gateway; the runner it came from only has to be the requester's to name.
   const target = billing ? null : await targetAccess(ctx, input.chatId, input.runnerId, input.requestedBy);
-  if(target&&spec.kind==="process"&&spec.simulation){
+  const study=jobStudy(spec);
+  if(target&&study){
     if(!target.openfoam?.ready) throw new Error(target.openfoam?.message ?? "Update this runner to enable OpenFOAM");
-    if(target.openfoam.image!==spec.simulation.image)throw new Error("Runner has a different OpenFOAM runtime; update and re-probe it");
-    const sim=spec.simulation, model=await ctx.db.get(sim.caseId as Id<"simulationCases">);
+    if(target.openfoam.image!==(spec.kind==="environment"?spec.environment.image:study.image))throw new Error("Runner has a different OpenFOAM runtime; update and re-probe it");
+    const sim=study, model=await ctx.db.get(sim.caseId as Id<"simulationCases">);
     if(!model || model.chatId!==input.chatId || model.revision!==sim.revision || JSON.stringify(SimulationCase.parse(model.config))!==JSON.stringify(sim.config)) throw new Error("Simulation revision changed; reload the case");
     if(sim.stage==="solve"){
-      const mesh=await ctx.db.get(sim.meshJobId as Id<"computeJobs">), prior=mesh && ProcessJobSpec.parse(mesh.spec).simulation;
+      const mesh=await ctx.db.get(sim.meshJobId as Id<"computeJobs">), prior=mesh && jobStudy(JobSpec.parse(mesh.spec));
       if(!mesh || mesh.chatId!==input.chatId || mesh.state!=="succeeded" || prior?.stage!=="mesh" || prior.caseId!==sim.caseId || meshKey(prior.config)!==meshKey(sim.config)) throw new Error("Build a matching mesh before solving");
       const asset=await ctx.db.get(spec.inputs[0]!.assetId as Id<"computeAssets">);
-      if(!asset || !mesh.outputs.includes(asset._id) || asset.path!==meshAssetPath(sim.config)) throw new Error("Use the mesh output of the selected mesh job");
+      if(!asset || !mesh.outputs.includes(asset._id) || !studyOutput([asset],meshAssetPath(sim.config))) throw new Error("Use the mesh output of the selected mesh job");
     }
     // An imported body meshes from exactly the stored surface its study names.
     if(sim.stage==="mesh"&&sim.config.geometry==="domain3d")for(const b of sim.config.bodies){
@@ -102,7 +104,7 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
     backend: billing ? "modal-sandbox" : "local-process", spec, state: input.needsApproval ? "awaiting-approval" : "queued",
     createdAt: now, updatedAt: now, log: "", error: null, outputs: [], ...(reserved ? { billing: reserved } : {}),
   });
-  if(spec.kind==="process"&&spec.simulation) await ensureStudyCard(ctx,spec.simulation.caseId as Id<"simulationCases">,input.requestedBy);
+  if(study) await ensureStudyCard(ctx,study.caseId as Id<"simulationCases">,input.requestedBy);
   else if(spec.kind==="environment"&&spec.simulation) { /* The simulation's card shows its jobs. */ }
   else await ctx.db.insert("messages", { chatId: input.chatId, author: input.requestedBy, kind: "text", text: `Compute job: ${spec.title}`, runId: input.sourceRunId ?? null, computeJobId: id, reactions: [] });
   await ctx.db.patch(input.chatId, { lastMessageAt: now });
@@ -177,12 +179,21 @@ type SubmitCase={caseId:Id<"simulationCases">;revision:number;stage:"mesh"|"solv
 async function enqueueSimulation(ctx:MutationCtx,chatId:Id<"chats">,runnerId:Id<"runners">,login:string,a:SubmitCase,needsApproval:boolean,sourceRunId?:Id<"runs">){
   // A retry still resolves to its original immutable job after someone edits the case.
   const prior=await ctx.db.query("computeJobs").withIndex("by_request",q=>q.eq("chatId",chatId).eq("requestedBy",login).eq("requestKey",a.requestKey)).first();
-  if(prior){const old=ProcessJobSpec.parse(prior.spec).simulation;if(prior.runnerId!==runnerId||old?.caseId!==a.caseId||old.revision!==a.revision||old.stage!==a.stage||old.meshJobId!==a.meshJobId)throw new Error("Request key already used for a different job");return prior._id;}
+  if(prior){const old=jobStudy(JobSpec.parse(prior.spec));if(prior.runnerId!==runnerId||old?.caseId!==a.caseId||old.revision!==a.revision||old.stage!==a.stage||old.meshJobId!==a.meshJobId)throw new Error("Request key already used for a different job");return prior._id;}
   const model=await ctx.db.get(a.caseId);
   if(!model||model.chatId!==chatId||model.revision!==a.revision)throw new Error("Simulation revision changed; reload the case");
   const inputs:{assetId:string;path:string}[]=a.stage==="mesh"?simulationMeshInputs(SimulationCase.parse(model.config)):[];
-  if(a.stage==="solve"&&a.meshJobId){const mesh=await ctx.db.get(a.meshJobId);if(mesh?.chatId!==chatId)throw new Error("Mesh unavailable");const config=SimulationCase.parse(model.config);for(const id of mesh.outputs){const asset=await ctx.db.get(id);if(asset?.path===meshAssetPath(config))inputs.push({assetId:id,path:meshInputPath(config)});}}
-  return enqueue(ctx,{chatId,runnerId,requestedBy:login,requestKey:a.requestKey,needsApproval,...(sourceRunId?{sourceRunId}:{}),spec:{version:1,kind:"process",title:`${model.name} · ${a.stage} · r${model.revision}`,executable:"beam:openfoam",args:[],inputs,outputs:simulationOutputs(a.stage,SimulationCase.parse(model.config)),timeoutSeconds:SimulationCase.parse(model.config).geometry==="domain3d"?4*3600:3600,simulation:{caseId:a.caseId,revision:model.revision,stage:a.stage,config:SimulationCase.parse(model.config),...(a.meshJobId?{meshJobId:a.meshJobId}:{})}}});
+  const config=SimulationCase.parse(model.config);
+  if(a.stage==="solve"&&a.meshJobId){const mesh=await ctx.db.get(a.meshJobId);if(mesh?.chatId!==chatId)throw new Error("Mesh unavailable");for(const id of mesh.outputs){const asset=await ctx.db.get(id);if(asset&&studyOutput([asset],meshAssetPath(config)))inputs.push({assetId:id,path:meshInputPath(config)});}}
+  const study={caseId:a.caseId,revision:model.revision,stage:a.stage,config,...(a.meshJobId?{meshJobId:a.meshJobId}:{})};
+  const title=`${model.name} · ${a.stage} · r${model.revision}`,timeoutSeconds=config.geometry==="domain3d"?4*3600:3600;
+  // A runner with the cfd environment runs the study there, as an environment job with standard results;
+  // an older runner still runs it on OpenFOAM's own image.
+  const runtime=(await ctx.db.get(runnerId))?.openfoam?.image;
+  const spec=runtime&&isCfdImage(runtime)
+    ?{version:1,kind:"environment",title,environment:{name:"cfd",image:runtime},command:"beam-recipe",inputs,machine:"local",timeoutSeconds,recipe:study}
+    :{version:1,kind:"process",title,executable:"beam:openfoam",args:[],inputs,outputs:simulationOutputs(a.stage,config),timeoutSeconds,simulation:study};
+  return enqueue(ctx,{chatId,runnerId,requestedBy:login,requestKey:a.requestKey,needsApproval,...(sourceRunId?{sourceRunId}:{}),spec});
 }
 export const saveSimulation=mutation({args:{chatId:v.id("chats"),...saveCaseArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);if(!a.id){const runs=await ctx.db.query("runs").withIndex("by_chat",q=>q.eq("chatId",a.chatId)).collect();if(runs.some(r=>["queued","starting","working","landing"].includes(r.state)))throw new Error("Ask the working agent to create the new study, or wait for its turn to finish.");}return saveCase(ctx,a.chatId,u.githubLogin!,a);}});
 export const submitSimulation=mutation({args:{chatId:v.id("chats"),runnerId:v.id("runners"),...simulationArgs},handler:async(ctx,a)=>{const{u}=await requireChat(ctx,a.chatId);return enqueueSimulation(ctx,a.chatId,a.runnerId,u.githubLogin!,a,false);}});

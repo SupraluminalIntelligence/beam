@@ -1,8 +1,7 @@
 import { expect,it } from "vitest";
 import { defaultPlanar, PlanarCase, meshKey, SimulationReport, WakeFields, decodeWakeFrames, decodeWakeGeometry, wakeGeometryAt, pitchPoint, simulationOutputs, OPENFOAM_IMAGE, type ProcessJobSpec } from "@beam/contracts";
-import { planarMesh,planarFiles } from "./planar.ts";
+import { planarMesh,planarFiles,foamValues } from "@beam/cfd-recipes";
 import { LocalExecutor } from "./local.ts";
-import { foamValues } from "./openfoam.ts";
 import { mkdtemp,readFile,rm,mkdir,writeFile } from "node:fs/promises";
 import { join,dirname } from "node:path";
 import { tmpdir } from "node:os";

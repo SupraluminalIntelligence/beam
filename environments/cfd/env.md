@@ -28,3 +28,7 @@ Every result needs checks: residuals or steady state, continuity errors, mesh se
 - Keep the Courant number below 1 for icoFoam: `deltaT` ≤ cell size / velocity.
 - A point on a face between cells has two cell values; average the neighbours, as the example does at the centreline.
 - `checkMesh` warnings on snapped meshes are common; read them, and report the ones that fail.
+
+## Beam's studies
+
+The Simulation pane's studies (heated channel, cylinder wake, 2D fluid domain, parallel channels, 3D wind tunnel) run here too, as `beam-recipe`: Beam writes the study's settings to `$BEAM_WORK/beam/recipe.json`, and the recipe meshes or solves and writes standard results plus the study's own files under `beam/out/recipe/`. The sources are in `/beam/recipes/src` (TypeScript): read them for a worked example of dictionaries, meshing, and turning OpenFOAM output into checked numbers. `bash /beam/benchmarks/recipe-channel.sh` runs the channel study end to end.

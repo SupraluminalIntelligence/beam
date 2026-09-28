@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { SimulationCase, studySetupChecks, PLATES_FRE, developedNusselt, type ChannelCase, defaultChannel, defaultCylinder, defaultPlanar, defaultParallelChannels, parallelLayout, defaultDomain3d, defaultAhmedTunnel, PlanarMeshView, WakeFields, decodeWakeFrames, decodeWakeGeometry, Domain3DFields, Domain3DMeshView, decodeDomain3dFrames, meshKey, SimulationFields, SimulationReport, jobFinished, modelWindTunnel, guessUnits, MODEL_UNITS, windsorTunnel, WINDSOR } from "@beam/contracts";
+import { SimulationCase, jobStudy, studyOutput, studySetupChecks, PLATES_FRE, developedNusselt, type ChannelCase, defaultChannel, defaultCylinder, defaultPlanar, defaultParallelChannels, parallelLayout, defaultDomain3d, defaultAhmedTunnel, PlanarMeshView, WakeFields, decodeWakeFrames, decodeWakeGeometry, Domain3DFields, Domain3DMeshView, decodeDomain3dFrames, meshKey, SimulationFields, SimulationReport, jobFinished, modelWindTunnel, guessUnits, MODEL_UNITS, windsorTunnel, WINDSOR } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui, useUi } from "../lib/ui";
@@ -59,11 +59,12 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
   const activeJob=caseJobs.find(j=>!jobFinished(j.state));
   const activeDetail=useQuery(api.compute.get,activeJob&&activeJob._id!==jobId?{id:activeJob._id}:"skip");
   const progressDetail=activeJob?activeJob._id===jobId?job:activeDetail:null;
-  const detail=job?.spec.kind==="process"?job.spec.simulation:undefined;
+  const detail=job?jobStudy(job.spec):undefined;
   const [assets,setAssets]=useState<{id:string;report:SimulationReport|null;meshView:PlanarMeshView|null;fields:SimulationFields|null;wake:{fields:WakeFields;frames:Float32Array;geometry:Float32Array|null}|null;volume:{meshView:Domain3DMeshView|null;fields:Domain3DFields|null;frames:Float32Array|null}|null;error:string}|null>(null);
-  const reportAsset=job?.outputs.find(o=>o.path==="report.json"), fieldAsset=job?.outputs.find(o=>o.path==="fields.json"), frameAsset=job?.outputs.find(o=>o.path==="frames.bin");
-  const geometryAsset=job?.outputs.find(o=>o.path==="geometry.bin");
-  const meshViewAsset=job?.outputs.find(o=>o.path==="mesh-view.json");
+  const out=(name:string)=>job?studyOutput(job.outputs,name):undefined;
+  const reportAsset=out("report.json"), fieldAsset=out("fields.json"), frameAsset=out("frames.bin");
+  const geometryAsset=out("geometry.bin");
+  const meshViewAsset=out("mesh-view.json");
   useEffect(()=>{
     if(!jobId||!reportAsset?.url||job?.state!=="succeeded"){setAssets(null);return;}
     const controller=new AbortController();const id=jobId;
@@ -160,7 +161,7 @@ export default function SimulationPane({chatId}:{chatId:Id<"chats">}) {
         <div className="sim-section-title">NEW STUDY</div><select aria-label="New study type" value="" disabled={busy||!!caseId&&dirty} onChange={e=>{if(e.target.value==="import")modelPicker.current?.click();else if(e.target.value==="windsor")void action(windsorStudy);else if(e.target.value)startNew(e.target.value as keyof typeof studyKinds);}}><option value="">Choose a study…</option><option value="channel">Heated channel · steady</option><option value="parallel-channels">Parallel channels · buoyant, transient</option><option value="cylinder">Cylinder wake · animated</option><option value="planar">Planar flow · three-cylinder example</option><option value="domain3d">3D flow · sphere · k-ω SST</option><option value="ahmed">Wind tunnel · Ahmed body · 25°</option><option value="windsor">Wind tunnel · Windsor body · WindsorML</option><option value="import">Wind tunnel · import a 3D model (STL, OBJ)…</option></select>
         <input ref={modelPicker} type="file" accept={MODEL_ACCEPT} hidden aria-label="3D model file" onChange={e=>{const file=e.target.files?.[0];e.target.value="";if(file)void action(()=>importTunnel(file));}}/>
         {dirty&&caseId&&<button className="sim-text-button" onClick={()=>current&&load(current)}>Discard draft · reload saved</button>}
-        <div className="sim-section-title">RUNNER</div><select aria-label="Simulation runner" value={target?.id??""} onChange={e=>setRunner(e.target.value)}>{!targets.length&&<option value="">No runner connected</option>}{targets.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><p>{target?.openfoam?.ready?"OpenCFD OpenFOAM 2512 · Docker · local":target?.openfoam?.message??"Start an updated Beam runner and Docker to enable meshing and solving."}</p>
+        <div className="sim-section-title">RUNNER</div><select aria-label="Simulation runner" value={target?.id??""} onChange={e=>setRunner(e.target.value)}>{!targets.length&&<option value="">No runner connected</option>}{targets.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><p>{target?.openfoam?.message??"Start an updated Beam runner and Docker to enable meshing and solving."}</p>
         {stage==="setup"?<>
           {config.geometry==="planar"?<PlanarRail config={config} change={setConfig}/>:config.geometry==="parallel-channels"?<><ParallelRail config={config} change={setConfig}/>{setupChecks&&<><div className="sim-section-title">SETUP CHECKS <span>{checkSummary(setupChecks)}</span></div><SetupChecks checks={setupChecks}/><p>Each check compares these inputs with an assumption the model makes. The agent sees the same checks.</p></>}</>:config.geometry==="domain3d"?<Domain3DRail config={config} change={setConfig}/>:config.geometry==="channel"?<>
           <div className="sim-section-title">REGIONS <span>1</span></div><button className={`sim-row ${section==="geometry"?"selected":""}`} onClick={()=>setSection("geometry")}>■ Fluid volume <span>channel</span></button>

@@ -194,6 +194,9 @@ importers:
 
   apps/runner:
     dependencies:
+      '@beam/cfd-recipes':
+        specifier: workspace:*
+        version: link:../../environments/cfd/recipes
       '@beam/compute':
         specifier: workspace:*
         version: link:../../packages/compute
@@ -206,9 +209,6 @@ importers:
       '@beam/harness':
         specifier: workspace:*
         version: link:../../packages/harness
-      cdt2d:
-        specifier: 1.0.0
-        version: 1.0.0
       convex:
         specifier: ^1.43.0
         version: 1.45.0(react@19.2.8)
@@ -297,6 +297,22 @@ importers:
       vite:
         specifier: ^7.0.0
         version: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.51.2)(yaml@2.9.1)
+
+  environments/cfd/recipes:
+    dependencies:
+      '@beam/contracts':
+        specifier: workspace:*
+        version: link:../../../packages/contracts
+      cdt2d:
+        specifier: 1.0.0
+        version: 1.0.0
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
 
   packages/compute:
     dependencies:

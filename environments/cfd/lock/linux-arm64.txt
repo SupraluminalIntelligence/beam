@@ -301,8 +301,10 @@ https://conda.anaconda.org/conda-forge/linux-aarch64/h5py-3.16.0-nompi_py312h1ad
 https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda#ba3dcdc8584155c97c648ae9c044b7a3
 https://conda.anaconda.org/conda-forge/noarch/importlib-metadata-9.0.1-pyhcf101f3_0.conda#77ec68e0aa61c3fff9ecbf840f93d64e
 https://conda.anaconda.org/conda-forge/noarch/importlib_metadata-9.0.1-ha21a7b4_0.conda#a1c5bfbbb0a74486b86e70993186f235
+https://conda.anaconda.org/conda-forge/linux-aarch64/libuv-1.52.1-h80f16a2_1.conda#8e2136432f02841b9d8b848045f66d7d
 https://conda.anaconda.org/conda-forge/linux-aarch64/netcdf4-1.7.4-nompi_py311haa65ced_111.conda#e1ec9f570b92386b9c9636dccad554f1
 https://conda.anaconda.org/conda-forge/noarch/meshio-5.3.5-pyhd8ed1ab_0.conda#2ea6ce24274096bf2df6c8c50f373d5b
+https://conda.anaconda.org/conda-forge/linux-aarch64/nodejs-22.23.2-h6604ea9_1.conda#b290ca5ccf61f2ddb28cef671786a06b
 https://conda.anaconda.org/conda-forge/noarch/setuptools-84.0.0-pyh332efcf_0.conda#62ac906f1cd582c6c264c95625cb9d6f
 https://conda.anaconda.org/conda-forge/noarch/wheel-0.48.0-pyhd8ed1ab_0.conda#9a2124517bfd5d792e0f7b86eefdfeb8
 https://conda.anaconda.org/conda-forge/noarch/pip-26.2.1-pyh8b19718_0.conda#77b6cf3b0689d9fc68561df0db9b856d

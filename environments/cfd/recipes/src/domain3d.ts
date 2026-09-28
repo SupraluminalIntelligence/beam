@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Domain3DCase, Domain3DFields, Domain3DForces, Domain3DMeshView, Domain3DStreamlines, SimulationJob, SimulationReport, OPENFOAM_IMAGE, MAX_COMPUTE_FILE_BYTES, ahmedSurface, closeAndOrient, decodeModel, encodeStl, measureModel, modelInputPath, modelMatches, placeSurface, backgroundCells, bodyBounds, bodyLevel, canonicalMeshKey, estimateDomain3dCells, frontalArea, insideBody, locationInMesh, meshKey, type Body3D, type Point3 } from "@beam/contracts";
+import { recipeImage } from "./image.ts";
+import { Domain3DCase, Domain3DFields, Domain3DForces, Domain3DMeshView, Domain3DStreamlines, SimulationJob, SimulationReport, MAX_COMPUTE_FILE_BYTES, ahmedSurface, closeAndOrient, decodeModel, encodeStl, measureModel, modelInputPath, modelMatches, placeSurface, backgroundCells, bodyBounds, bodyLevel, canonicalMeshKey, estimateDomain3dCells, frontalArea, insideBody, locationInMesh, meshKey, type Body3D, type Point3 } from "@beam/contracts";
 const header=(object:string,klass="dictionary")=>`FoamFile { version 2.0; format ascii; class ${klass}; object ${object}; }\n`;
 const v=(p:readonly number[])=>`(${p.join(" ")})`;
 const axis={x:0,y:1,z:2} as const;
@@ -177,7 +178,7 @@ export function triangulateFaces(counts:number[],indices:number[]){
  return triangles;
 }
 
-type Container=(script:string,resources:{cpus:number;memory:string})=>Promise<void>;
+type Container=(script:string)=>Promise<void>;
 type Residuals=(log:string,transient?:boolean)=>{iteration:number;field:string;initial:number;final:number}[];
 const exec=promisify(execFile);
 const metric=(text:string,re:RegExp)=>{const found=text.match(re);return found?Number(found[1]):null;};
@@ -209,9 +210,9 @@ export async function runDomain3d(sim:SimulationJob,dir:string,container:Contain
  }
  for(const [path,text] of Object.entries(domain3dFiles(c,processes))){await mkdir(dirname(join(dir,path)),{recursive:true});await writeFile(join(dir,path),text);}
  if(sim.stage==="mesh")await writeModelSurfaces(c,dir);
- console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM image ${OPENFOAM_IMAGE} · 3D · ${processes} process${processes>1?"es":""}`);
+ console.log(`BEAM_STAGE ${sim.stage==="mesh"?"meshing":"checking"}\nOpenFOAM 2512 · ${recipeImage()} · 3D · ${processes} process${processes>1?"es":""}`);
  const commands=sim.stage==="mesh"?domain3dMeshCommands(c):["tar -xzf mesh-input.tar.gz -C constant polyMesh",...domain3dSolveCommands(processes,streamlineSeeds(c).length>0)];
- await container(commands.join("; "),{cpus:4,memory:"4g"});
+ await container(commands.join("; "));
  await exportDomain3d(sim,dir,processes,residuals);
 }
 /** Rows of an OpenFOAM function-object .dat file keyed by its last commented header, vectors flattened. */
@@ -269,7 +270,7 @@ export async function exportDomain3d(raw:unknown,dir:string,processes:number,res
  const estimate=estimateDomain3dCells(c),order=surfaceOrder(c);
  const summary={backgroundCells:estimate.background,estimatedCells:estimate.estimated,cellTypes:stats.cellTypes,geometryChecks:"not evaluated",turbulence:c.turbulence.model==="kOmegaSST"?`RANS k-omega SST · I ${c.turbulence.intensity} · L ${c.turbulence.lengthScale} m · wall functions`:"laminar",processes,requestedFrames:c.frames,savedFrames:0,archive:"none" as "final-fields"|"dictionaries-only"|"none",maxNutRatio:null as number|null,forces:undefined as Domain3DForces|undefined};
  const solve=sim.stage==="solve"?await readFile(join(dir,"solve.log"),"utf8"):"",rows=residuals(solve,true);
- const report:SimulationReport={version:1,stage:sim.stage,config:c,image:OPENFOAM_IMAGE,cells:stats.cells,meshOk:true,maxNonOrthogonality:stats.maxNonOrthogonality,maxSkewness:stats.maxSkewness,iterations:rows.at(-1)?.iteration??0,converged:false,residuals:rows.filter((_,i)=>i%Math.max(1,Math.ceil(rows.length/25000))===0),massImbalance:null,pressureDropPa:null,outletTemperatureK:null,thermalBalance:"not-evaluated",meshSensitivity:"not-studied",domain3d:summary};
+ const report:SimulationReport={version:1,stage:sim.stage,config:c,image:recipeImage(),cells:stats.cells,meshOk:true,maxNonOrthogonality:stats.maxNonOrthogonality,maxSkewness:stats.maxSkewness,iterations:rows.at(-1)?.iteration??0,converged:false,residuals:rows.filter((_,i)=>i%Math.max(1,Math.ceil(rows.length/25000))===0),massImbalance:null,pressureDropPa:null,outletTemperatureK:null,thermalBalance:"not-evaluated",meshSensitivity:"not-studied",domain3d:summary};
  if(sim.stage==="mesh"){
   summary.geometryChecks=geometryChecks(await readFile(join(dir,"check-all.log"),"utf8").catch(()=>""));
   await writeFile(join(dir,"constant","mesh-key.json"),JSON.stringify({version:1,key:meshKey(c),cells:stats.cells}));
