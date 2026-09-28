@@ -1,0 +1,8 @@
+# fea: structures and heat in solids. Solved together with ../base/environment.yml.
+channels:
+  - conda-forge
+dependencies:
+  - fenics-dolfinx=0.11.0
+  - petsc=3.25.5=real*
+  - mpich=5.0.1
+  - mpi4py
