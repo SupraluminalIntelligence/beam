@@ -163,7 +163,10 @@ def main():
     out.series("ghia_1982", GHIA_Y, {"Ghia, Ghia & Shin 1982": GHIA_U}, x_label="height y", x_unit="m", y_unit="m/s", label="Ghia et al. 1982, Re 100")
     out.table("meshes", [{"name": "cells across"}, {"name": "cells"}, {"name": "u min", "unit": "m/s"}, {"name": "max |u - Ghia|", "unit": "m/s"}, {"name": "solve", "unit": "s"}],
               [[r["n"], r["cells"], r["u_min"], r["deviation"], r["seconds"]] for r in runs])
+    # The finest mesh's flow: the walls (see-through, since they enclose it), the mid-plane and streamlines.
+    out.openfoam("flow", f"cavity-{fine['n']}", label=f"flow, {fine['n']}x{fine['n']} mesh")
     out.view("Centreline", plot="centreline_u", table="meshes")
+    out.view("Flow", field="flow", color="U")
     path = out.write()
     print(f"u_min {fine['u_min']:+.5f} vs Ghia -0.21090 · max |u - Ghia| {fine['deviation']:.4f} · wrote {path}")
 

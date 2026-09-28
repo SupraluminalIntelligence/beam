@@ -5,6 +5,7 @@
     out.check("mesh-convergence", "pass", value="GCI 0.4%", criterion="< 2%")
     out.series("tip_deflection_vs_mesh", x=[...], ys={"deflection": [...]}, x_label="cells", y_unit="m")
     out.field("solid", points, tetrahedra, {"von_mises": (values, "Pa")})
+    out.openfoam("flow", "case")   # walls, a slice and streamlines from an OpenFOAM case
     out.write()
 
 Only rank 0 of an MPI job writes. Every call validates its input, so a bad result fails the job
@@ -25,6 +26,9 @@ MANIFEST_VERSION = 1
 STATUSES = ("pass", "review", "fail", "not-evaluated")
 STAGES = ("setup", "mesh", "solve", "post")
 PREVIEW_TRIANGLES = 500_000
+PREVIEW_SEGMENTS = 500_000
+PREVIEW_PARTS = 16
+PREVIEW_BYTES = 25 * 1024 * 1024
 PREVIEW_STEPS = 120
 
 
@@ -178,6 +182,137 @@ class Results:
         self._json(f"{prefix}.json", preview)
         self.m["fields"].append({"name": name, "label": label or name.replace("_", " "), "full": full, "preview": f"{prefix}.json",
                                  "cells": int(len(tets)), "arrays": [{"name": k, "unit": u} for k, (_, u) in clean.items()]})
+
+    def scene(self, name, parts: dict, arrays: dict, *, label=None, cells=None, flat=None):
+        """Surfaces and lines drawn together and coloured by the same arrays: a flow's walls, slices and
+        streamlines. parts: {name: dataset} or {name: {"data": dataset, "label": str, "opacity": 0-1}},
+        each a pyvista dataset of surfaces (any polygons or cells; their outer surface is drawn) or of
+        lines. arrays: {array: unit}; every part must carry each array, as point or cell data.
+        flat: cell values drawn flat, each triangle with vertices of its own (True), or interpolated to
+        shared vertices (False); by default flat when that fits the preview's size limit.
+        Writes every part as one VTP for ParaView and a preview the browser draws with parts to toggle."""
+        import pyvista as pv
+
+        slug = _slug(name)
+        if not parts or len(parts) > PREVIEW_PARTS:
+            raise ValueError(f"{name}: give 1 to {PREVIEW_PARTS} parts")
+        names = [_slug(a) for a in arrays]
+        specs = []
+        for pname, spec in parts.items():
+            ds = spec["data"] if isinstance(spec, dict) else spec
+            if isinstance(ds, pv.MultiBlock):
+                ds = ds.combine()
+            poly = ds if isinstance(ds, pv.PolyData) else ds.extract_surface()
+            if poly.n_lines and poly.faces.size:
+                raise ValueError(f"{name}.{pname}: a part is either surfaces or lines, not both")
+            if not poly.n_lines and not poly.faces.size:
+                raise ValueError(f"{name}.{pname}: has no surfaces or lines")
+            for a in names:
+                if a not in poly.point_data and a not in poly.cell_data:
+                    raise ValueError(f"{name}.{pname}: has no array {a!r}")
+            specs.append((_slug(pname), spec if isinstance(spec, dict) else {}, poly))
+        comps = {a: (3 if np.asarray(specs[0][2][a]).ndim == 2 else 1) for a in names}
+
+        def build(flat_cells: bool):
+            positions, tris, segs, values, meta, n = [], [], [], {a: [] for a in names}, [], 0
+            for pname, spec, poly in specs:
+                part = {"name": pname, "label": spec.get("label") or pname.replace("_", " ").replace("-", " ")}
+                if "opacity" in spec:
+                    part["opacity"] = float(spec["opacity"])
+                if poly.n_lines:
+                    lines = poly.lines
+                    pairs, i = [], 0
+                    while i < len(lines):
+                        k = lines[i]
+                        ids = lines[i + 1:i + 1 + k]
+                        pairs.append(np.c_[ids[:-1], ids[1:]])
+                        i += 1 + k
+                    pairs = np.concatenate(pairs) if pairs else np.zeros((0, 2), np.int64)
+                    used, inverse = np.unique(pairs, return_inverse=True)
+                    pd = poly.cell_data_to_point_data(pass_cell_data=False) if any(a not in poly.point_data for a in names) else poly
+                    positions.append(poly.points[used])
+                    for a in names:
+                        values[a].append(np.asarray(pd.point_data[a])[used])
+                    part["segments"] = [sum(len(x) for x in segs), len(pairs)]
+                    segs.append(inverse.reshape(-1, 2) + n)
+                    n += len(used)
+                else:
+                    tri = poly.triangulate()
+                    faces = tri.regular_faces
+                    if flat_cells:
+                        corners = faces.ravel()
+                        positions.append(tri.points[corners])
+                        for a in names:
+                            v = np.asarray(tri.cell_data[a]) if a in tri.cell_data else np.asarray(tri.point_data[a])[corners]
+                            values[a].append(np.repeat(v, 3, axis=0) if a in tri.cell_data else v)
+                        local = np.arange(len(corners)).reshape(-1, 3)
+                    else:
+                        pd = tri.cell_data_to_point_data(pass_cell_data=False) if any(a not in tri.point_data for a in names) else tri
+                        used, inverse = np.unique(faces, return_inverse=True)
+                        positions.append(tri.points[used])
+                        for a in names:
+                            values[a].append(np.asarray(pd.point_data[a])[used])
+                        local = inverse.reshape(-1, 3)
+                    part["triangles"] = [sum(len(x) for x in tris), len(local)]
+                    tris.append(local + n)
+                    n += len(positions[-1])
+                meta.append(part)
+            tri_all = np.concatenate(tris) if tris else np.zeros((0, 3), np.int64)
+            seg_all = np.concatenate(segs) if segs else np.zeros((0, 2), np.int64)
+            per_vertex = 12 + sum(4 * comps[a] for a in names)
+            size = n * per_vertex + tri_all.size * 4 + seg_all.size * 4
+            return np.concatenate(positions), tri_all, seg_all, {a: np.concatenate(v) for a, v in values.items()}, meta, size
+
+        built = build(flat is not False)
+        if flat is None and built[5] > PREVIEW_BYTES:
+            built = build(False)
+        pts, tri_all, seg_all, vals, meta, size = built
+        if len(tri_all) > PREVIEW_TRIANGLES or len(seg_all) > PREVIEW_SEGMENTS or size > PREVIEW_BYTES:
+            raise ValueError(f"{name}: the preview would hold {len(tri_all)} triangles, {len(seg_all)} line segments and {size / 2**20:.0f} MB "
+                             f"(limits {PREVIEW_TRIANGLES}, {PREVIEW_SEGMENTS}, {PREVIEW_BYTES / 2**20:.0f} MB); show fewer or smaller parts, or fewer arrays")
+        pts = _finite(f"{name}.points", pts)
+
+        full = f"fields/{slug}.vtp"
+        if _rank() == 0:
+            polys = [poly.copy() for _, _, poly in specs]
+            for poly in polys:
+                for data in (poly.point_data, poly.cell_data):
+                    for key in list(data.keys()):
+                        if key not in names:
+                            del data[key]
+            whole = polys[0].append_polydata(*polys[1:]) if len(polys) > 1 else polys[0]
+            whole.save(str(self._path(full)))
+
+        prefix = f"preview/{slug}"
+        self._bin(f"{prefix}.positions.f32", pts.astype("<f4"))
+        self._bin(f"{prefix}.indices.u32", tri_all.astype("<u4"))
+        meta_arrays = []
+        for a, unit in zip(names, arrays.values()):
+            v = _finite(f"{name}.{a}", vals[a])
+            mag = np.linalg.norm(v, axis=-1) if comps[a] == 3 else v
+            self._bin(f"{prefix}.{a}.f32", v.astype("<f4"))
+            meta_arrays.append({"name": a, "unit": unit, "components": comps[a], "association": "point",
+                                "range": [float(mag.min()), float(mag.max())], "data": f"{prefix}.{a}.f32"})
+        preview = {"version": 1, "kind": "surface", "vertices": int(len(pts)), "triangles": int(len(tri_all)),
+                   "positions": f"{prefix}.positions.f32", "indices": f"{prefix}.indices.u32", "arrays": meta_arrays, "parts": meta}
+        if len(seg_all):
+            self._bin(f"{prefix}.segments.u32", seg_all.astype("<u4"))
+            preview["segments"] = {"count": int(len(seg_all)), "indices": f"{prefix}.segments.u32"}
+        self._json(f"{prefix}.json", preview)
+        self.m["fields"].append({"name": name, "label": label or name.replace("_", " "), "full": full, "preview": f"{prefix}.json",
+                                 "cells": int(cells if cells is not None else sum(p.n_cells for _, _, p in specs)),
+                                 "arrays": [{"name": a, "unit": u} for a, u in zip(names, arrays.values())]})
+
+    def openfoam(self, name, case=".", **options):
+        """An OpenFOAM case's flow at its latest (or a given) time, as a scene: its wall patches, slices
+        through the cells and streamlines seeded across the inflow. See beam_out.openfoam.scene_parts
+        for the options (time, arrays, walls, slices, streamlines, seeds). Run it from a serial script
+        after the solve; a decomposed case is read as it is."""
+        from .openfoam import scene_parts
+
+        label = options.pop("label", None)
+        parts, arrays, cells, described = scene_parts(case, **options)
+        self.scene(name, parts, arrays, label=label or described, cells=cells)
 
     # files and views -------------------------------------------------------------------------
     def file(self, path, *, label=None, kind="file"):

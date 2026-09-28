@@ -12,11 +12,13 @@ OpenFOAM's commands are on the PATH in login shells (`bash -l`), which is how ma
 
 Import `from beam_out import out, gci` in Python after the solve. Parse what you need from the time directories (use `writeFormat ascii`) or function-object output, then record numbers with units (`out.quantity`), checks (`out.check`), plots (`out.series`) and tables (`out.table`), and call `out.write()`. Results go to `$BEAM_WORK/beam/out/`, and Beam reads only `$BEAM_WORK/beam/out/manifest.json`. A simulation version's parameters are in `$BEAM_WORK/beam/parameters.json`; read them with `beam_out.parameters()` (`{}` outside a simulation job, so keep defaults). `$BEAM_WORK` is `/work`, the job root: `beam/` is always there, even when your command changes directory first, so use `beam_out` or absolute paths for it, not paths relative to the current directory.
 
+Show the flow in 3D with `out.openfoam("flow", "case")` and `out.view("Flow", field="flow", color="U")`: it reads the case (reconstructed or decomposed) at its latest time and draws its wall patches, a slice through the cells and streamlines from the inflow, each of which the viewer can hide or make see-through. Cell values are drawn flat, as the solver computed them. Choose what it shows: `slices=[("y", 0.0), ("z", 0.5)]` (or `{"normal": ..., "origin": ...}`), `walls=["body"]`, `arrays=["U", "p", "T"]`, `time=`, `streamlines=False`, `seeds=`. Put the slice where the flow does something (through a body, across a wake), not only where the default puts it. For any other surfaces and lines, build pyvista datasets and call `out.scene(name, {"part": dataset}, {"U": "m/s"})`.
+
 Every result needs checks: residuals or steady state, continuity errors, mesh sensitivity on at least three meshes (`gci`), and comparison with a correlation, a textbook value or a measurement where one exists. Say which assumptions (laminar, incompressible, isothermal, 2-D) were not checked.
 
 ## Worked example
 
-`/beam/benchmarks/cavity.py`: a lid-driven cavity at Re 100 on three meshes, compared with Ghia, Ghia & Shin (1982), with a grid convergence index. It shows writing a case from Python, running blockMesh and icoFoam, reading fields with `postProcess -func writeCellCentres`, and writing every kind of result.
+`/beam/benchmarks/cavity.py`: a lid-driven cavity at Re 100 on three meshes, compared with Ghia, Ghia & Shin (1982), with a grid convergence index. It shows writing a case from Python, running blockMesh and simpleFoam, reading fields with `postProcess -func writeCellCentres`, and writing every kind of result, including the flow in 3D.
 
     python /beam/benchmarks/cavity.py
 

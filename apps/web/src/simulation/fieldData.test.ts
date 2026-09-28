@@ -33,6 +33,7 @@ describe("loading a field preview", () => {
     const d = await load(field, publish(files()), [], new AbortController().signal);
     expect(d.preview.triangles).toBe(1);
     expect([...d.indices]).toEqual([0, 1, 2]);
+    expect(d.segments).toBeNull();
     expect([...d.arrays.get("stress")!]).toEqual([1, 2, 3]);
     expect(d.arrays.get("u")!.length).toBe(9);
   });
@@ -43,6 +44,13 @@ describe("loading a field preview", () => {
   it("refuses triangles that point past the vertices", async () => {
     await expect(load(field, publish(files({ "preview/part.indices.u32": new Uint32Array([0, 1, 7]).buffer })), [], new AbortController().signal))
       .rejects.toThrow("refer to vertices it does not have");
+  });
+  it("reads a scene's line segments and refuses ones that point past the vertices", async () => {
+    const scene = { ...preview, segments: { count: 1, indices: "preview/part.segments.u32" }, parts: [{ name: "wall", label: "wall", triangles: [0, 1] }, { name: "lines", label: "lines", segments: [0, 1] }] };
+    const d = await load(field, publish(files({ "preview/part.json": scene, "preview/part.segments.u32": new Uint32Array([0, 2]).buffer })), [], new AbortController().signal);
+    expect([...d.segments!]).toEqual([0, 2]);
+    await expect(load(field, publish(files({ "preview/part.json": scene, "preview/part.segments.u32": new Uint32Array([0, 3]).buffer })), [], new AbortController().signal))
+      .rejects.toThrow("lines refer to vertices it does not have");
   });
   it("says when a buffer stayed on the machine for being too large", async () => {
     const outputs = publish(files()).filter(o => !o.path.endsWith("u.f32"));

@@ -29,6 +29,25 @@ describe("what beam_out writes", () => {
   });
 });
 
+describe("a flow scene's preview", () => {
+  // Two walls' triangles and a streamline's segments over four shared vertices, as beam_out's scene writes them.
+  const scene = {
+    version: 1, kind: "surface", vertices: 4, triangles: 2, positions: "preview/flow.positions.f32", indices: "preview/flow.indices.u32",
+    arrays: [{ name: "U", unit: "m/s", components: 3, association: "point", range: [0, 1], data: "preview/flow.U.f32" }],
+    segments: { count: 3, indices: "preview/flow.segments.u32" },
+    parts: [{ name: "wall", label: "wall", triangles: [0, 2], opacity: 0.25 }, { name: "streamlines", label: "streamlines", segments: [0, 3] }],
+  };
+  it("sizes its line segments with the other buffers", () => {
+    expect(previewByteLengths(FieldPreview.parse(scene))).toEqual({
+      "preview/flow.positions.f32": 48, "preview/flow.indices.u32": 24, "preview/flow.segments.u32": 24, "preview/flow.U.f32": 48,
+    });
+  });
+  it("rejects a part that runs past the preview's triangles or segments", () => {
+    expect(FieldPreview.safeParse({ ...scene, parts: [{ name: "wall", label: "wall", triangles: [1, 2] }] }).success).toBe(false);
+    expect(FieldPreview.safeParse({ ...scene, parts: [{ name: "lines", label: "lines", segments: [0, 1] }], segments: undefined }).success).toBe(false);
+  });
+});
+
 describe("what it rejects", () => {
   const bad = (change: object) => ResultsManifest.safeParse({ ...manifest, ...change }).success;
   it("rejects non-finite numbers, unknown statuses and escaping paths", () => {
