@@ -1,20 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
-import { BufferAttribute, BufferGeometry, DirectionalLight, DoubleSide, HemisphereLight, LineBasicMaterial, LineSegments, Mesh, MeshStandardMaterial, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer, WireframeGeometry } from "three";
+import { BufferAttribute, BufferGeometry, DirectionalLight, DoubleSide, Group, HemisphereLight, LineBasicMaterial, LineSegments, Mesh, MeshStandardMaterial, PerspectiveCamera, Raycaster, Scene, Vector2, Vector3, WebGLRenderer, WireframeGeometry } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { errorMessage, formatQuantity, type ResultField, type ResultView } from "@beam/contracts";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { errorMessage, formatQuantity, type FieldPreview, type ResultField, type ResultView } from "@beam/contracts";
 import { load, nice, type Loaded, type Output } from "./fieldData";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { fieldGradient, fieldLut } from "./palette";
 
 type Component = "magnitude" | 0 | 1 | 2;
-type Three = { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera; controls: OrbitControls; mesh: Mesh; wire: LineSegments | null };
+type Three = { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera; controls: OrbitControls; position: BufferAttribute; color: BufferAttribute; meshes: Map<string, Mesh>; lines: Map<string, LineSegments2>; wire: Group | null };
+/** How a part is drawn: its triangles solid or see-through, or not at all. Lines are shown or hidden. */
+type Show = "solid" | "see-through" | "hidden";
+type Part = NonNullable<FieldPreview["parts"]>[number];
 
 /** Above this many triangles, reading a value follows a click rather than every mouse move, and the mesh overlay is off. */
 const HOVER_TRIANGLES = 150_000;
 const PALETTES = { sequential: fieldLut(false), diverging: fieldLut(true) };
 const AXIS = ["x", "y", "z"] as const;
+const LENGTH = /^(k|c|m|µ|u|n)?m$|^(in|ft)$/;
+/** A line part's segment ends, copied from the shared vertices (positions or colours). */
+const ends = (l: LineSegments2, from: Float32Array) => {
+  const index = l.userData["index"] as Uint32Array, to = new Float32Array(index.length * 3);
+  for (let i = 0; i < index.length; i++) { const v = index[i]! * 3; to[i * 3] = from[v]!; to[i * 3 + 1] = from[v + 1]!; to[i * 3 + 2] = from[v + 2]!; }
+  return to;
+};
+const disposeWire = (t: Three | null) => {
+  if (!t?.wire) return;
+  t.scene.remove(t.wire);
+  for (const w of t.wire.children as LineSegments[]) { w.geometry.dispose(); (w.material as LineBasicMaterial).dispose(); }
+  t.wire = null;
+};
 
 /**
  * The 3D view of one field: its surface, coloured by an array, optionally deformed by a vector array
@@ -34,13 +53,18 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
   }, [field.preview, urls]);
 
   const arrays = data?.preview.arrays ?? [];
-  const vectors = arrays.filter(a => a.components === 3);
+  // Only a displacement deforms the view: a vector measured in a length (a velocity would be nonsense).
+  const vectors = arrays.filter(a => a.components === 3 && LENGTH.test(a.unit));
   const [color, setColor] = useState<string | null>(null), [component, setComponent] = useState<Component>("magnitude");
   const [warp, setWarp] = useState<string | null>(null), [exponent, setExponent] = useState<number | null>(null);
   const [frame, setFrame] = useState(0), [playing, setPlaying] = useState(false), [wire, setWire] = useState(false), [clip, setClip] = useState(false);
   const [probe, setProbe] = useState<{ value: number; vertex: number } | null>(null);
+  // Without parts (a solid's surface), the whole preview is one part and there is nothing to toggle.
+  const parts = useMemo((): Part[] => !data ? [] : data.preview.parts ?? [{ name: "surface", label: "surface", triangles: [0, data.preview.triangles] }], [data]);
+  const [shows, setShows] = useState<Record<string, Show>>({});
   useEffect(() => {
     if (!data) return;
+    setShows(Object.fromEntries(parts.map(p => [p.name, p.opacity !== undefined && p.opacity < 1 ? "see-through" : "solid"])));
     const names = data.preview.arrays.map(a => a.name);
     setColor(view?.color && names.includes(view.color) ? view.color : data.preview.arrays.find(a => a.components === 1)?.name ?? names[0] ?? null);
     setWarp(view?.warp && data.preview.arrays.find(a => a.name === view.warp)?.components === 3 ? view.warp : null);
@@ -106,60 +130,101 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
     camera.up.set(0, 0, 1);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true; controls.minDistance = 0.1; controls.maxDistance = 20;
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(new Float32Array(V * 3), 3));
-    geometry.setAttribute("color", new BufferAttribute(new Float32Array(V * 3), 3));
-    geometry.setIndex(new BufferAttribute(data.indices, 1));
-    // Flat shading takes each face's normal from screen-space derivatives, so faces whose winding is not
-    // consistent (a surface cut from tetrahedra) still light correctly from both sides.
-    const mesh = new Mesh(geometry, new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0, side: DoubleSide }));
-    scene.add(mesh);
+    const position = new BufferAttribute(new Float32Array(V * 3), 3), color = new BufferAttribute(new Float32Array(V * 3), 3);
+    const meshes = new Map<string, Mesh>(), lines = new Map<string, LineSegments2>();
+    // Every surface shares the vertices and their colours, and draws its own run of triangles. Lines are
+    // drawn a few pixels wide, so they carry copies of their ends, refreshed with the vertices.
+    const part = (index: Uint32Array) => {
+      const g = new BufferGeometry();
+      g.setAttribute("position", position); g.setAttribute("color", color); g.setIndex(new BufferAttribute(index, 1));
+      return g;
+    };
+    for (const p of parts) {
+      if (p.triangles && p.triangles[1] > 0) {
+        // Flat shading takes each face's normal from screen-space derivatives, so faces whose winding is not
+        // consistent (a surface cut from tetrahedra) still light correctly from both sides.
+        const m = new Mesh(part(data.indices.subarray(p.triangles[0] * 3, (p.triangles[0] + p.triangles[1]) * 3)),
+          new MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0, side: DoubleSide }));
+        meshes.set(p.name, m); scene.add(m);
+      }
+      if (p.segments && p.segments[1] > 0 && data.segments) {
+        const l = new LineSegments2(new LineSegmentsGeometry(), new LineMaterial({ vertexColors: true, linewidth: 2 }));
+        l.userData["index"] = data.segments.subarray(p.segments[0] * 2, (p.segments[0] + p.segments[1]) * 2);
+        lines.set(p.name, l); scene.add(l);
+      }
+    }
     const resize = () => { const w = Math.max(1, el.clientWidth), h = Math.max(1, el.clientHeight); renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(el); resize();
     renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
-    three.current = { renderer, scene, camera, controls, mesh, wire: null };
+    three.current = { renderer, scene, camera, controls, position, color, meshes, lines, wire: null };
     look("iso");
     return () => {
       observer.disconnect(); renderer.setAnimationLoop(null); controls.dispose();
-      geometry.dispose(); (mesh.material as MeshStandardMaterial).dispose();
-      if (three.current?.wire) { three.current.wire.geometry.dispose(); (three.current.wire.material as LineBasicMaterial).dispose(); }
+      for (const o of [...meshes.values(), ...lines.values()]) { o.geometry.dispose(); (o.material as MeshStandardMaterial | LineMaterial).dispose(); }
+      disposeWire(three.current);
       renderer.dispose(); renderer.domElement.remove(); three.current = null;
     };
-  }, [data, frameOf]);
+  }, [data, frameOf, parts]);
+
+  // Which parts are drawn, and how.
+  useEffect(() => {
+    const t = three.current;
+    if (!t) return;
+    for (const [name, m] of t.meshes) {
+      const show = shows[name] ?? "solid", material = m.material as MeshStandardMaterial;
+      m.visible = show !== "hidden";
+      material.transparent = show === "see-through"; material.opacity = show === "see-through" ? 0.25 : 1; material.depthWrite = show !== "see-through";
+      material.needsUpdate = true;
+    }
+    for (const [name, l] of t.lines) l.visible = shows[name] !== "hidden";
+  }, [shows, data, frameOf, parts]);
 
   // Positions: the surface, plus the deformation at this frame times the exaggeration.
   useEffect(() => {
     const t = three.current;
     if (!t || !data || !frameOf) return;
-    const out = t.mesh.geometry.getAttribute("position") as BufferAttribute, p = data.positions, { centre, size } = frameOf;
+    const out = t.position, p = data.positions, { centre, size } = frameOf;
     const d = warped ? data.arrays.get(warped.name)! : null, base = Math.min(frame, frames - 1) * V * 3;
     for (let v = 0; v < V; v++) for (let k = 0; k < 3; k++) {
       const i = v * 3 + k;
       out.array[i] = (p[i]! + (d ? d[base + i]! * scale : 0) - centre[k]!) / size;
     }
     out.needsUpdate = true;
-    t.mesh.geometry.computeBoundingSphere();
-    if (t.wire) { t.scene.remove(t.wire); t.wire.geometry.dispose(); (t.wire.material as LineBasicMaterial).dispose(); t.wire = null; }
+    for (const m of t.meshes.values()) m.geometry.computeBoundingSphere();
+    for (const l of t.lines.values()) l.geometry.setPositions(ends(l, out.array as Float32Array));
+    disposeWire(t);
     if (wire && data.preview.triangles <= HOVER_TRIANGLES) {
-      t.wire = new LineSegments(new WireframeGeometry(t.mesh.geometry), new LineBasicMaterial({ color: 0x0b1117, transparent: true, opacity: 0.35 }));
+      t.wire = new Group();
+      for (const [name, m] of t.meshes) if (shows[name] !== "hidden") t.wire.add(new LineSegments(new WireframeGeometry(m.geometry), new LineBasicMaterial({ color: 0x0b1117, transparent: true, opacity: 0.35 })));
       t.scene.add(t.wire);
     }
-  }, [data, frameOf, warped, scale, frame, wire]);
+  }, [data, frameOf, warped, scale, frame, wire, shows]);
 
   // Colours: the chosen array at this frame through the palette; a plain surface when none is chosen.
   useEffect(() => {
     const t = three.current;
     if (!t || !data) return;
-    const out = t.mesh.geometry.getAttribute("color") as BufferAttribute;
-    if (!shown || !range) { (out.array as Float32Array).fill(0.82); out.needsUpdate = true; return; }
-    const values = data.arrays.get(shown.name)!, f = Math.min(frame, frames - 1), palette = range.diverging ? PALETTES.diverging : PALETTES.sequential;
-    const lo = symmetric !== null ? -symmetric : range.lo, span = (symmetric !== null ? 2 * symmetric : range.hi - range.lo) || 1;
-    for (let v = 0; v < V; v++) {
-      const c = palette[Math.max(0, Math.min(255, Math.round(((valueAt(shown, values, v, f) - lo) / span) * 255)))]!;
-      out.setXYZ(v, c[0]!, c[1]!, c[2]!);
+    const out = t.color;
+    if (!shown || !range) { (out.array as Float32Array).fill(0.82); }
+    else {
+      const values = data.arrays.get(shown.name)!, f = Math.min(frame, frames - 1), palette = range.diverging ? PALETTES.diverging : PALETTES.sequential;
+      const lo = symmetric !== null ? -symmetric : range.lo, span = (symmetric !== null ? 2 * symmetric : range.hi - range.lo) || 1;
+      for (let v = 0; v < V; v++) {
+        const c = palette[Math.max(0, Math.min(255, Math.round(((valueAt(shown, values, v, f) - lo) / span) * 255)))]!;
+        out.setXYZ(v, c[0]!, c[1]!, c[2]!);
+      }
+      // A part the value does not vary over (walls, where the velocity is zero) is drawn plain: its colour would say nothing.
+      if (data.preview.parts) for (const p of parts) {
+        const index = p.triangles ? data.indices.subarray(p.triangles[0] * 3, (p.triangles[0] + p.triangles[1]) * 3) : p.segments && data.segments ? data.segments.subarray(p.segments[0] * 2, (p.segments[0] + p.segments[1]) * 2) : null;
+        if (!index?.length) continue;
+        let min = Infinity, max = -Infinity;
+        for (const v of index) { const x = valueAt(shown, values, v, f); if (x < min) min = x; if (x > max) max = x; }
+        if (max - min <= 1e-9 * span) for (const v of index) out.setXYZ(v, 0.5, 0.5, 0.5);
+      }
     }
     out.needsUpdate = true;
-  }, [data, shown, component, range, frame]);
+    for (const l of t.lines.values()) l.geometry.setColors(ends(l, out.array as Float32Array));
+  }, [data, shown, component, range, frame, parts]);
 
   // Playback through saved frames.
   useEffect(() => {
@@ -193,10 +258,13 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
     if (!t || !at || !shown || !data) { setProbe(null); return; }
     const ray = new Raycaster();
     ray.setFromCamera(new Vector2(at.x, at.y), t.camera);
-    const hit = ray.intersectObject(t.mesh)[0];
-    if (!hit?.face) { setProbe(null); return; }
-    const pos = t.mesh.geometry.getAttribute("position");
-    const corners = [hit.face.a, hit.face.b, hit.face.c];
+    ray.params.Line2 = { threshold: 4 };
+    const hit = ray.intersectObjects([...t.meshes.values(), ...t.lines.values()].filter(o => o.visible && !(o instanceof Mesh && (o.material as MeshStandardMaterial).transparent)))[0];
+    // The nearest end of the segment under the pointer, or corner of the triangle.
+    const segment = hit && !hit.face && hit.faceIndex != null ? (hit.object.userData["index"] as Uint32Array | undefined) : undefined;
+    const corners = hit?.face ? [hit.face.a, hit.face.b, hit.face.c] : segment && hit ? [segment[hit.faceIndex! * 2]!, segment[hit.faceIndex! * 2 + 1]!] : null;
+    if (!hit || !corners) { setProbe(null); return; }
+    const pos = t.position;
     const vertex = corners.reduce((best, v) => (new Vector3().fromBufferAttribute(pos, v).distanceTo(hit.point) < new Vector3().fromBufferAttribute(pos, best).distanceTo(hit.point) ? v : best), corners[0]!);
     setProbe({ vertex, value: valueAt(shown, data.arrays.get(shown.name)!, vertex, Math.min(frame, frames - 1)) });
   };
@@ -212,11 +280,11 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
   const label = shown ? `${shown.name}${shown.components === 3 ? component === "magnitude" ? " magnitude" : ` ${AXIS[component]}` : ""}` : "";
   return <div className="field-view">
     <div className="field-controls">
-      <label>Colour <select value={color ?? ""} onChange={e => { setColor(e.target.value || null); setComponent("magnitude"); }}>
+      <label>Colour <select value={color ?? ""} onChange={e => { setColor(e.target.value || null); setComponent("magnitude"); setProbe(null); }}>
         <option value="">None</option>
         {arrays.map(a => <option key={a.name} value={a.name}>{a.name}{a.unit && a.unit !== "1" ? ` (${a.unit})` : ""}</option>)}
       </select></label>
-      {shown?.components === 3 && <label>Component <select value={String(component)} onChange={e => setComponent(e.target.value === "magnitude" ? "magnitude" : (Number(e.target.value) as 0 | 1 | 2))}>
+      {shown?.components === 3 && <label>Component <select value={String(component)} onChange={e => { setComponent(e.target.value === "magnitude" ? "magnitude" : (Number(e.target.value) as 0 | 1 | 2)); setProbe(null); }}>
         <option value="magnitude">Magnitude</option>{AXIS.map((a, k) => <option key={a} value={k}>{a}</option>)}
       </select></label>}
       {vectors.length > 0 && <label>Deform by <select value={warp ?? ""} onChange={e => { setWarp(e.target.value || null); setExponent(null); }}>
@@ -232,6 +300,16 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
       {shown && <label className="field-check" title="Colour the 2nd to 98th percentile, so a singular peak does not wash out the rest"><input type="checkbox" checked={clip} onChange={e => setClip(e.target.checked)} /> Clip 2–98%</label>}
       {data.preview.triangles <= HOVER_TRIANGLES && <label className="field-check"><input type="checkbox" checked={wire} onChange={e => setWire(e.target.checked)} /> Mesh</label>}
     </div>
+    {data.preview.parts && <div className="field-parts" role="group" aria-label="Parts">
+      {parts.map(p => {
+        const show = shows[p.name] ?? "solid", options: Show[] = p.triangles?.[1] ? ["solid", "see-through", "hidden"] : ["solid", "hidden"];
+        return <label key={p.name} className={show === "hidden" ? "off" : undefined}>{p.label}
+          <select aria-label={`Show ${p.label}`} value={show} onChange={e => setShows(s => ({ ...s, [p.name]: e.target.value as Show }))}>
+            {options.map(o => <option key={o} value={o}>{o === "solid" ? p.triangles?.[1] ? "Solid" : "Shown" : o === "see-through" ? "See-through" : "Hidden"}</option>)}
+          </select>
+        </label>;
+      })}
+    </div>}
     <div className="field-viewport" ref={host}
       onPointerMove={e => { place(e); if (hover && !pending.current) { pending.current = true; requestAnimationFrame(read); } }}
       onPointerLeave={() => { pointer.current = null; setProbe(null); }}
@@ -249,7 +327,7 @@ export default function FieldView({ jobId, field, view, outputs, kept }: { jobId
       <span className="field-readout">{probe ? `${label} ${formatQuantity(probe.value, unit)}` : hover ? "Hover to read a value" : "Click to read a value"}</span>
     </div>
     <p className="field-note">
-      {data.preview.triangles.toLocaleString("en-US")} surface triangles of {field.cells.toLocaleString("en-US")} cells
+      {data.preview.triangles.toLocaleString("en-US")} surface triangles{data.preview.segments ? ` and ${data.preview.segments.count.toLocaleString("en-US")} line segments` : ""} of {field.cells.toLocaleString("en-US")} cells
       {warped ? scale === 1 ? ` · deformation at true scale` : ` · deformation exaggerated ×${formatQuantity(scale, "1", 3)}, not to scale` : ""}
     </p>
   </div>;

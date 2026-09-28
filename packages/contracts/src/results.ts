@@ -78,12 +78,19 @@ export const ResultField = z.object({
 export type ResultField = z.infer<typeof ResultField>;
 
 export const StepKind = z.enum(["time", "iteration", "load-step", "frequency", "mode", "parameter"]);
-export const PREVIEW_LIMITS = { triangles: 500_000, steps: 120, bytes: 25 * 1024 * 1024 } as const;
+export const PREVIEW_LIMITS = { triangles: 500_000, segments: 500_000, parts: 16, steps: 120, bytes: 25 * 1024 * 1024 } as const;
+/** A run of triangles or line segments, as [first, count]. */
+const Run = z.tuple([Count, Count]);
 /**
  * The browser's copy of a field: a triangulated surface with per-vertex arrays, as little-endian
  * Float32 (positions, arrays) and Uint32 (indices) files, triangles wound outward. A stepped array
  * stores `saved` frames, frame-major, then vertex, then component; `values` holds the saved frames'
  * values, spread over the `total` the run wrote (older previews list every value and saved the first).
+ *
+ * A flow scene adds line segments (streamlines: Uint32 vertex pairs sharing the same vertices and
+ * arrays) and names its parts (walls, slices, streamlines) as runs of triangles and segments, so each
+ * can be shown or hidden. A value that belongs to a cell is drawn flat by giving each of its triangles
+ * vertices of their own. An app that predates segments and parts draws the triangles alone.
  */
 export const FieldPreview = z.object({
   version: z.literal(1),
@@ -101,6 +108,20 @@ export const FieldPreview = z.object({
     data: JobPath,
   })).max(32),
   steps: z.object({ kind: StepKind, values: z.array(Finite), unit: Unit.default(""), saved: Count.max(PREVIEW_LIMITS.steps), total: Count }).optional(),
+  segments: z.object({ count: Count.max(PREVIEW_LIMITS.segments), indices: JobPath }).optional(),
+  parts: z.array(z.object({
+    name: Name,
+    label: Label,
+    triangles: Run.optional(),
+    segments: Run.optional(),
+    /** How opaque to draw its triangles at first, 0–1: walls that enclose the flow start see-through. */
+    opacity: z.number().min(0).max(1).optional(),
+  })).max(PREVIEW_LIMITS.parts).optional(),
+}).superRefine((p, ctx) => {
+  for (const part of p.parts ?? []) {
+    const [t0, tn] = part.triangles ?? [0, 0], [s0, sn] = part.segments ?? [0, 0];
+    if (t0 + tn > p.triangles || s0 + sn > (p.segments?.count ?? 0)) ctx.addIssue({ code: "custom", message: `Part ${part.name} runs past the preview's triangles or segments` });
+  }
 });
 export type FieldPreview = z.infer<typeof FieldPreview>;
 
@@ -108,6 +129,7 @@ export type FieldPreview = z.infer<typeof FieldPreview>;
 export function previewByteLengths(p: FieldPreview): Record<string, number> {
   const frames = p.steps ? p.steps.saved : 1;
   const sizes: Record<string, number> = { [p.positions]: p.vertices * 3 * 4, [p.indices]: p.triangles * 3 * 4 };
+  if (p.segments) sizes[p.segments.indices] = p.segments.count * 2 * 4;
   for (const a of p.arrays) sizes[a.data] = frames * p.vertices * a.components * 4;
   return sizes;
 }

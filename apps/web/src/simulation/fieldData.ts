@@ -3,7 +3,7 @@ import { FieldPreview, previewByteLengths, type ResultField } from "@beam/contra
 export type Output = { path: string; size: number; url: string | null; storage?: "convex" | "r2" };
 /** A short-lived URL for an output in large-output storage (compute.outputUrl). */
 export type ResolveUrl = (output: Output) => Promise<string>;
-export type Loaded = { preview: FieldPreview; positions: Float32Array; indices: Uint32Array; arrays: Map<string, Float32Array> };
+export type Loaded = { preview: FieldPreview; positions: Float32Array; indices: Uint32Array; segments: Uint32Array | null; arrays: Map<string, Float32Array> };
 const MAX_BYTES = 64 * 1024 * 1024;
 
 /**
@@ -28,10 +28,11 @@ export async function load(field: ResultField, outputs: Output[], kept: { path: 
     if (b.byteLength !== sizes[rel]) throw new Error(`${rel} is ${b.byteLength} bytes; its preview says ${sizes[rel]}.`);
     return b;
   };
-  const [p, i, ...a] = await Promise.all([bytes(preview.positions), bytes(preview.indices), ...preview.arrays.map(x => bytes(x.data))]);
-  const indices = new Uint32Array(i);
+  const [p, i, s, ...a] = await Promise.all([bytes(preview.positions), bytes(preview.indices), preview.segments ? bytes(preview.segments.indices) : null, ...preview.arrays.map(x => bytes(x.data))]);
+  const indices = new Uint32Array(i), segments = s ? new Uint32Array(s) : null;
   for (const v of indices) if (v >= preview.vertices) throw new Error("The preview's triangles refer to vertices it does not have.");
-  return { preview, positions: new Float32Array(p), indices, arrays: new Map(preview.arrays.map((x, k) => [x.name, new Float32Array(a[k]!)])) };
+  for (const v of segments ?? []) if (v >= preview.vertices) throw new Error("The preview's lines refer to vertices it does not have.");
+  return { preview, positions: new Float32Array(p), indices, segments, arrays: new Map(preview.arrays.map((x, k) => [x.name, new Float32Array(a[k]!)])) };
 }
 
 /** A factor of the form 1, 2 or 5 × 10ⁿ near v. */
