@@ -19,10 +19,16 @@ const endpoint = env("R2_ENDPOINT") ?? (account ? `https://${account}.r2.cloudfl
 if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) { console.error("Set R2_ACCOUNT_ID (or R2_ENDPOINT), R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET."); process.exit(1); }
 const sign = (method, path, query = {}, expiresSeconds = 900) => presign({ method, endpoint, path, query, accessKeyId, secretAccessKey, region: "auto", expiresSeconds });
 const redact = url => url.replace(/X-Amz-Signature=\w+/, "X-Amz-Signature=…").replace(/X-Amz-Credential=[^&]+/, "X-Amz-Credential=…");
+// As the runner does: a dropped connection (a reused keep-alive socket the store has closed) is retried
+// up to three times; a refusal is not.
 async function send(method, url, init = {}) {
-  const response = await fetch(url, { method, ...init });
-  if (!response.ok) throw new Error(`${method} ${redact(url)}: HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
-  return response;
+  for (let attempt = 1; ; attempt++) {
+    let response;
+    try { response = await fetch(url, { method, ...init }); }
+    catch (e) { if (attempt === 3) throw e; step(`retrying ${method} after ${e.cause?.code ?? e.message}`); await new Promise(r => setTimeout(r, 1000 * attempt)); continue; }
+    if (!response.ok) throw new Error(`${method} ${redact(url)}: HTTP ${response.status} ${(await response.text()).slice(0, 300)}`);
+    return response;
+  }
 }
 const step = (text) => console.log(`- ${text}`);
 
