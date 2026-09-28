@@ -32,6 +32,25 @@ export async function environmentAvailable(image: string) {
   catch { throw new Error(`This environment is not installed on this computer. Install it once with: docker pull ${image}`); }
 }
 
+/**
+ * The command as the container runs it. beam/ lives at the job root whatever directory the command
+ * changes to; results written under another directory's beam/out would publish nothing, so say where
+ * they went rather than leave the job looking empty.
+ */
+export const jobScript = (command: string) => [
+  `{\n${command}\n}`,
+  `status=$?`,
+  `if [ ! -f "$BEAM_WORK/${RESULTS_ROOT}/manifest.json" ]; then`,
+  `  stray=$(find "$BEAM_WORK" -mindepth 2 -maxdepth 6 -path "*/${RESULTS_ROOT}/manifest.json" 2>/dev/null | head -n 3)`,
+  `  if [ -n "$stray" ]; then`,
+  `    echo "beam: nothing was published: Beam reads results only from $BEAM_WORK/${RESULTS_ROOT}, but the manifest was written to:" >&2`,
+  `    echo "$stray" >&2`,
+  `    echo "beam: write results with beam_out, which uses $BEAM_WORK/${RESULTS_ROOT} from any directory, or use absolute paths." >&2`,
+  `  fi`,
+  `fi`,
+  `exit $status`,
+].join("\n");
+
 /** The worker's process for an environment job: docker run of the command, removed afterwards. */
 export async function environmentProcess(raw: EnvironmentJobSpec, root: string) {
   const spec = EnvironmentJobSpec.parse(raw);
@@ -39,8 +58,8 @@ export async function environmentProcess(raw: EnvironmentJobSpec, root: string) 
   const { cpus } = await dockerHost(), name = jobContainer(root);
   const args = ["run", "--rm", "--pull=never", "--name", name, "--network", "none", "--cpus", String(cpus), "--pids-limit", "4096", "--shm-size", "1g",
     "-v", `${root}/work:/work`, "-w", "/work", ...userArgs(),
-    ...envArgs({ BEAM_IMAGE: spec.environment.image, BEAM_COMMAND: spec.command, BEAM_CORES: String(cpus) }),
-    "--entrypoint", "/bin/bash", spec.environment.image, "-lc", spec.command];
+    ...envArgs({ BEAM_IMAGE: spec.environment.image, BEAM_COMMAND: spec.command, BEAM_CORES: String(cpus), BEAM_WORK: "/work" }),
+    "--entrypoint", "/bin/bash", spec.environment.image, "-lc", jobScript(spec.command)];
   return { executable: "docker", args, timeoutSeconds: spec.timeoutSeconds, dockerContainer: name, environment: spec.environment.name };
 }
 export async function stopJobContainer(root: string) { await exec("docker", ["rm", "-f", jobContainer(root)], { timeout: 10000 }); }
@@ -93,7 +112,7 @@ export async function openLocalMachine(key: string, image: string, directory: st
   if (running) await exec("docker", ["rm", "-f", name], { timeout: 10000 });
   const idle = `touch /tmp/.beam-used; while [ $(( $(date +%s) - $(stat -c %Y /tmp/.beam-used) )) -lt ${MACHINE_IDLE_SECONDS} ]; do sleep 30; done`;
   await exec("docker", ["run", "-d", "--rm", "--pull=never", "--name", name, "--label", "beam.machine=local", "--network", "none", "--cpus", String(cpus), "--pids-limit", "4096", "--shm-size", "1g",
-    "-v", `${directory}:/work`, "-w", "/work", ...userArgs(), ...envArgs({ BEAM_IMAGE: image, BEAM_CORES: String(cpus) }),
+    "-v", `${directory}:/work`, "-w", "/work", ...userArgs(), ...envArgs({ BEAM_IMAGE: image, BEAM_CORES: String(cpus), BEAM_WORK: "/work" }),
     "--entrypoint", "/bin/bash", image, "-c", idle], { timeout: 60000 });
   return { name, cpus, started: true };
 }

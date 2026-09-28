@@ -50,9 +50,14 @@ def _slug(name: str) -> str:
     return name
 
 
+def _work(rel: str) -> Path:
+    """beam/ lives at the job root ($BEAM_WORK, /work in Beam's containers), whatever the current directory."""
+    return Path(os.environ.get("BEAM_WORK", ".")) / rel
+
+
 class Results:
     def __init__(self, root: str | os.PathLike | None = None):
-        self.root = Path(root or os.environ.get("BEAM_OUT", "beam/out"))
+        self.root = Path(root or os.environ.get("BEAM_OUT") or _work("beam/out"))
         self.started = time.time()
         self.m: dict = {
             "version": MANIFEST_VERSION,
@@ -229,6 +234,17 @@ class Results:
         import meshio
 
         meshio.write(str(self._path(rel)), meshio.Mesh(pts, [("tetra", tets)], point_data=arrays))
+
+
+def parameters(with_units: bool = False, path: str | os.PathLike | None = None) -> dict:
+    """The simulation version's parameters, which Beam writes to $BEAM_WORK/beam/parameters.json before
+    the command runs: {name: value}, or {name: {"value": ..., "unit": ...}} with with_units=True. Empty
+    outside a simulation job, so a script also runs on its own with its defaults."""
+    p = Path(path) if path is not None else _work("beam/parameters.json")
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text())
+    return raw if with_units else {k: v["value"] for k, v in raw.items()}
 
 
 def gci(fine: float, medium: float, coarse: float, ratio: float) -> dict:
