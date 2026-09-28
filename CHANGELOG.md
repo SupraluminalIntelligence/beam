@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- The Simulation pane's studies (heated channel, cylinder wake, 2D fluid domain, parallel channels, 3D wind tunnel) now run in the cfd environment. Their results also appear as standard results: numbers with units, checks on setup, mesh, convergence and mass and energy balance, and plots of residuals, Nusselt number or forces, so studies can be compared and swept like any simulation. Install it once with the `docker pull` the pane shows.
 - 3D results: a simulation's results now draw its 3D fields in the app. Colour by any array or vector component, deform by displacement (exaggerated, and labelled so), clip the colour range to the 2nd–98th percentile so a singular peak does not wash out the rest, step through saved frames, look along an axis, show the mesh, and hover to read a value. The full data stays one click away for ParaView.
 - Agents can now also run flow in the built-in **cfd** environment (OpenFOAM 2512), alongside **fea**. Both environments find a simulation's parameters and write results from whatever folder the command runs in. Install either once with the `docker pull` command the agent gives you.
 - Fixed: mentioning Claude after it had left background commands running in its previous turn sometimes ended the run at once, with no reply.
