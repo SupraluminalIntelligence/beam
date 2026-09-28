@@ -15,6 +15,13 @@ type Job = Sim["jobs"][number];
 const useSimulation = (id: SimId) => useQuery(api.simulations.get, { id });
 const state = (s: string) => s.replaceAll("-", " ");
 const value = (p: Pick<Parameter, "value" | "unit">) => typeof p.value === "number" ? formatQuantity(p.value, p.unit || "1") : String(p.value);
+/** A number as an engineer reads it (210 GPa), beside the raw SI value being edited, when they differ. */
+const readable = (p: Parameter, raw: string | undefined) => {
+  const n = Number(raw ?? p.value);
+  if (typeof p.value !== "number" || !Number.isFinite(n) || !p.unit || p.unit === "1") return "";
+  const shown = formatQuantity(n, p.unit);
+  return shown === `${n} ${p.unit}` || shown === `${n.toLocaleString("en-US")} ${p.unit}` ? "" : ` · ${shown}`;
+};
 export const openSimulation = (chatId: string, id: string, tab?: Tab, jobId?: string) => {
   ui.panel(chatId, { simulationView: { id, tab: tab ?? "setup", ...(jobId ? { jobId } : {}), key: Date.now() } });
   ui.openSurface(chatId, `sim:${id}`);
@@ -46,7 +53,7 @@ export function SimulationCard({ id, chatId }: { id: SimId; chatId: Id<"chats"> 
 
 type Tab = "setup" | "jobs" | "results" | "compare";
 /** The simulation page: its versions, jobs, results and comparisons. */
-export function SimulationView({ id, chatId }: { id: SimId; chatId: Id<"chats"> }) {
+export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"chats">; login: string }) {
   const sim = useSimulation(id);
   const selection = ui.get().panels[chatId]?.simulationView;
   const [tab, setTab] = useState<Tab>((selection?.id === id ? selection.tab : null) ?? "setup");
@@ -62,7 +69,7 @@ export function SimulationView({ id, chatId }: { id: SimId; chatId: Id<"chats"> 
       <p>v{sim.version} · {sim.versions.at(-1)?.setup?.environment.name} environment · {sim.jobs.length} job{sim.jobs.length === 1 ? "" : "s"} · updated by {sim.updatedBy}</p></div></div>
     <div className="sim-tabs" role="tablist">{(["setup", "jobs", "results", "compare"] as Tab[]).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
     {tab === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => { setJobId(j); setTab("jobs"); }} />}
-    {tab === "jobs" && <Jobs sim={sim} chatId={chatId} onOpen={j => { setJobId(j); setTab("results"); }} />}
+    {tab === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => { setJobId(j); setTab("results"); }} />}
     {tab === "results" && (shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></> : <p className="results-empty">No results yet. Run a version from Setup.</p>)}
     {tab === "compare" && <Compare sim={sim} />}
   </div>;
@@ -89,10 +96,10 @@ function Setup({ sim, chatId, onRun }: { sim: Sim; chatId: Id<"chats">; onRun: (
       <b>v{x.version}</b><span>{x.note ?? (x.version === 1 ? "First version" : x.changes.join(", ") || "No changes")}</span><small>{x.createdBy} · {new Date(x.createdAt).toLocaleString()}</small>
     </button>)}</div>
     <div className="sim-version-detail">
-      {v.changes.length > 0 && <section className="results-block"><h4>What changed from v{v.version - 1}</h4><ul className="sim-changes">{v.changes.map(c => <li key={c}>{c}</li>)}</ul></section>}
+      {v.changes.length > 0 && <section className="results-block"><h4>What changed from v{v.from ?? v.version - 1}</h4><ul className="sim-changes">{v.changes.map(c => <li key={c}>{c}</li>)}</ul></section>}
       <section className="results-block"><h4>Parameters</h4>
         {setup.parameters.length ? <table className="results-table"><tbody>{setup.parameters.map(p => <tr key={p.name}><th scope="row">{p.label ?? p.name}<small> {p.name}</small></th>
-          <td>{latest ? <label className="sim-param"><input aria-label={p.name} value={draft[p.name] ?? String(p.value)} onChange={e => setDraft({ ...draft, [p.name]: e.target.value })} /><span>{p.unit && p.unit !== "1" ? p.unit : ""}</span></label> : value(p)}</td></tr>)}</tbody></table>
+          <td>{latest ? <label className="sim-param"><input aria-label={p.name} value={draft[p.name] ?? String(p.value)} onChange={e => setDraft({ ...draft, [p.name]: e.target.value })} /><span>{p.unit && p.unit !== "1" ? p.unit : ""}{readable(p, draft[p.name])}</span></label> : value(p)}</td></tr>)}</tbody></table>
           : <p className="results-empty">No declared parameters. Ask the agent to declare the inputs you want to vary.</p>}
         {latest && edited && <div className="sim-actions"><button className="btn" disabled={busy || setup.parameters.some(p => typeof p.value === "number" && !Number.isFinite(Number(draft[p.name] ?? p.value)))}
           onClick={() => void act(() => saveParameters({ id: sim.id as SimId, version: v.version, parameters: setup.parameters.map(parsed), note: "Parameters edited in the app" }).then(() => setDraft({})))}>Save as v{sim.version + 1}</button><button className="btn ghost" onClick={() => setDraft({})}>Discard</button></div>}
@@ -109,15 +116,30 @@ function Setup({ sim, chatId, onRun }: { sim: Sim; chatId: Id<"chats">; onRun: (
   </div>;
 }
 
-function Jobs({ sim, chatId, onOpen }: { sim: Sim; chatId: Id<"chats">; onOpen: (jobId: string) => void }) {
+function Jobs({ sim, chatId, login, onOpen }: { sim: Sim; chatId: Id<"chats">; login: string; onOpen: (jobId: string) => void }) {
+  const approve = useMutation(api.compute.approve);
+  const [busy, setBusy] = useState(false);
   if (!sim.jobs.length) return <p className="results-empty">No jobs yet. Run a version from Setup.</p>;
-  return <div className="sim-jobs">{sim.jobs.map(j => <div key={j._id} className="compute-card sim-job">
+  const mine = sim.jobs.filter(j => j.state === "awaiting-approval" && j.requestedBy === login);
+  const go = async (jobs: Job[]) => { setBusy(true); try { await Promise.all(jobs.map(j => approve({ id: j._id }))); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
+  const what = (j: Job) => { const v = sim.versions.find(x => x.version === j.version); return v?.changes.length ? v.changes.join(", ") : v?.note ?? null; };
+  return <div className="sim-jobs">
+    {mine.length > 1 && <div className="sim-approve-all"><span>{mine.length} jobs are waiting for you to approve them.</span><button className="btn" disabled={busy} onClick={() => void go(mine)}>Approve all {mine.length}</button></div>}
+    {sim.jobs.map(j => <div key={j._id} className="compute-card sim-job">
     <span className={`job-dot ${j.state}`} />
     <span><b>v{j.version} · {state(j.state)}</b>
+      {what(j) && <small className="sim-job-what" title={what(j) ?? undefined}>{what(j)}</small>}
       {j.results ? <small>{j.results.headline.map(q => `${q.label} ${quantityText(q)}`).join(" · ")}{" · "}✓ {j.results.checks.pass}{j.results.checks.review ? ` · ! ${j.results.checks.review}` : ""}{j.results.checks.fail ? ` · ✕ ${j.results.checks.fail}` : ""}</small> : <small>{j.error ?? new Date(j.createdAt).toLocaleString()}</small>}</span>
     {j.results && <button className="btn ghost" onClick={() => onOpen(j._id)}>Results</button>}
+    {mine.includes(j) && <button className="btn" disabled={busy} onClick={() => void go([j])}>Approve</button>}
     <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${j._id}`)}>Details</button>
   </div>)}</div>;
+}
+
+/** A simulation tab's label: its name, so it is not confused with the Simulation tool. */
+export function SimulationTabLabel({ id }: { id: SimId }) {
+  const sim = useSimulation(id);
+  return <>{sim?.name ?? "Simulation"}</>;
 }
 
 /** Numbers side by side, matched by name and unit; checks per job; and, for a sweep, each number against the swept parameter. */
