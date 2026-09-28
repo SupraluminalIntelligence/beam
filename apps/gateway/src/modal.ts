@@ -40,6 +40,10 @@ async function unreachable<T>(call: () => Promise<T>): Promise<T> {
   try { return await call(); }
   catch (e) { if (e instanceof FileMissing || e instanceof ExecutorUnavailable) throw e; throw new ExecutorUnavailable(`Modal did not answer: ${(e as Error).message}`); }
 }
+async function exists(sandbox: SandboxPort, path: string) {
+  try { await sandbox.size(path); return true; }
+  catch (e) { if (e instanceof FileMissing) return false; throw e; }
+}
 async function readTextOrNull(sandbox: SandboxPort, path: string) {
   try { return new TextDecoder().decode(await sandbox.readBytes(path)); }
   catch (e) { if (e instanceof FileMissing) return null; throw e; }
@@ -66,9 +70,20 @@ export class ModalExecutor implements ComputeExecutor {
     return this.modal.fromId(handle.id);
   }
 
+  /**
+   * A launch interrupted while staging (the gateway restarted, or lost Modal's reply): the sandbox
+   * exists but was never told to start or stop, so its command cannot have run and staging can resume.
+   */
+  private async unstaged(sandbox: SandboxPort) {
+    if (await sandbox.poll() !== null) return false;
+    for (const receipt of ["go", "abort"]) if (await exists(sandbox, `${JOB_DIR}/${receipt}`)) return false;
+    return true;
+  }
+
+  /** The launch for this job, unless it was interrupted before its command could start; submit resumes that one. */
   async recover(jobId: string): Promise<ExecutionHandle | null> {
     const found = await this.modal.fromName(sandboxName(jobId));
-    return found ? { backend: this.backend, id: found.id } : null;
+    return found && !(await this.unstaged(found)) ? { backend: this.backend, id: found.id } : null;
   }
 
   async cancelSubmission(jobId: string) {
@@ -99,11 +114,12 @@ export class ModalExecutor implements ComputeExecutor {
       tags: { beamJob: jobId, environment: spec.environment.name, machine: spec.machine },
     });
     const handle = { backend: this.backend, id: sandbox.id };
-    // An earlier submit created it and may have written `go`: inspect that launch, never stage it twice.
-    if (!created) return handle;
+    // An earlier submit that got as far as `go` or `abort` is inspected, never staged twice.
+    if (!created && !(await this.unstaged(sandbox))) return handle;
     try {
       await sandbox.makeDirectory(JOB_DIR);
-      const deadline = AbortSignal.timeout(60_000);
+      // Staging must finish inside the supervisor's launch window, with a minute to spare.
+      const deadline = AbortSignal.timeout((CLOUD_LAUNCH_WINDOW_SECONDS - 60) * 1000);
       for (const input of inputs) {
         const path = `${WORK}/${JobPath.parse(input.path)}`;
         const bytes = await download(input, deadline);

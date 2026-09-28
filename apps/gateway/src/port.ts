@@ -74,7 +74,8 @@ function wrap(sandbox: Sandbox): SandboxPort {
 /** The real Modal account, read from MODAL_TOKEN_ID/MODAL_TOKEN_SECRET or ~/.modal.toml. */
 export function modalPort(appName = "beam-compute", client = new ModalClient()): ModalPort {
   let app: Promise<App> | null = null;
-  const theApp = () => app ??= client.apps.fromName(appName, { createIfMissing: true });
+  // A failed lookup is not cached, so the next job retries it.
+  const theApp = () => app ??= client.apps.fromName(appName, { createIfMissing: true }).catch(e => { app = null; throw e; });
   const fromName = async (name: string) => {
     const found = await missingAsNull(() => client.sandboxes.fromName(appName, name));
     return found && wrap(found);

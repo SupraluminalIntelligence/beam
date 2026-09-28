@@ -52,12 +52,31 @@ describe("ModalExecutor", () => {
   });
 
   it("never stages a job twice: a repeated submit returns the existing launch", async () => {
-    const modal = new FakeModal(), executor = new ModalExecutor(modal);
-    const first = await executor.submit("job1", job(), []);
-    modal.byName.get(sandboxName("job1"))!.files.delete(`${JOB_DIR}/go`);
-    expect(await executor.submit("job1", job(), [])).toEqual(first);
+    const modal = new FakeModal(), executor = new ModalExecutor(modal), mesh = enc("mesh");
+    served({ "https://store/mesh": mesh });
+    const spec = job({ inputs: [{ assetId: "a1", path: "mesh.msh" }] }), inputs = [input("mesh.msh", "https://store/mesh", mesh)];
+    const first = await executor.submit("job1", spec, inputs);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    sandbox.files.delete(`${WORK}/mesh.msh`);
+    expect(await executor.submit("job1", spec, inputs)).toEqual(first);
+    expect(await executor.recover("job1")).toEqual(first);
     expect(modal.creates).toBe(1);
-    expect(modal.byName.get(sandboxName("job1"))!.files.has(`${JOB_DIR}/go`)).toBe(false);
+    expect(sandbox.files.has(`${WORK}/mesh.msh`)).toBe(false);
+  });
+
+  it("resumes staging a launch that was interrupted before its command could start", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal), mesh = enc("mesh");
+    served({ "https://store/mesh": mesh });
+    const spec = job({ inputs: [{ assetId: "a1", path: "mesh.msh" }] }), inputs = [input("mesh.msh", "https://store/mesh", mesh)];
+    const first = await executor.submit("job1", spec, inputs);
+    const sandbox = modal.byName.get(sandboxName("job1"))!;
+    sandbox.files.clear();
+    // Neither go nor abort: recover declines it, so reconcile submits again and staging completes.
+    expect(await executor.recover("job1")).toBeNull();
+    expect(await executor.submit("job1", spec, inputs)).toEqual(first);
+    expect(modal.creates).toBe(1);
+    expect(dec(sandbox.files.get(`${WORK}/mesh.msh`)!)).toBe("mesh");
+    expect(sandbox.files.has(`${JOB_DIR}/go`)).toBe(true);
   });
 
   it("records a staging failure in the sandbox and never starts the command", async () => {
