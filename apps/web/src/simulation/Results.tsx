@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { formatQuantity, ResultsManifest, SeriesData, TableData, type ResultCheck, type ResultQuantity, type ResultSeries } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -91,6 +91,23 @@ function Table({ label, output }: { label: string; output: Output | undefined })
   </section>;
 }
 
+const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i;
+/** A picture the job made, drawn in place. One in large-output storage is fetched through a short-lived link. */
+function Figure({ jobId, output, label }: { jobId: Id<"computeJobs">; output: Output; label: string }) {
+  const sign = useAction(api.compute.outputUrl);
+  const [src, setSrc] = useState<string | null>(output.url), [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (output.url || output.storage !== "r2") { setSrc(output.url); return; }
+    let live = true;
+    sign({ id: jobId, path: output.path }).then(r => { if (live) setSrc(r.url); }, () => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [output.path, output.url]);
+  return <figure className="results-figure">
+    {src && !failed ? <img src={src} alt={label} loading="lazy" onError={() => setFailed(true)} /> : <p className="results-empty">{failed ? "Could not load this picture." : "Loading…"}</p>}
+    <figcaption>{label}</figcaption>
+  </figure>;
+}
+
 /** Everything a job's manifest describes, with its evidence first. */
 export function ResultsView({ jobId }: { jobId: Id<"computeJobs"> }) {
   const job = useQuery(api.compute.get, { id: jobId });
@@ -101,6 +118,8 @@ export function ResultsView({ jobId }: { jobId: Id<"computeJobs"> }) {
   if (!parsed?.success) return <p className="results-empty">This job wrote no results manifest. Its files are under Job details.</p>;
   const m = parsed.data, outputs = job.outputs as Output[], p = m.provenance;
   const files = outputs.filter(o => !/^beam\/out\/(manifest\.json|series\/|tables\/|preview\/)/.test(o.path));
+  // Pictures the job made (plots, renders), by their names: agents do not always mark them as images.
+  const figures = m.files.flatMap(f => { const o = outputs.find(x => x.path === `beam/out/${f.path}`); return o && IMAGE.test(f.path) ? [{ o, label: f.label || f.path }] : []; });
   return <div className="results">
     <p className="results-provenance">{[p.environment, p.image ? `${p.image.split("@")[0]!.split("/").at(-1)}@${p.image.split("sha256:")[1]?.slice(0, 7) ?? ""}` : null, p.arch, p.wallSeconds !== undefined ? `${formatQuantity(p.wallSeconds, "s")} wall` : null].filter(Boolean).join(" · ")}</p>
     <section className="results-block"><h4>Checks</h4><Checks checks={m.checks} /></section>
@@ -110,6 +129,7 @@ export function ResultsView({ jobId }: { jobId: Id<"computeJobs"> }) {
     {m.fields.map(f => { const view = m.views.find(v => v.field === f.name), full = outputs.find(o => o.path === `beam/out/${f.full}`); return <section key={f.name} className="results-block"><h4>{view?.name ?? f.label}{full && (full.url || full.storage === "r2") ? <OutputLink className="field-full" jobId={jobId} output={full}>Full data ({f.full.split(".").at(-1)}, {formatBytes(full.size)})</OutputLink> : null}</h4>
       <Suspense fallback={<p className="results-empty">Loading the 3D view…</p>}><FieldView jobId={jobId} field={f} view={view} outputs={outputs} kept={job.results?.unpublished ?? []} /></Suspense>
     </section>; })}
+    {figures.length > 0 && <section className="results-block"><h4>Figures</h4><div className="results-figures">{figures.map(f => <Figure key={f.o.path} jobId={jobId} output={f.o} label={f.label} />)}</div></section>}
     {(files.length > 0 || (job.results?.unpublished.length ?? 0) > 0) && <section className="results-block"><h4>Files</h4><ul className="results-files">
       {files.map(o => <li key={o.path}><OutputLink jobId={jobId} output={o}>{o.path.replace(/^beam\/out\//, "")}</OutputLink> <small>{formatBytes(o.size)}</small></li>)}
       {job.results?.unpublished.map(u => <li key={u.path} className="kept">{u.path.replace(/^beam\/out\//, "")} <small>{u.reason}</small></li>)}

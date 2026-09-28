@@ -93,3 +93,9 @@
 .field-legend .field-readout{margin-left:auto;color:var(--ink-3)}
 .field-note{font:11px/1.5 var(--font-mono);color:var(--ink-3);margin:0}
 .results-block h4 .field-full{float:right;letter-spacing:0;text-transform:none;color:var(--ink-2)}
+
+/* Pictures a job made: as wide as the pane allows, on the surface so transparent plots stay legible. */
+.results-figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:12px}
+.results-figure{margin:0;display:flex;flex-direction:column;gap:4px}
+.results-figure img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:var(--r-2);background:#fff}
+.results-figure figcaption{font:11px var(--font-mono);color:var(--ink-3)}
