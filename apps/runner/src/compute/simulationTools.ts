@@ -17,7 +17,6 @@ const environmentOf = (raw: string) => {
 /**
  * Tools for files simulations: save a version (files snapshotted from the thread, parameters, an
  * environment and a command), run a version as a job, sweep a parameter, compare versions' results.
- * Recipe simulations (the Simulation pane's OpenFOAM studies) keep save_simulation and run_simulation.
  */
 export function simulationTools(client: ConvexClient, token: string, runId: Id<"runs">, directory: string, permissionMode: string): BeamTool[] {
   const writable = () => { if (permissionMode === "plan") throw new Error("Plan mode cannot save or run simulations"); };

@@ -4,7 +4,6 @@ import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { dayLabel, firstMention, hhmm, hueClass } from "../lib/format";
 import { ui, useUi } from "../lib/ui";
-import { StudyCard, StudyContext } from "../simulation/Study";
 import { SimulationCard } from "../simulation/Simulations";
 import { JobCard } from "./Compute";
 import { useSmoothText } from "../lib/smooth";
@@ -199,7 +198,6 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             <button className="rm" title={`Remove ${r} from this thread`} aria-label={`Remove ${r} from this thread`} onClick={(e) => { e.stopPropagation(); removeRepo({ chatId: chat._id, repo: r }).then(() => toast(`${r} removed from the thread`), (err) => toast(String((err as Error).message).replace(/^.*Uncaught Error: /, ""))); }}>×</button></span>;
         })}
         <span className="sp" />
-        <StudyContext key={chat._id} chatId={chat._id} onDescribe={()=>{setText(t=>t||"Create a simulation study for ");inputRef.current?.focus();}}/>
         <button className="context-toggle" onClick={()=>ui.openContext(chat._id)} title="Files, links, and sources for this chat">Context</button>
         {threadState === "open"
           ? <button className="donebtn" title="Settle this thread when you are done with it. A new message reopens it." onClick={() => void setState({ chatId: chat._id, state: "settled" }).then(() => toast("Settled · a new message reopens it"))}>settle</button>
@@ -272,7 +270,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · v{m.studyContext.revision}</div>}
                 {!m.simulationStudyId && !m.simulationId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
-                {m.simulationStudyId && <StudyCard id={m.simulationStudyId} chatId={chat._id} />}
+                {m.simulationStudyId && <SimulationCard id={m.simulationStudyId as Id<"simulationCases">} chatId={chat._id} />}
                 {m.simulationId && <SimulationCard id={m.simulationId} chatId={chat._id} />}
                 {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
                 {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings", tab: "machines" })}>Settings</button></div>}

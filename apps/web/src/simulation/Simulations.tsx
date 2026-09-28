@@ -8,6 +8,7 @@ import { toast } from "../components/Toast";
 import { Checks, Numbers, quantityText, ResultsView } from "./Results";
 import { Plot } from "./Plot";
 import "./results.css";
+import "./study.css";
 
 type SimId = Id<"simulationCases">;
 type Sim = NonNullable<ReturnType<typeof useSimulation>>;
@@ -66,17 +67,20 @@ export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"c
   };
   if (sim === undefined) return <div className="workspace-scroll">Loading simulation…</div>;
   if (!sim) return <div className="workspace-scroll">Simulation unavailable.</div>;
-  if (sim.kind === "recipe") return <div className="workspace-scroll"><div className="workspace-section-heading"><div><span className="workspace-eyebrow">SIMULATION · OPENFOAM RECIPE</span><h2>{sim.name}</h2><p>v{sim.version} · set up, mesh and run in the Simulation pane.</p></div></div>
-    <button className="btn" onClick={() => ui.openSimulation(sim.chatId, id, "setup")}>Open in the Simulation pane ↗</button></div>;
+  // A study from the retired Simulation pane keeps its jobs and results, but has no files setup to edit or run.
+  const study = sim.kind === "recipe", tabs: Tab[] = study ? ["jobs", "results", "compare"] : ["setup", "jobs", "results", "compare"];
+  const current = study && tab === "setup" ? "results" : tab;
   const shown = jobId ? sim.jobs.find(j => j._id === jobId) : sim.jobs.find(j => j.state === "succeeded" && j.results);
   return <div className="workspace-scroll sim-view">
-    <div className="workspace-section-heading"><div><span className="workspace-eyebrow">SIMULATION</span><h2>{sim.name}</h2>
-      <p>v{sim.version} · {sim.versions.at(-1)?.setup?.environment.name} environment · {sim.jobs.length} job{sim.jobs.length === 1 ? "" : "s"} · updated by {sim.updatedBy}</p></div></div>
-    <div className="sim-tabs" role="tablist">{(["setup", "jobs", "results", "compare"] as Tab[]).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
-    {tab === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />}
-    {tab === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => show("results", j)} />}
-    {tab === "results" && (shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></> : <p className="results-empty">No results yet. Run a version from Setup.</p>)}
-    {tab === "compare" && <Compare sim={sim} />}
+    <div className="workspace-section-heading"><div><span className="workspace-eyebrow">{study ? "SIMULATION · STUDY" : "SIMULATION"}</span><h2>{sim.name}</h2>
+      <p>{study
+        ? `r${sim.version} · a study from the Simulation pane, which Beam no longer has; its jobs and results are kept here · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"}`
+        : `v${sim.version} · ${sim.versions.at(-1)?.setup?.environment.name} environment · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"} · updated by ${sim.updatedBy}`}</p></div></div>
+    <div className="sim-tabs" role="tablist">{tabs.map(t => <button key={t} role="tab" aria-selected={current === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
+    {current === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />}
+    {current === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => show("results", j)} />}
+    {current === "results" && (shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></> : <p className="results-empty">{study ? "No results: this study's runs predate standard results." : "No results yet. Run a version from Setup."}</p>)}
+    {current === "compare" && <Compare sim={sim} />}
   </div>;
 }
 
@@ -202,7 +206,7 @@ export function SimulationList({ workspaceId }: { workspaceId: Id<"workspaces"> 
     <div className="sb-sec">Simulations</div>
     {sims.slice(0, 12).map(s => <button key={s.id} className="th-item" title={`${s.name} · in ${s.chatTitle}`} onClick={() => {
       ui.openChat(workspaceId, s.chatId);
-      if (s.kind === "recipe") ui.openSimulation(s.chatId, s.id, "setup"); else openSimulation(s.chatId, s.id);
+      openSimulation(s.chatId, s.id);
     }}><span className="sq idle" /><span className="nm">{s.name}</span><span className="sim-sb-v">{s.kind === "recipe" ? "r" : "v"}{s.version}</span></button>)}
   </section>;
 }
