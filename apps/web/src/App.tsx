@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { bridge } from "./bridge";
+import { convexUrl } from "./lib/convexUrl";
 import { Shell } from "./components/Shell";
 import { Toast, toast } from "./components/Toast";
 import { ApproveLayer } from "./components/ConnectedApps";
@@ -47,7 +48,7 @@ export function App() {
   );
 }
 
-const siteUrl = () => (import.meta.env["VITE_CONVEX_URL"] as string).replace(".convex.cloud", ".convex.site");
+const siteUrl = () => convexUrl.replace(".convex.cloud", ".convex.site");
 
 function SignIn() {
   const { signIn } = useAuthActions();

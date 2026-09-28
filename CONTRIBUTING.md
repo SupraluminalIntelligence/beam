@@ -4,6 +4,8 @@ Pull requests are welcome at https://github.com/SupraluminalIntelligence/beam. F
 
 ## Development setup
 
+For Windows PowerShell commands, desktop packaging, and current platform limits, see [Windows desktop](docs/windows.md).
+
 Use Node.js 22.16 or newer and pnpm 10.29.1 (the version in `package.json`).
 
 ```sh

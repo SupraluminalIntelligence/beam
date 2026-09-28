@@ -7,12 +7,12 @@ import { useLocalRunner } from "../lib/localRunner";
 import { AgentAvatar } from "./Avatar";
 import { LocalAccounts, useLocalProfiles } from "./Connections";
 import { toast } from "./Toast";
+import { providerInstall } from "../lib/providerSetup";
 
 type Status = { connectionId?: string; connectionName?: string; harness: string; installed: boolean; version: string | null; auth: string; plan: string | null; email: string | null; message: string | null; probedAt: number };
 type Runner = NonNullable<ReturnType<typeof useQuery<typeof api.runners.mine>>>[number];
 const NAME: Record<string, string> = { claude: "Claude Code", codex: "Codex", omp: "omp" };
 const LOGIN: Record<string, string> = { claude: "claude auth login", codex: "codex login", omp: "omp" };
-const INSTALL: Record<string, string> = { claude: "npm i -g @anthropic-ai/claude-code", codex: "npm i -g @openai/codex", omp: "curl -fsSL https://omp.sh/install | sh" };
 
 const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : `${Math.round(s / 3600)}h ago`; };
 
@@ -61,6 +61,8 @@ function MachineCard({ r, local, children }: { r: Runner; local: boolean; childr
       </div>
       {statuses.map((s) => {
         const profile = s.connectionId && s.connectionId !== "default";
+        const install = providerInstall(s.harness, r.platform);
+        const canSignIn = local && b?.signInConnection && ["codex", "claude"].includes(s.harness);
         return <div key={`${s.harness}:${s.connectionId ?? "default"}`} className="hrow">
           <AgentAvatar harness={s.harness} />
           <span className="nm">{NAME[s.harness] ?? s.harness}{profile && s.connectionName ? ` · ${s.connectionName}` : ""}</span>
@@ -68,10 +70,10 @@ function MachineCard({ r, local, children }: { r: Runner; local: boolean; childr
           <span className={`st ${s.installed ? s.auth : "missing"}`}>{!s.installed ? "not installed" : s.auth === "authenticated" ? "signed in" : s.auth === "unauthenticated" ? "not signed in" : "unverified"}</span>
           <span className="k">{[s.plan, s.email].filter(Boolean).join(" · ")}</span>
           <span className="sp" />
-          {s.installed && s.auth !== "authenticated" && (profile
-            ? local && b?.signInConnection && <button className="cmd" title={`Sign in to ${s.connectionName ?? "this profile"} in Terminal`} onClick={() => void b.signInConnection!(s.harness as "codex" | "claude", s.connectionId!).catch((e) => toast(e.message))}><CmdIcon kind="sign in" />Sign in</button>
-            : <Cmd cmd={LOGIN[s.harness] ?? ""} kind="sign in" />)}
-          {!s.installed && <Cmd cmd={INSTALL[s.harness] ?? ""} kind="install" />}
+          {s.installed && s.auth !== "authenticated" && (canSignIn
+            ? <button className="cmd" title={`Sign in to ${s.connectionName ?? "this account"} in ${b?.platform === "win32" ? "PowerShell" : "Terminal"}`} onClick={() => void b!.signInConnection!(s.harness as "codex" | "claude", s.connectionId ?? "default").catch((e) => toast(e.message))}><CmdIcon kind="sign in" />Sign in</button>
+            : !profile && <Cmd cmd={LOGIN[s.harness] ?? ""} kind="sign in" local={local} />)}
+          {!s.installed && (install ? <Cmd cmd={install} kind="install" local={local} /> : <span className="hint">Windows setup unavailable</span>)}
         </div>;
       })}
       {notes.length > 0 && <div className="hnote">{notes.map((s) => <div key={`${s.harness}:${s.connectionId ?? "default"}`}>{NAME[s.harness] ?? s.harness}: {s.message}</div>)}</div>}
@@ -100,13 +102,16 @@ function CmdIcon({ kind }: { kind: CmdKind }) {
 }
 
 /** Runs the command in Terminal in the desktop app; copies it in a browser. The command itself is in the tooltip. */
-function Cmd({ cmd, kind }: { cmd: string; kind: "sign in" | "install" }) {
-  const b = bridge();
+function Cmd({ cmd, kind, local }: { cmd: string; kind: "sign in" | "install"; local: boolean }) {
+  const b = local ? bridge() : undefined;
+  const terminal = b?.platform === "win32" ? "PowerShell" : "Terminal";
   const label = kind === "install" ? "Install" : "Sign in";
   return (
-    <button className="cmd" title={b ? `Runs in Terminal: ${cmd}` : `Copy: ${cmd}`} onClick={async () => {
-      if (b) { await b.openTerminalWith(cmd); toast(`Opened Terminal with: ${cmd}`); }
-      else { await navigator.clipboard.writeText(cmd).catch(() => {}); toast(`Copied: ${cmd}`); }
+    <button className="cmd" title={b ? `Runs in ${terminal}: ${cmd}` : `Copy: ${cmd}`} onClick={async () => {
+      try {
+        if (b) { await b.openTerminalWith(cmd); toast(`Opened ${terminal}. Finish setup there, then refresh this machine.`); }
+        else { await navigator.clipboard.writeText(cmd); toast(`Copied: ${cmd}`); }
+      } catch (error) { toast((error as Error).message); }
     }}><CmdIcon kind={b ? kind : "copy"} />{b ? label : `Copy ${label.toLowerCase()}`}</button>
   );
 }

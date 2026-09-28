@@ -19,7 +19,7 @@ const check = process.argv.includes("--check");
 const SITE_URL = "http://localhost:5173";
 
 function convex(args, { quiet = false } = {}) {
-  const r = spawnSync("npx", ["convex", ...args], { cwd: root, encoding: "utf8", stdio: quiet ? ["ignore", "pipe", "pipe"] : ["ignore", "pipe", "inherit"] });
+  const r = spawnSync(process.execPath, [join(root, "node_modules/convex/bin/main.js"), ...args], { cwd: root, encoding: "utf8", stdio: quiet ? ["ignore", "pipe", "pipe"] : ["ignore", "pipe", "inherit"] });
   if (r.status !== 0) {
     if (quiet) process.stderr.write(r.stderr ?? "");
     throw new Error(`npx convex ${args[0]} ${args[1] ?? ""} failed`);

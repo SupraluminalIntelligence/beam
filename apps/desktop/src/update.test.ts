@@ -4,20 +4,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const host = vi.hoisted(() => ({ handlers: new Map<string, (...args: any[]) => any>(), windows: [] as any[], children: [] as any[] }));
 vi.mock("electron", () => ({
-  app: Object.assign(new EventEmitter(), { isPackaged: true, whenReady: () => Promise.resolve(), getPath: () => "/tmp", quit: vi.fn() }),
+  app: Object.assign(new EventEmitter(), { isPackaged: true, whenReady: () => Promise.resolve(), getPath: () => "/tmp", quit: vi.fn(), setAppUserModelId: vi.fn() }),
   BrowserWindow: class extends EventEmitter {
     static getAllWindows() { return host.windows; }
     webContents = Object.assign(new EventEmitter(), { send: vi.fn() });
     hide = vi.fn();
     loadFile = vi.fn();
-    constructor() { super(); host.windows.push(this); }
+    constructor(readonly options: any) { super(); host.windows.push(this); }
   },
   ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => host.handlers.set(name, handler) },
   dialog: {}, shell: {}, Notification: {}, clipboard: {},
 }));
 vi.mock("electron-updater", () => ({ autoUpdater: Object.assign(new EventEmitter(), { quitAndInstall: vi.fn(), checkForUpdates: vi.fn(async () => null), downloadUpdate: vi.fn(async () => []) }) }));
 vi.mock("node:child_process", () => ({ spawn: () => {
-  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), connected: true, send: vi.fn(), kill: vi.fn() });
   host.children.push(child); return child;
 }, spawnSync: vi.fn(), execFile: vi.fn() }));
 vi.mock("./preview", () => ({ installPreviewHost: vi.fn() }));
@@ -34,6 +34,7 @@ const close = () => {
   return event;
 };
 beforeEach(async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   vi.resetModules(); vi.useFakeTimers(); vi.clearAllMocks();
   app.removeAllListeners(); autoUpdater.removeAllListeners();
   vi.mocked(autoUpdater.quitAndInstall).mockReset();
@@ -41,7 +42,7 @@ beforeEach(async () => {
   await import("./main");
   await Promise.resolve(); await Promise.resolve();
 });
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 /** The runner has landed its runs and exits. */
 const runnerExits = (i = 0) => host.children[i].emit("exit", 0, "SIGTERM");
@@ -54,7 +55,7 @@ it("keeps ordinary window close in the background, and quits once the runner has
   app.emit("before-quit", quit);
   expect(quit.preventDefault).toHaveBeenCalledOnce();
   expect(host.windows[0].hide).toHaveBeenCalledTimes(2);
-  expect(host.children[0].kill).toHaveBeenCalledWith("SIGTERM");
+  expect(host.children[0].send).toHaveBeenCalledWith({ type: "beam:shutdown" }, expect.any(Function));
   expect(app.quit).not.toHaveBeenCalled();
   runnerExits(); await vi.advanceTimersByTimeAsync(0);
   expect(app.quit).toHaveBeenCalledOnce();
@@ -86,7 +87,7 @@ it("stops the runner before the updater takes over, and ignores repeated clicks"
   });
   install(); install();
   expect(status().state).toBe("installing");
-  expect(host.children[0].kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+  expect(host.children[0].send).toHaveBeenCalledExactlyOnceWith({ type: "beam:shutdown" }, expect.any(Function));
   await vi.advanceTimersByTimeAsync(0);
   expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled(); // the runner is still landing
   expect(close().preventDefault).toHaveBeenCalledOnce();
@@ -110,7 +111,7 @@ it.each(["throw", "event"])("restores normal close and restarts the runner on up
 
 it("waits for the runner to exit before starting it again", async () => {
   host.handlers.get("beam:restartRunner")!();
-  expect(host.children[0].kill).toHaveBeenCalledWith("SIGTERM");
+  expect(host.children[0].send).toHaveBeenCalledWith({ type: "beam:shutdown" }, expect.any(Function));
   await vi.advanceTimersByTimeAsync(5_000);
   expect(host.children).toHaveLength(1);
   runnerExits(); await vi.advanceTimersByTimeAsync(500);
@@ -131,4 +132,41 @@ it("suppresses a pending runner restart during installation and recovers it afte
   autoUpdater.emit("error", new Error("Install failed"));
   expect(host.children).toHaveLength(2);
   expect(status().state).toBe("error");
+});
+
+it("uses native Windows controls and quits through graceful IPC when closed", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  vi.resetModules();
+  app.removeAllListeners(); autoUpdater.removeAllListeners();
+  host.handlers.clear(); host.windows.length = 0; host.children.length = 0;
+  await import("./main");
+  await Promise.resolve(); await Promise.resolve();
+  expect(host.windows[0].options.titleBarStyle).toBeUndefined();
+  expect(app.setAppUserModelId).toHaveBeenCalledWith("ai.supraluminal.beam");
+  expect(close().preventDefault).toHaveBeenCalledOnce();
+  expect(app.quit).toHaveBeenCalledOnce();
+  app.emit("before-quit", { preventDefault: vi.fn() });
+  expect(host.children[0].send).toHaveBeenCalledWith({ type: "beam:shutdown" }, expect.any(Function));
+  expect(host.children[0].kill).not.toHaveBeenCalled();
+  runnerExits(); await vi.advanceTimersByTimeAsync(0);
+  expect(app.quit).toHaveBeenCalledTimes(2);
+});
+
+it("installs Windows updates silently only after the runner exits, then reopens Beam", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  autoUpdater.emit("update-downloaded", downloaded);
+  install();
+  expect(host.children[0].send).toHaveBeenCalledWith({ type: "beam:shutdown" }, expect.any(Function));
+  expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+  runnerExits(); await vi.advanceTimersByTimeAsync(0);
+  expect(autoUpdater.quitAndInstall).toHaveBeenCalledExactlyOnceWith(true, true);
+});
+
+it("does not discard a downloaded update when a background check finishes", () => {
+  autoUpdater.emit("update-downloaded", downloaded);
+  autoUpdater.emit("checking-for-update");
+  autoUpdater.emit("update-available", downloaded);
+  expect(status().state).toBe("ready");
+  autoUpdater.emit("update-not-available", downloaded);
+  expect(status().state).toBe("ready");
 });

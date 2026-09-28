@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { cliInvocation } from "./path.ts";
 const run = promisify(execFile);
 
 export async function cliVersion(bin: string, args: string[] = ["--version"], timeout = 5000): Promise<string | null> {
   try {
-    const { stdout, stderr } = await run(bin, args, { timeout, env: process.env });
+    const command = cliInvocation(bin, args);
+    const { stdout, stderr } = await run(command.bin, command.args, { timeout, env: command.env, windowsHide: true });
     const m = `${stdout}\n${stderr}`.match(/(\d+\.\d+\.\d+)/);
     return m ? m[1]! : null;
   } catch {

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { z } from "zod";
+import { cliInvocation } from "../path.ts";
 
 const Frame = z.object({ id: z.union([z.number(), z.string()]).optional(), method: z.string().optional(), params: z.unknown(), result: z.unknown(), error: z.object({ message: z.string() }).passthrough().optional() });
 
@@ -15,7 +16,8 @@ export class JsonRpcChild {
   readonly exited: Promise<number | null>;
 
   constructor(bin: string, args: string[], env: NodeJS.ProcessEnv, cwd?: string) {
-    this.child = spawn(bin, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const command = cliInvocation(bin, args, env);
+    this.child = spawn(command.bin, command.args, { env: command.env, cwd, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     this.exited = new Promise((res) => {
       this.child.once("error", (error) => { this.fail(error); res(null); });
       this.child.once("exit", (code) => { this.fail(new Error(`Codex process exited (${code})`)); res(code); });
