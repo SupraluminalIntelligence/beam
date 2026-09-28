@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
-import { EnvironmentJobSpec } from "@beam/contracts";
+import { EnvironmentJobSpec, jobScript } from "@beam/contracts";
 
 /**
  * Environments on this computer: a job runs in a fresh container of its environment's image; a chat's
@@ -10,6 +10,7 @@ import { EnvironmentJobSpec } from "@beam/contracts";
  * only one directory mounted.
  */
 const exec = promisify(execFile);
+export { jobScript };
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
 export const jobContainer = (root: string) => `beam-env-${hash(root)}`;
 /** One machine per thread directory: a chat, or a scope within it. */
@@ -39,8 +40,8 @@ export async function environmentProcess(raw: EnvironmentJobSpec, root: string) 
   const { cpus } = await dockerHost(), name = jobContainer(root);
   const args = ["run", "--rm", "--pull=never", "--name", name, "--network", "none", "--cpus", String(cpus), "--pids-limit", "4096", "--shm-size", "1g",
     "-v", `${root}/work:/work`, "-w", "/work", ...userArgs(),
-    ...envArgs({ BEAM_IMAGE: spec.environment.image, BEAM_COMMAND: spec.command, BEAM_CORES: String(cpus) }),
-    "--entrypoint", "/bin/bash", spec.environment.image, "-lc", spec.command];
+    ...envArgs({ BEAM_IMAGE: spec.environment.image, BEAM_COMMAND: spec.command, BEAM_CORES: String(cpus), BEAM_WORK: "/work" }),
+    "--entrypoint", "/bin/bash", spec.environment.image, "-lc", jobScript(spec.command)];
   return { executable: "docker", args, timeoutSeconds: spec.timeoutSeconds, dockerContainer: name, environment: spec.environment.name };
 }
 export async function stopJobContainer(root: string) { await exec("docker", ["rm", "-f", jobContainer(root)], { timeout: 10000 }); }
@@ -56,7 +57,7 @@ export async function openLocalMachine(key: string, image: string, directory: st
   if (running) await exec("docker", ["rm", "-f", name], { timeout: 10000 });
   const idle = `touch /tmp/.beam-used; while [ $(( $(date +%s) - $(stat -c %Y /tmp/.beam-used) )) -lt ${MACHINE_IDLE_SECONDS} ]; do sleep 30; done`;
   await exec("docker", ["run", "-d", "--rm", "--pull=never", "--name", name, "--label", "beam.machine=local", "--network", "none", "--cpus", String(cpus), "--pids-limit", "4096", "--shm-size", "1g",
-    "-v", `${directory}:/work`, "-w", "/work", ...userArgs(), ...envArgs({ BEAM_IMAGE: image, BEAM_CORES: String(cpus) }),
+    "-v", `${directory}:/work`, "-w", "/work", ...userArgs(), ...envArgs({ BEAM_IMAGE: image, BEAM_CORES: String(cpus), BEAM_WORK: "/work" }),
     "--entrypoint", "/bin/bash", image, "-c", idle], { timeout: 60000 });
   return { name, cpus, started: true };
 }

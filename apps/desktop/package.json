@@ -4,14 +4,15 @@
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs",
-    "dev": "pnpm build && BEAM_DEV=1 electron .",
+    "build": "esbuild src/main.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --external:electron --format=cjs --outfile=dist/preload.cjs && node scripts/files.mjs icon",
+    "dev": "pnpm build && node scripts/dev.mjs",
     "dist": "pnpm build && pnpm build:runner && pnpm build:web && electron-builder --mac --arm64 --x64",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning && cp ../runner/src/compute/worker.mjs dist/worker.mjs",
-    "build:web": "pnpm --filter @beam/web build && rm -rf dist/web && cp -R ../web/dist dist/web",
-    "release": "pnpm build && pnpm build:runner && pnpm build:web && sh ../../scripts/release-mac.sh"
+    "build:runner": "esbuild ../runner/src/cli.ts --bundle --platform=node --format=esm --outfile=dist/runner.mjs --banner:js=\"import { createRequire as __beamRequire } from 'node:module'; const require = __beamRequire(import.meta.url);\" --log-level=warning && node scripts/files.mjs worker",
+    "build:web": "pnpm --filter @beam/web build && node scripts/files.mjs web",
+    "release": "pnpm build && pnpm build:runner && pnpm build:web && sh ../../scripts/release-mac.sh",
+    "dist:win": "pnpm build && pnpm build:runner && pnpm build:web && electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "electron": "^38.0.0",
@@ -55,7 +56,25 @@
         "repo": "beam-releases",
         "releaseType": "draft"
       }
-    ]
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/beam-light-cone.png",
+      "artifactName": "Beam-${version}-win-${arch}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
   },
   "dependencies": {
     "electron-updater": "^6.8.9"

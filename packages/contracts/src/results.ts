@@ -259,3 +259,22 @@ export async function collectResults(read: (path: string) => Promise<Uint8Array>
   }
   return { manifest, files, unpublished };
 }
+
+/**
+ * The command as the container runs it. beam/ lives at the job root whatever directory the command
+ * changes to; results written under another directory's beam/out would publish nothing, so say where
+ * they went rather than leave the job looking empty.
+ */
+export const jobScript = (command: string) => [
+  `{\n${command}\n}`,
+  `status=$?`,
+  `if [ ! -f "$BEAM_WORK/${RESULTS_ROOT}/manifest.json" ]; then`,
+  `  stray=$(find "$BEAM_WORK" -mindepth 2 -maxdepth 6 -path "*/${RESULTS_ROOT}/manifest.json" 2>/dev/null | head -n 3)`,
+  `  if [ -n "$stray" ]; then`,
+  `    echo "beam: nothing was published: Beam reads results only from $BEAM_WORK/${RESULTS_ROOT}, but the manifest was written to:" >&2`,
+  `    echo "$stray" >&2`,
+  `    echo "beam: write results with beam_out, which uses $BEAM_WORK/${RESULTS_ROOT} from any directory, or use absolute paths." >&2`,
+  `  fi`,
+  `fi`,
+  `exit $status`,
+].join("\n");
