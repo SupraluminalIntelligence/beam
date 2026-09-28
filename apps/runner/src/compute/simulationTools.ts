@@ -21,6 +21,9 @@ const environmentOf = (raw: string) => {
  */
 export function simulationTools(client: ConvexClient, token: string, runId: Id<"runs">, directory: string, permissionMode: string): BeamTool[] {
   const writable = () => { if (permissionMode === "plan") throw new Error("Plan mode cannot save or run simulations"); };
+  // Outside auto mode a job waits for the person; an agent that polls for that holds the turn open for nothing.
+  const next = (then: string) => permissionMode === "auto" ? then
+    : "Each job waits for the person who asked to approve it (the simulation's Jobs tab, or Approve all). Do not wait or poll for that: end your turn now, saying which jobs need approving and what you found so far. They will @mention you once the jobs have run.";
   const state = () => client.query(api.simulations.forRun, { token, runId });
   const find = async (id: string) => {
     const sim = (await state()).simulations.find(s => s.id === id);
@@ -62,7 +65,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
       run: async a => {
         writable();
         const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), String(a["requestKey"]));
-        return JSON.stringify({ jobId: id, submitted: true, note: "Use get_job for state, results_read once it succeeds. Approval may be required in Jobs." });
+        return JSON.stringify({ jobId: id, submitted: true, next: next("Follow it with get_job, then results_read once it succeeds.") });
       },
     },
     {
@@ -78,11 +81,11 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
         for (const [i, setup] of setups.entries()) {
           const value = (a["values"] as unknown[])[i];
           // The base's own value runs the base version rather than saving a copy of it.
-          const version = JSON.stringify(setup) === JSON.stringify(base) ? from
+          const version = setupChanges(base, setup).length === 0 ? from
             : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
           rows.push({ value, version, jobId: await run(id, version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`) });
         }
-        return JSON.stringify({ parameter: a["parameter"], runs: rows, next: "Follow the jobs with get_job, then compare_versions with their job IDs." });
+        return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.") });
       },
     },
     {
