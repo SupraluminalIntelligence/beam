@@ -60,6 +60,6 @@ export type EnvironmentBuild = z.infer<typeof EnvironmentBuild>;
 export const isCfdImage = (image: string) => /^ghcr\.io\/supraluminalintelligence\/beam-env-cfd@sha256:[0-9a-f]{64}$/.test(image);
 /** `studies`: the image carries Beam's study recipes, so runners run the Simulation pane's studies in it. */
 export const BUILT_IN_ENVIRONMENTS: readonly { name: EnvironmentName; image: ImageRef; summary: string; studies?: true }[] = [
-  { name: "fea", image: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:42f0ed52b99aef716a5162b87f832137d21e579dbb6c2f61028d9363a41d9af7", summary: "Structures and heat in solids: FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista." },
-  { name: "cfd", image: "ghcr.io/supraluminalintelligence/beam-env-cfd@sha256:88806cec7aa12ddb8fd2ca80a5fa6e6c49c64cc02c81c50f1ae5f73bb58efe56", summary: "Flow: OpenFOAM 2512 (OpenCFD), with the Python base, pyvista, and Beam's study recipes (beam-recipe).", studies: true },
+  { name: "fea", image: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:f17cf0e03c9e613d4f653cfbd2a2fbd4ad3d3291ad38e78bd7c8dbe0a6815c5e", summary: "Structures and heat in solids: FEniCSx, PETSc/MUMPS, MPICH, gmsh, pyvista." },
+  { name: "cfd", image: "ghcr.io/supraluminalintelligence/beam-env-cfd@sha256:9efe6091607b2c245a7358eb5fdd923a293a8b396e011f89536653607b31d802", summary: "Flow: OpenFOAM 2512 (OpenCFD), with the Python base, pyvista, and Beam's study recipes (beam-recipe).", studies: true },
 ];
