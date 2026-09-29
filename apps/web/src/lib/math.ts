@@ -49,28 +49,35 @@ export function escapeStrayDollars(text: string): string {
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
   // Shell glues expansions to `=`, `:`, `/`, `.`, `-`, quotes and separators; an expression rarely ends on one.
   const shellBefore = (at: number) => /[=:/.\-(,;|&<>"]/.test(text[at - 1]!);
-  // What follows a closer: `{` or `(` starts a shell expansion; a name does too after shell glue (`$HOME/$USER`) or
-  // when it is an environment variable (`$HOME$USER`), but `the $n$th term` is math; a special parameter after
-  // shell glue is shell (`status=$?`), while `Is $x$?` is math.
-  const closes = ({ at, size }: { at: number; size: number }) => {
+  // What follows a closer: `{` or `(` starts a shell expansion; a name does too after shell glue or a single quote
+  // (`$HOME/$USER`, `'$dir' '$file'`), when it is an environment variable (`$HOME$USER`), or when the span is a
+  // bare multi-letter name (`$first$last`); `the $n$th term` is math. A special parameter after shell glue is
+  // shell (`status=$?`), while `Is $x$?` is math.
+  type Run = { at: number; size: number };
+  const closes = (open: Run, { at, size }: Run) => {
     const next = text.slice(at + size, at + size + 64);
     if (/\s/.test(text[at - 1]!) || /^[\d{(]/.test(next)) return false;
-    if (/^[A-Za-z_]/.test(next)) return !shellBefore(at) && !/^[A-Z_][A-Z0-9_]+\b/.test(next);
+    if (/^[A-Za-z_]/.test(next)) {
+      return !shellBefore(at) && text[at - 1] !== "'" && !/^[A-Z_][A-Z0-9_]+\b/.test(next)
+        && !/^[A-Za-z_]\w+$/.test(text.slice(open.at + open.size, at));
+    }
     return !(/^[?!#@*]/.test(next) && shellBefore(at));
   };
-  const stray: { at: number; size: number }[] = [];
-  let open: { at: number; size: number } | null = null;
-  for (const run of runs) {
+  const stray: Run[] = [];
+  let open: Run | null = null, from = 0;
+  for (let i = 0; i <= runs.length; i++) {
+    const run = runs[i];
     if (open) {
       // Only a run of the same length can close; a different one is part of the expression.
-      if (run.size !== open.size) continue;
+      if (run && run.size !== open.size) continue;
       // Inline math never spans a blank line.
-      if (closes(run) && !/\n[ \t]*\n/.test(text.slice(open.at, run.at))) { open = null; continue; }
-      stray.push(open); open = null;
+      if (run && closes(open, run) && !/\n[ \t]*\n/.test(text.slice(open.at, run.at))) { open = null; continue; }
+      // No closer: the opener is literal, and the runs it skipped (`$USER $$; echo $HOME $$`) are text to check again.
+      stray.push(open); open = null; i = from; continue;
     }
-    if (opens(run)) open = run; else stray.push(run);
+    if (!run) break;
+    if (opens(run)) { open = run; from = i; } else stray.push(run);
   }
-  if (open) stray.push(open);
   let result = "", end = 0;
   for (const { at, size } of stray.sort((a, b) => a.at - b.at)) { result += text.slice(end, at) + "\\$".repeat(size); end = at + size; }
   return result + text.slice(end);
