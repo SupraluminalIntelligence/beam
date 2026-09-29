@@ -11,3 +11,6 @@ export async function isGatewayToken(token: string) {
   for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ (expected.charCodeAt(i) || 0);
   return diff === 0;
 }
+
+/** Cloud machines are switched on for this deployment once a gateway token is configured. Until then a cloud job would wait forever. */
+export const cloudEnabled = () => !!process.env.BEAM_GATEWAY_TOKEN_SHA256?.trim();

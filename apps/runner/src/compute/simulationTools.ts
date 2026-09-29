@@ -5,6 +5,7 @@ import { BUILT_IN_ENVIRONMENTS, compareQuantities, FilesSetup, ImageRef, JobPath
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { stageInputs } from "./tools.ts";
+import { CLOUD_JOB_HELP } from "./environmentTools.ts";
 
 const environmentOf = (raw: string) => {
   const builtIn = BUILT_IN_ENVIRONMENTS.find(e => e.name === raw);
@@ -59,7 +60,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     },
     {
       name: "run_version",
-      description: "Run a saved version of a files simulation as a durable job on a machine, and return the job ID immediately. The job's /work holds the version's files and beam/parameters.json; results are what it writes under beam/out. Follow it with get_job; read results with results_read. Reuse requestKey when retrying. In non-auto modes the requester approves first. Machine: only local today.",
+      description: `Run a saved version of a files simulation as a durable job on a machine, and return the job ID immediately. The job's /work holds the version's files and beam/parameters.json; results are what it writes under beam/out. Follow it with get_job; read results with results_read. Reuse requestKey when retrying. In non-auto modes the requester approves first. ${CLOUD_JOB_HELP}`,
       schema: { id: z.string(), version: z.number().int().positive(), machine: MachineId.default("local"), requestKey: z.string().min(1).max(160) },
       run: async a => {
         writable();
@@ -69,7 +70,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     },
     {
       name: "sweep",
-      description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. On the local machine the jobs run one after another, not side by side; parallelise inside each with $BEAM_CORES MPI processes. Unavailable in plan mode.",
+      description: `Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. On the local machine the jobs run one after another, not side by side; on a cloud machine each runs on its own machine at once, and each reserves its own cost. Parallelise inside each with $BEAM_CORES MPI processes. Unavailable in plan mode. ${CLOUD_JOB_HELP}`,
       schema: { id: z.string(), version: z.number().int().positive(), parameter: z.string(), values: z.array(z.union([z.number().finite(), z.string(), z.boolean()])).min(1).max(32), machine: MachineId.default("local"), requestKey: z.string().min(1).max(120) },
       run: async a => {
         writable();

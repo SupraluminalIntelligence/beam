@@ -1,10 +1,10 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { launching, pending, releasing, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
+import { cloudForRun, launching, pending, releasing, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { setAllowance } from "./computeBudget";
+import { get as getBudget, setAllowance } from "./computeBudget";
 
 import { defaultChannel, defaultCylinder, defaultPlanar, OPENFOAM_IMAGE, modelWindTunnel, type Model3D } from "../packages/contracts/src/simulation";
 
@@ -386,6 +386,19 @@ it("reserves an approval-gated cloud job only when approved, and releases it on 
   expect(budget()).toMatchObject({reservedCents:0,spentCents:0});
   await expect(cloudFixture().enqueue("big",{...cloudSpec,machine:"96-core"} as any)).rejects.toThrow("not available yet");
   await expect(cloudFixture().enqueue("long",{...cloudSpec,timeoutSeconds:86400} as any)).rejects.toThrow("at most 23.4 hours");
+});
+it("refuses cloud jobs until the deployment has a gateway, and tells agents and settings whether cloud runs",async()=>{
+  const {ctx,enqueue}=cloudFixture(500);
+  expect(await call(cloudForRun,ctx,{token:"valid",runId:"run"})).toEqual({enabled:true,availableCents:500});
+  expect(await call(getBudget,ctx,{workspaceId:"ws"})).toMatchObject({enabled:true,allowanceCents:500,availableCents:500,canEdit:true});
+  const hash=process.env.BEAM_GATEWAY_TOKEN_SHA256;delete process.env.BEAM_GATEWAY_TOKEN_SHA256;
+  try{
+    await expect(enqueue("c",cloudSpec as any)).rejects.toThrow("not switched on");
+    expect(await call(cloudForRun,ctx,{token:"valid",runId:"run"})).toEqual({enabled:false,availableCents:500});
+  }finally{process.env.BEAM_GATEWAY_TOKEN_SHA256=hash;}
+  // A workspace with no budget yet reads as $0, and only its creator may change it.
+  const none=cloudFixture(null as any);none.tables.workspaces![0].createdBy="someone";
+  expect(await call(getBudget,none.ctx,{workspaceId:"ws"})).toMatchObject({allowanceCents:0,availableCents:0,canEdit:false});
 });
 it("lets only the workspace's creator set its compute budget",async()=>{
   const {ctx,tables}=cloudFixture(null as any);

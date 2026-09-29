@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireMember } from "./lib";
+import { cloudEnabled } from "./gateway";
 import { chargeCents, formatCents } from "../packages/contracts/src/machines";
 
 /**
@@ -42,10 +43,16 @@ export async function settle(ctx: MutationCtx, job: Doc<"computeJobs">, now: num
   return { ...job.billing, spentCents, reserved: false };
 }
 
-export const get = query({ args: { workspaceId: v.id("workspaces") }, handler: async (ctx, { workspaceId }) => {
-  await requireMember(ctx, workspaceId);
+/** A workspace's cloud compute: whether this deployment runs cloud machines, and what its budget has left. */
+export async function cloudCompute(ctx: QueryCtx | MutationCtx, workspaceId: Id<"workspaces">) {
   const budget = await budgetFor(ctx, workspaceId);
-  return budget ? { allowanceCents: budget.allowanceCents, reservedCents: budget.reservedCents, spentCents: budget.spentCents, availableCents: Math.max(0, available(budget)) } : null;
+  return { enabled: cloudEnabled(), allowanceCents: budget?.allowanceCents ?? 0, reservedCents: budget?.reservedCents ?? 0, spentCents: budget?.spentCents ?? 0, availableCents: Math.max(0, available(budget)) };
+}
+
+export const get = query({ args: { workspaceId: v.id("workspaces") }, handler: async (ctx, { workspaceId }) => {
+  const u = await requireMember(ctx, workspaceId);
+  const workspace = await ctx.db.get(workspaceId);
+  return { ...await cloudCompute(ctx, workspaceId), canEdit: workspace?.createdBy === u._id };
 } });
 
 /** Only the workspace's creator sets its allowance, until billing gives workspaces real owners. */

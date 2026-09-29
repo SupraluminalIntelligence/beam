@@ -6,8 +6,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireChat, readableAction, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
-import { isGatewayToken } from "./gateway";
-import { metered, reserve, settle } from "./computeBudget";
+import { cloudEnabled, isGatewayToken } from "./gateway";
+import { cloudCompute, metered, reserve, settle } from "./computeBudget";
 import { JobPath, JobSpec, ProcessJobSpec, jobFinished, jobStudy, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
 import { FieldPreview, MAX_RESULT_FILES, previewByteLengths, previewLengthMismatch, resultPaths, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
 import { LARGE_OUTPUT_PART_BYTES, MAX_JOB_LARGE_OUTPUT_BYTES, MAX_LARGE_OUTPUT_BYTES, PartNumbers, Sha256Hex, UploadId, largeOutputKey, largeOutputReasons, planParts, type LargeOutputStart, type LargeOutputUrls } from "../packages/contracts/src/largeOutputs";
@@ -49,6 +49,7 @@ function cloudBilling(spec: JobSpec) {
   if (spec.kind !== "environment" || spec.machine === "local") return null;
   const machine = MACHINES[spec.machine], centsPerHour = cloudCentsPerHour(machine);
   if (centsPerHour === null) throw new Error(`The ${machine.label} is not available yet. Cloud jobs can use: ${Object.values(MACHINES).filter(m => cloudCentsPerHour(m) !== null).map(m => m.id).join(", ")}.`);
+  if (!cloudEnabled()) throw new Error("Cloud machines are not switched on for this Beam deployment yet. Run the job on the local machine.");
   if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours (timeoutSeconds ${CLOUD_MAX_TIMEOUT_SECONDS})`);
   return { centsPerHour, authorizedCents: authorizedCents(centsPerHour, spec.timeoutSeconds), spentCents: 0, reserved: false };
 }
@@ -294,6 +295,13 @@ export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("ru
     return detail(ctx, job);
   }
   return (await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", run.chatId)).order("desc").take(50)).map(summary);
+} });
+/** What an agent needs to choose a machine: whether cloud machines run here, and the workspace's cloud budget left. */
+export const cloudForRun = readableQuery({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
+  const { run } = await runAccess(ctx, a.token, a.runId);
+  const chat = await ctx.db.get(run.chatId);
+  const cloud = await cloudCompute(ctx, chat!.workspaceId);
+  return { enabled: cloud.enabled, availableCents: cloud.availableCents };
 } });
 export const targets = query({ args: { chatId: v.id("chats") }, handler: async (ctx, { chatId }) => {
   const { chat, u } = await requireChat(ctx, chatId);

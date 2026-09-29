@@ -1,7 +1,7 @@
 import { cadFormat } from "../cad/model";
 import { useMutation, useQuery } from "convex/react";
 import { useRef, useState } from "react";
-import { ProcessJobSpec, jobFinished } from "@beam/contracts";
+import { MACHINES, ProcessJobSpec, formatCents, jobFinished } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui } from "../lib/ui";
@@ -74,12 +74,13 @@ export function ComputeJob({ id, login, chatId }: { id: Id<"computeJobs">; login
   if (!job || job.chatId !== chatId) return <div className="workspace-scroll">Job unavailable in this chat.</div>;
   const finished = jobFinished(job.state);
   return <div className="workspace-scroll"><div className="workspace-section-heading"><div><span className="workspace-eyebrow">COMPUTE JOB</span><h2>{job.spec.title}</h2><p><span className={`job-dot ${job.state}`} /> {job.state.replaceAll("-"," ")} · {job.runnerName}</p></div></div>
-    {job.state === "awaiting-approval" && <div className="compute-notice"><b>Waiting for {job.requestedBy} to approve</b><p>Review the command and inputs before running it.</p>{login === job.requestedBy && <button className="btn" disabled={busy} onClick={()=>void action(()=>approve({id}))}>Approve and run</button>}</div>}
+    {job.state === "awaiting-approval" && <div className="compute-notice"><b>Waiting for {job.requestedBy} to approve</b><p>Review the command and inputs before running it.</p>{job.billing && <p>Approving holds up to {formatCents(job.billing.authorizedCents)} of the workspace's cloud budget until the cloud machine stops.</p>}{login === job.requestedBy && <button className="btn" disabled={busy} onClick={()=>void action(()=>approve({id}))}>Approve and run</button>}</div>}
     {!finished && !job.runnerOnline && <p className="compute-notice">Runner disconnected. This is the last reported state; the job may still be running locally. Updates resume when the runner reconnects.</p>}
     {job.cancelRequestedAt && !finished && <p role="status">Cancellation requested · waiting for the runner.</p>}
     <div className="compute-facts"><span>Submitted by <b>{job.requestedBy}</b></span><span>Runtime limit <b>{job.spec.timeoutSeconds}s</b></span><span>Input snapshot <b>{job.spec.inputs.length} files</b></span></div>
+    {job.billing && <div className="compute-facts"><span>Rate <b>{formatCents(job.billing.centsPerHour)}/hour</b></span><span>{job.billing.reserved ? "Spent so far" : "Spent"} <b>{formatCents(job.billing.spentCents)}</b></span><span>Most it can cost <b>{formatCents(job.billing.authorizedCents)}</b></span></div>}
     {job.spec.kind === "environment"
-      ? <><div className="compute-facts"><span>Environment <b>{job.spec.environment.name}</b></span><span>Machine <b>{job.spec.machine}</b></span></div><pre className="compute-command">{job.spec.command}</pre></>
+      ? <><div className="compute-facts"><span>Environment <b>{job.spec.environment.name}</b></span><span>Machine <b>{MACHINES[job.spec.machine].label}</b></span></div><pre className="compute-command">{job.spec.command}</pre></>
       : <pre className="compute-command">{job.spec.executable}{job.spec.args.map(a=>` ${JSON.stringify(a)}`).join("")}</pre>}
     <details><summary>Input snapshot and requested results</summary><ul>{job.spec.inputs.map(i=><li key={i.path}>Input: {i.path} <small>({i.assetId})</small></li>)}{job.spec.kind === "environment" ? <li>Results: whatever the job writes under beam/out, as its manifest describes · <small>{job.spec.environment.image}</small></li> : job.spec.outputs.map(p=><li key={p}>Output: {p}</li>)}</ul></details>
     {job.results?.unpublished.length ? <p className="compute-notice">Not published: {job.results.unpublished.map(u=>`${u.path} (${u.reason})`).join(", ")}</p> : null}
