@@ -318,7 +318,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             {popItems.filter((x) => x.kind === "person").map((x) => { const i = popItems.indexOf(x); return <button key={x.v} className={`po${pop.sel === i ? " sel" : ""}`} onClick={() => pick(x.v)}><PersonAvatar login={x.v} name={x.label} image={people?.[x.v]?.image ?? null} hue={hueClass(x.v)} /><span>{x.label}</span><span className="d">{x.d}</span></button>; })}
           </div>
         )}
-        <textarea ref={inputRef} rows={1} value={text} placeholder={chat.private && pinned ? `Message ${HARNESS_NAME[pinned.harness]}, or @mention another agent` : `Message ${chat.title}, or @mention an agent`}
+        <textarea ref={inputRef} data-focus-home rows={1} value={text} placeholder={chat.private && pinned ? `Message ${HARNESS_NAME[pinned.harness]}, or @mention another agent` : `Message ${chat.title}, or @mention an agent`}
           onBlur={typing.stop}
           onPaste={e=>void attachments.paste(e, pasted=>{const el=inputRef.current!;const start=el.selectionStart;const next=text.slice(0,start)+pasted+text.slice(el.selectionEnd);setText(next);typing.change(next);requestAnimationFrame(()=>{el.selectionStart=el.selectionEnd=start+pasted.length;});})}
           onChange={(e) => { typing.change(e.target.value); setText(e.target.value); updatePop(e.target.value, e.target.selectionStart); }}

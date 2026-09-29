@@ -66,6 +66,8 @@ export function Modal({ open, onClose, label, className = "", children }: { open
         const next = stack.at(-1);
         if (next && !next.opener?.isConnected) next.opener = entry.opener;
         else if (entry.opener?.isConnected) entry.opener.focus({ preventScroll: true });
+        // Where focus was is gone (a shortcut replaced the chat behind): the page's main field takes it, not the body.
+        else if (!next && (!document.activeElement || document.activeElement === document.body)) document.querySelector<HTMLElement>("[data-focus-home]")?.focus({ preventScroll: true });
       });
     };
   }, [open]);

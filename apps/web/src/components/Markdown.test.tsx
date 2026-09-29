@@ -77,7 +77,8 @@ describe("chat math", () => {
     expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).toContain('href="https://example.com/$a/$b"');
     expect(render("[the $x$ axis](https://example.com) and <https://example.com/$a$b>")).toContain('href="https://example.com/$a$b"');
     expect(render("[the $x$ axis](https://example.com)")).toContain('class="katex"');
-    expect(render("$f(x)$th and $\\alpha$s and $x_{i}$th").match(/class="katex"/g)).toHaveLength(3);
+    expect(render("$\\alpha$s and $x_{i}$th and the $2$nd and $n^2$s").match(/class="katex"/g)).toHaveLength(4);
+    for (const cmd of ['echo "${first}$last"', 'echo "$(date)$suffix"']) expect(render(cmd)).not.toContain('class="katex"');
     expect(render("so $x$/$y$ and ($a$) and $p$:$q$").match(/class="katex"/g)).toHaveLength(5);
     expect(render("the $n$th term, a length of $L$m").match(/class="katex"/g)).toHaveLength(2);
     for (const cmd of ["echo $HOME$USER", "cp $dir/$file .", "mv $name.$ext out", "x=$HOME; status=$?", 'echo "$HOME:$!"', "run $CMD|grep $#"]) expect(render(cmd)).not.toContain('class="katex"');
