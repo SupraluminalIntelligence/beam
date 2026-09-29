@@ -176,7 +176,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       followSentMessage();
       attachments.clear();
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
-    } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); } finally { setSending(false); }
+    } catch (e) {
+      toast(String((e as Error).message).replace(/^.*Uncaught Error: /, ""));
+      // Put the message back, ahead of anything typed since. Straight to storage too: you may have left the chat by now.
+      const keep = (typed: string) => (typed.trim() ? `${body}\n${typed}` : body);
+      saveDraft(me.id, chat._id, keep(loadDraft(me.id, chat._id)));
+      setText(keep);
+    } finally { setSending(false); }
   }
 
   const rows = useMemo(() => timeline(messages ?? [], runs ?? [], views), [messages, runs, views]);

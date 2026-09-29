@@ -27,7 +27,8 @@ const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; 
  * remark-math pairs any two dollar runs of the same length, so `for i in $(seq 1 120); do echo $i`, "$5 and $10"
  * or `echo $$; kill $$` turn into equations. Pandoc's rule tells them apart: an opening run has a non-space right
  * after it, a closing run has a non-space right before it and no digit right after it. We also refuse a closer
- * followed by a letter, `{`, `(` or a shell special parameter, which is how shell expansions read. Escape every inline `$` or `$$` that does
+ * followed by a letter, `{` or `(`, and an opener that is a shell special parameter, which is how shell
+ * expansions read. Escape every inline `$` or `$$` that does
  * not pair, so it renders as the literal text it is. Code, links and `$$` fences on their own line are left alone.
  */
 export function escapeStrayDollars(text: string): string {
@@ -39,10 +40,11 @@ export function escapeStrayDollars(text: string): string {
   const runs = Array.from(text.matchAll(/\$+/g))
     .filter((m) => m[0].length <= 2 && !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length === 2 && fence(m.index!)))
     .map((m) => ({ at: m.index!, size: m[0].length }));
-  const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/\s/.test(text[at + size]!);
-  // A dollar followed by a name, `{`, `(` or a special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) starts a shell
-  // expansion (`$HOME/$USER`, `"$?/$!"`), so it never closes math. `-` is left out: `$x$-axis` is math.
-  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(?!#@*]/.test(text[at + size] ?? "");
+  // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal.
+  const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
+  // A dollar followed by a name, `{` or `(` starts a shell variable (`$HOME/$USER`), so it never closes math.
+  // Punctuation after a closer is fine: `Is $x$?` is math.
+  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(]/.test(text[at + size] ?? "");
   const stray: { at: number; size: number }[] = [];
   let open: { at: number; size: number } | null = null;
   for (const run of runs) {

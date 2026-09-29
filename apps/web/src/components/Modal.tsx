@@ -40,6 +40,8 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
       // After the rest of this commit: a dialog replacing this one (Settings to Invite) mounts in the same pass.
       // It opened from inside this one, so it inherits where to return focus; otherwise focus goes back now.
       queueMicrotask(() => {
+        // Still on screen: this was StrictMode replaying the effect, not a close.
+        if (box.current?.isConnected) return;
         const next = stack.at(-1);
         if (next && !next.opener?.isConnected) next.opener = entry.opener;
         else if (entry.opener?.isConnected) entry.opener.focus({ preventScroll: true });

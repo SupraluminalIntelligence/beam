@@ -65,6 +65,7 @@ describe("chat math", () => {
     expect(render("echo $$\nkill $$")).not.toContain('class="katex"');
     expect(render('echo "$?/$!" and $#/$@/$*')).not.toContain('class="katex"');
     expect(render("the $x$-axis")).toContain('class="katex"');
+    expect(render("Is $x$? Yes, $y$! And $z$*.").match(/class="katex"/g)).toHaveLength(3);
     expect(render("Inline $$x^2$$ still renders.")).toContain('class="katex"');
     for (const path of ['echo "$HOME/$USER"', "cp $SRC/$NAME ${DEST}/", "ls $(pwd)/$(date +%F)"]) expect(render(path)).not.toContain('class="katex"');
     expect(render("A step of $x$ then $y^2$, and $5 left.").match(/class="katex"/g)).toHaveLength(2);
