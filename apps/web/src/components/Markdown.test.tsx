@@ -69,7 +69,7 @@ describe("chat math", () => {
     expect(render("Inline $$x^2$$ still renders.")).toContain('class="katex"');
     expect(render("echo $$$USER $$$HOME")).not.toContain('class="katex"');
     expect(escapeStrayDollars("$$$\nE=mc^2\n$$$")).toBe("$$$\nE=mc^2\n$$$");
-    for (const cmd of ['echo "$first$last"', "echo '$dir' '$file'", "echo $USER $$; echo $HOME $$", 'ssh "$user@$host"', "echo $a+$b $x%$y"]) expect(render(cmd)).not.toContain('class="katex"');
+    for (const cmd of ['echo "$first$last"', "echo '$dir' '$file'", "echo $USER $$; echo $HOME $$", 'ssh "$user@$host"', "echo $a+$b $x%$y", "pid=$$; child=$$", "a=$x; b=$y"]) expect(render(cmd)).not.toContain('class="katex"');
     expect(render("the derivative $f'$ and $a$ plus $$b$$").match(/class="katex"/g)).toHaveLength(3);
     expect(render("echo prefix-$dir suffix-$file")).not.toContain('class="katex"');
     expect(render("the $x$-$y$ plane").match(/class="katex"/g)).toHaveLength(2);
@@ -78,6 +78,7 @@ describe("chat math", () => {
     expect(render("[the $x$ axis](https://example.com) and <https://example.com/$a$b>")).toContain('href="https://example.com/$a$b"');
     expect(render("[the $x$ axis](https://example.com)")).toContain('class="katex"');
     expect(render("$f(x)$th and $\\alpha$s and $x_{i}$th").match(/class="katex"/g)).toHaveLength(3);
+    expect(render("so $x$/$y$ and ($a$) and $p$:$q$").match(/class="katex"/g)).toHaveLength(5);
     expect(render("the $n$th term, a length of $L$m").match(/class="katex"/g)).toHaveLength(2);
     for (const cmd of ["echo $HOME$USER", "cp $dir/$file .", "mv $name.$ext out", "x=$HOME; status=$?", 'echo "$HOME:$!"', "run $CMD|grep $#"]) expect(render(cmd)).not.toContain('class="katex"');
     for (const path of ['echo "$HOME/$USER"', "cp $SRC/$NAME ${DEST}/", "ls $(pwd)/$(date +%F)"]) expect(render(path)).not.toContain('class="katex"');

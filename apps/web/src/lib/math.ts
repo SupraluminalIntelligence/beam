@@ -45,8 +45,10 @@ export function escapeStrayDollars(text: string): string {
   const runs = Array.from(text.matchAll(/\$+/g))
     .filter((m) => !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length >= 2 && fence(m.index!, m[0].length)))
     .map((m) => ({ at: m.index!, size: m[0].length }));
-  // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal.
-  const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
+  // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal; nor does a
+  // dollar glued to a name, `=` or `@` before it (`pid=$$; child=$$`, `user@$host`), which math in prose never is.
+  const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!)
+    && !/[A-Za-z0-9_=@]/.test(text[at - 1] ?? "");
   // Shell glues expansions to `=`, `:`, `/`, `.`, `-`, quotes and separators; an expression rarely ends on one.
   const shellBefore = (at: number) => /[=:/.\-(,;|&<>"]/.test(text[at - 1]!);
   // What follows a closer: `{` or `(` starts a shell expansion; a name does too unless the expression ends in a

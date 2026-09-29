@@ -43,7 +43,8 @@ export function Modal({ open, onClose, label, className = "", children }: { open
     // Something behind the dialog taking focus (a shortcut that opens a chat and focuses its composer) would get
     // the typing; send focus back to where it was inside. A dialog opening on top, or a popover opened from
     // inside (a Select's list), may take it.
-    let last: HTMLElement | null = null;
+    // Starts at whatever took focus on opening (a field with autoFocus, or the dialog itself).
+    let last = document.activeElement instanceof HTMLElement && box.current?.contains(document.activeElement) ? document.activeElement : null;
     const f = (e: FocusEvent) => {
       const t = e.target;
       if (!(t instanceof HTMLElement) || !box.current) return;
