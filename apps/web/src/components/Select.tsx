@@ -21,7 +21,7 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   const current = options.find((o) => o.value === value);
   const enabled = (i: number) => !!options[i] && !options[i]!.disabled;
 
-  const close = (refocus = true) => { setOpen(false); if (refocus) trigger.current?.focus(); };
+  const close = (refocus = true) => { setOpen(false); if (refocus) trigger.current?.focus({ preventScroll: true }); };
   const show = () => {
     if (disabled || !options.length) return;
     const i = options.findIndex((o) => o.value === value);
@@ -43,7 +43,8 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { const t = e.target as Node; if (!list.current?.contains(t) && !trigger.current?.contains(t)) close(false); };
-    const moved = (e: Event) => { if (!list.current?.contains(e.target as Node)) close(false); };
+    // Scrolling the page or dialog behind closes the list; hand focus back to the trigger, or it drops to the body, outside any dialog.
+    const moved = (e: Event) => { if (!list.current?.contains(e.target as Node)) close(!!list.current?.contains(document.activeElement)); };
     document.addEventListener("pointerdown", outside);
     window.addEventListener("resize", moved); window.addEventListener("scroll", moved, true);
     return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", moved); window.removeEventListener("scroll", moved, true); };

@@ -44,7 +44,9 @@ export function escapeStrayDollars(text: string): string {
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
   // A dollar followed by a name, `{` or `(` starts a shell variable (`$HOME/$USER`), so it never closes math.
   // Punctuation after a closer is fine: `Is $x$?` is math.
-  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(]/.test(text[at + size] ?? "");
+  // A special parameter right after `=`, `:`, `/`, a quote or a separator is shell (`status=$?`), not the end of an expression.
+  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(]/.test(text[at + size] ?? "")
+    && !(/[?!#@*]/.test(text[at + size] ?? "") && /[=:/(,;|&<>"]/.test(text[at - 1]!));
   const stray: { at: number; size: number }[] = [];
   let open: { at: number; size: number } | null = null;
   for (const run of runs) {
