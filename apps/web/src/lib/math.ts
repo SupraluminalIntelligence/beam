@@ -10,15 +10,20 @@ const codeNodes = ["code", "inlineCode", "html", "link", "image", "definition"];
 const literalNodes = new Set([...codeNodes, "math", "inlineMath"]);
 
 /** Source ranges of the nodes whose text is literal, in document order. */
-function literalRanges(tree: ReturnType<typeof parser.parse>, types: Set<string>) {
+function literalRanges(text: string, tree: ReturnType<typeof parser.parse>, types: Set<string>) {
   const ranges: [number, number][] = [];
   visit(tree, (node) => {
     if (!types.has(node.type)) return;
     const start = node.position?.start.offset, end = node.position?.end.offset;
-    if (start !== undefined && end !== undefined) ranges.push([start, end]);
-    return SKIP;
+    if (start === undefined || end === undefined) return SKIP;
+    // A `[label](url)` link: only the destination is literal; the label is prose. Autolinks stay whole.
+    const label = node.type === "link" && text[start] === "[" && "children" in node ? node.children : [];
+    const first = label[0]?.position?.start.offset, last = label.at(-1)?.position?.end.offset;
+    if (first === undefined || last === undefined) { ranges.push([start, end]); return SKIP; }
+    ranges.push([start, first], [last, end]);
+    return undefined;
   });
-  return ranges;
+  return ranges.sort((a, b) => a[0] - b[0]);
 }
 
 const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; i >= 0 && text[i] === "\\"; i--) n++; return n % 2 === 1; };
@@ -32,7 +37,7 @@ const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; 
  */
 export function escapeStrayDollars(text: string): string {
   if (!text.includes("$")) return text;
-  const ranges = literalRanges(plainParser.parse(text), new Set(codeNodes));
+  const ranges = literalRanges(text, plainParser.parse(text), new Set(codeNodes));
   const inLiteral = (i: number) => ranges.some(([start, end]) => i >= start && i < end);
   // A `$$` alone on its line fences display math; one with a command beside it (`echo $$`) is text.
   const fence = (i: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) && /^[ \t]*(?:\n|$)/.test(text.slice(i + 2));
@@ -41,8 +46,8 @@ export function escapeStrayDollars(text: string): string {
     .map((m) => ({ at: m.index!, size: m[0].length }));
   // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal.
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
-  // Shell glues expansions to `=`, `:`, `/`, `.`, quotes and separators; an expression rarely ends on one.
-  const shellBefore = (at: number) => /[=:/.(,;|&<>"]/.test(text[at - 1]!);
+  // Shell glues expansions to `=`, `:`, `/`, `.`, `-`, quotes and separators; an expression rarely ends on one.
+  const shellBefore = (at: number) => /[=:/.\-(,;|&<>"]/.test(text[at - 1]!);
   // What follows a closer: `{` or `(` starts a shell expansion; a name does too after shell glue (`$HOME/$USER`) or
   // when it is an environment variable (`$HOME$USER`), but `the $n$th term` is math; a special parameter after
   // shell glue is shell (`status=$?`), while `Is $x$?` is math.
@@ -76,7 +81,7 @@ export function escapeStrayDollars(text: string): string {
 export function normalizeMath(input: string): string {
   const text = escapeStrayDollars(input);
   if (!text.includes("\\(") && !text.includes("\\[")) return text;
-  const ranges = literalRanges(parser.parse(text), literalNodes);
+  const ranges = literalRanges(text, parser.parse(text), literalNodes);
   const convert = (source: string) => source.replace(/\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]/g, (match: string, inline: string | undefined, display: string | undefined, offset: number) => {
     // A doubled backslash is a literal escape, not a math delimiter.
     let escapes = 0;

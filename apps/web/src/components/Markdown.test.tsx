@@ -67,6 +67,12 @@ describe("chat math", () => {
     expect(render("the $x$-axis")).toContain('class="katex"');
     expect(render("Is $x$? Yes, $y$! And $z$*.").match(/class="katex"/g)).toHaveLength(3);
     expect(render("Inline $$x^2$$ still renders.")).toContain('class="katex"');
+    expect(render("echo prefix-$dir suffix-$file")).not.toContain('class="katex"');
+    expect(render("the $x$-$y$ plane").match(/class="katex"/g)).toHaveLength(2);
+    expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).not.toContain('class="katex"');
+    expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).toContain('href="https://example.com/$a/$b"');
+    expect(render("[the $x$ axis](https://example.com) and <https://example.com/$a$b>")).toContain('href="https://example.com/$a$b"');
+    expect(render("[the $x$ axis](https://example.com)")).toContain('class="katex"');
     expect(render("the $n$th term, a length of $L$m").match(/class="katex"/g)).toHaveLength(2);
     for (const cmd of ["echo $HOME$USER", "cp $dir/$file .", "mv $name.$ext out", "x=$HOME; status=$?", 'echo "$HOME:$!"', "run $CMD|grep $#"]) expect(render(cmd)).not.toContain('class="katex"');
     for (const path of ['echo "$HOME/$USER"', "cp $SRC/$NAME ${DEST}/", "ls $(pwd)/$(date +%F)"]) expect(render(path)).not.toContain('class="katex"');
