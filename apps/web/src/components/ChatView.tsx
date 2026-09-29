@@ -24,6 +24,7 @@ import { ComposerPermissions } from "./Permissions";
 import { useLocalRunner } from "../lib/localRunner";
 import { ComposerAgent } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
+import { RowBoundary } from "./Boundary";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
 function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
@@ -248,7 +249,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             const activeTable = rows.some((r) => r.kind === "activity" && r.run._id === run._id && r.live);
             return <div key={row.key} className={`msg report${row.cont ? " cont" : ""}`}>
               <AgentAvatar harness={ag?.harness ?? "claude"} />
-              <div>
+              <RowBoundary><div>
                 <div className="hd"><span className={`nm ${ag?.harness ?? "claude"}`}>{name}</span>{attribution(run)}<span className="tm">{hhmm(row.at)}</span></div>
                 {row.kind === "activity" && <Activity t={row.turn} live={row.live} agentName={name} lastAt={view?.lastAt ?? null} queued={row.live ? view?.queuedSteers ?? 0 : 0} note={row.live ? view?.note ?? null : null} />}
                 {row.kind === "status" && <>
@@ -257,7 +258,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                   {view && [...new Set(view.requests.map((r) => r.turn))].map((turn) => <Requests key={turn} view={view} turn={turn} runId={run._id} />)}
                 </>}
                 {row.kind === "landing" && <><RunStatus run={run} view={view} /><LandingCard run={run} changes={changes} /></>}
-              </div>
+              </div></RowBoundary>
             </div>;
           }
           const m = row.message;
@@ -265,7 +266,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
           return (
             <div key={m._id} data-mid={m._id} className={`msg${highlightedMessage?.id === m._id ? " notification-target" : ""}${row.cont ? " cont" : ""}${m.kind === "dispatch" || m.kind === "steer" || m.kind === "report" ? ` ${m.kind}` : ""}`}>
               {ag ? <AgentAvatar harness={ag.harness} /> : <PersonAvatar login={m.author} name={nameOf(m.author)} image={people?.[m.author]?.image ?? null} hue={mine ? "me" : hueClass(m.author)} />}
-              <div>
+              <RowBoundary><div>
                 <div className="hd"><span className={`nm ${ag ? (ag.harness === "codex" ? "codex" : ag.harness === "omp" ? "omp" : "claude") : mine ? "me" : hueClass(m.author)}`}>{ag ? `${nameOf(runs?.find(r => r._id === m.runId)?.dispatchedBy ?? "Unknown")}’s ${HARNESS_NAME[ag.harness]}` : nameOf(m.author)}</span>{ag && attribution(runs?.find((r) => r._id === m.runId))}<span className="tm">{hhmm(row.at)}</span></div>
                 {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · v{m.studyContext.revision}</div>}
                 {!m.simulationStudyId && !m.simulationId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
@@ -280,7 +281,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                   {(more === m._id ? MORE : QUICK).map((e) => <button key={e} onClick={() => { void react({ messageId: m._id, emoji: e }); setMore(null); }}>{e}</button>)}
                   {more !== m._id && <button onClick={() => setMore(m._id)} title="More">+</button>}
                 </div>
-              </div>
+              </div></RowBoundary>
             </div>
           );
         })}
