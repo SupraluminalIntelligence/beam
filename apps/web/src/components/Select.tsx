@@ -42,9 +42,11 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   }, [open]);
   useEffect(() => {
     if (!open) return;
-    const outside = (e: PointerEvent) => { const t = e.target as Node; if (!list.current?.contains(t) && !trigger.current?.contains(t)) close(false); };
+    // A resize's target is the window, which is not a Node.
+    const inList = (t: EventTarget | null) => t instanceof Node && !!list.current?.contains(t);
+    const outside = (e: PointerEvent) => { if (!inList(e.target) && !(e.target instanceof Node && trigger.current?.contains(e.target))) close(false); };
     // Scrolling the page or dialog behind closes the list; hand focus back to the trigger, or it drops to the body, outside any dialog.
-    const moved = (e: Event) => { if (!list.current?.contains(e.target as Node)) close(!!list.current?.contains(document.activeElement)); };
+    const moved = (e: Event) => { if (!inList(e.target)) close(inList(document.activeElement)); };
     document.addEventListener("pointerdown", outside);
     window.addEventListener("resize", moved); window.addEventListener("scroll", moved, true);
     return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", moved); window.removeEventListener("scroll", moved, true); };

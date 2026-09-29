@@ -9,13 +9,14 @@ type Entry = { opener: HTMLElement | null };
 const stack: Entry[] = [];
 
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+const focusables = (box: HTMLElement) => Array.from(box.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
 
 /**
  * A dialog over the app. Opening it moves keyboard focus inside and Tab stays there, so typing never
  * reaches the composer behind it; closing hands focus back to where it was. Escape closes it unless a
  * control inside already handled the key (a Select's list, a rename field).
  */
-export function Modal({ open, onClose, className = "", children }: { open: boolean; onClose: () => void; className?: string; children: ReactNode }) {
+export function Modal({ open, onClose, label, className = "", children }: { open: boolean; onClose: () => void; label: string; className?: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -32,7 +33,13 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
     stack.push(entry);
     // A field with autoFocus inside already has it; otherwise the dialog itself takes focus.
     if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true });
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && stack.at(-1) === entry) { e.preventDefault(); close.current(); } };
+    const k = (e: KeyboardEvent) => {
+      if (stack.at(-1) !== entry || e.defaultPrevented) return;
+      if (e.key === "Escape") { e.preventDefault(); close.current(); }
+      // A control that removed itself (Cancel on an inline form) leaves focus on the body, where the trap below
+      // never sees Tab; bring focus back inside first.
+      else if (e.key === "Tab" && box.current && !box.current.contains(document.activeElement)) { e.preventDefault(); (focusables(box.current)[0] ?? box.current).focus({ preventScroll: true }); }
+    };
     document.addEventListener("keydown", k);
     return () => {
       document.removeEventListener("keydown", k);
@@ -51,7 +58,7 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
   if (!open) return null;
   const trap = (e: ReactKeyboardEvent) => {
     if (e.key !== "Tab" || !box.current) return;
-    const items = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+    const items = focusables(box.current);
     if (!items.length) { e.preventDefault(); return; }
     const first = items[0]!, last = items.at(-1)!;
     if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) { e.preventDefault(); last.focus(); }
@@ -59,7 +66,7 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
   };
   return (
     <div className="scrim open" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={box} className={`modal ${className}`} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={trap}>{children}</div>
+      <div ref={box} className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={trap}>{children}</div>
     </div>
   );
 }

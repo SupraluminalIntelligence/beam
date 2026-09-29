@@ -343,7 +343,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         </div>
       </div>
 
-      <Modal open={shareOpen} onClose={() => setShareOpen(false)}>
+      <Modal open={shareOpen} onClose={() => setShareOpen(false)} label="Share this chat">
         <div className="m-h">{ICO.team} Share this chat</div>
         <div className="row"><span>With</span><Seg value={shareWith.length === 0 ? "ws" : shareWith[0]!} options={[["ws", `everyone in ${detail.name}`] as const, ...detail.members.filter((m) => m !== me.githubLogin).map((m) => [m, nameOf(m)] as const)]} onChange={(v) => setShareWith(v === "ws" ? [] : [v])} /></div>
         <div className="row"><span>History</span><span className="hint">all {messages?.length ?? 0} messages become visible from the first one. This cannot be undone.</span></div>

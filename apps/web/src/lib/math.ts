@@ -39,10 +39,11 @@ export function escapeStrayDollars(text: string): string {
   if (!text.includes("$")) return text;
   const ranges = literalRanges(text, plainParser.parse(text), new Set(codeNodes));
   const inLiteral = (i: number) => ranges.some(([start, end]) => i >= start && i < end);
-  // A `$$` alone on its line fences display math; one with a command beside it (`echo $$`) is text.
-  const fence = (i: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) && /^[ \t]*(?:\n|$)/.test(text.slice(i + 2));
+  // A `$$` (or longer) alone on its line fences display math; one with a command beside it (`echo $$`) is text.
+  const fence = (i: number, size: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) && /^[ \t]*(?:\n|$)/.test(text.slice(i + size));
+  // Runs of any length pair (`echo $$$USER $$$HOME` is two three-dollar runs), so all go through the same check.
   const runs = Array.from(text.matchAll(/\$+/g))
-    .filter((m) => m[0].length <= 2 && !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length === 2 && fence(m.index!)))
+    .filter((m) => !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length >= 2 && fence(m.index!, m[0].length)))
     .map((m) => ({ at: m.index!, size: m[0].length }));
   // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal.
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);

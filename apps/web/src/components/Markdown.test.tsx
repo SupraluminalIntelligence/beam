@@ -67,6 +67,8 @@ describe("chat math", () => {
     expect(render("the $x$-axis")).toContain('class="katex"');
     expect(render("Is $x$? Yes, $y$! And $z$*.").match(/class="katex"/g)).toHaveLength(3);
     expect(render("Inline $$x^2$$ still renders.")).toContain('class="katex"');
+    expect(render("echo $$$USER $$$HOME")).not.toContain('class="katex"');
+    expect(escapeStrayDollars("$$$\nE=mc^2\n$$$")).toBe("$$$\nE=mc^2\n$$$");
     expect(render("echo prefix-$dir suffix-$file")).not.toContain('class="katex"');
     expect(render("the $x$-$y$ plane").match(/class="katex"/g)).toHaveLength(2);
     expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).not.toContain('class="katex"');
