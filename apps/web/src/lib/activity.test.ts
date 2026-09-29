@@ -21,8 +21,8 @@ it("groups repeated polling while retaining other actions", () => {
 
 it("bounds mixed previews and retains every action in the full description", () => {
   const summary = activitySummary([step("list_simulations"), step("validate_simulation"), step("save_simulation"), step("run_simulation")]);
-  expect(summary.text).toBe("List simulation studies · Validate simulation setup · +2 more");
-  expect(summary.full).toBe("List simulation studies · Validate simulation setup · Save simulation study · Start simulation job");
+  expect(summary.text).toBe("List simulations · Validate simulation setup · +2 more");
+  expect(summary.full).toBe("List simulations · Validate simulation setup · Save simulation study · Start simulation job");
 });
 
 it("preserves commands, paths, unknown tools, and custom Beam summaries", () => {

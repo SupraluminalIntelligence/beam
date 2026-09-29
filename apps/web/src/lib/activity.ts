@@ -1,7 +1,7 @@
 import type { ActivityLine } from "@beam/reducer";
 
 const BEAM_ACTIONS: Record<string, string> = {
-  list_simulations: "List simulation studies",
+  list_simulations: "List simulations",
   validate_simulation: "Validate simulation setup",
   select_simulation: "Select simulation study",
   save_simulation: "Save simulation study",
