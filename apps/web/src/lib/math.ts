@@ -24,33 +24,39 @@ function literalRanges(tree: ReturnType<typeof parser.parse>, types: Set<string>
 const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; i >= 0 && text[i] === "\\"; i--) n++; return n % 2 === 1; };
 
 /**
- * remark-math pairs any two single dollars, so `for i in $(seq 1 120); do echo $i` or "$5 and $10" turn into
- * equations. Pandoc's rule tells them apart: an opening `$` has a non-space right after it, a closing `$` has a
- * non-space right before it and no digit right after it. We also refuse a closer followed by a letter, `{` or `(`,
- * which is how shell variables read. Escape every single dollar that does not pair, so it renders as the literal
- * dollar it is. Code, links and `$$` fences are left alone.
+ * remark-math pairs any two dollar runs of the same length, so `for i in $(seq 1 120); do echo $i`, "$5 and $10"
+ * or `echo $$; kill $$` turn into equations. Pandoc's rule tells them apart: an opening run has a non-space right
+ * after it, a closing run has a non-space right before it and no digit right after it. We also refuse a closer
+ * followed by a letter, `{` or `(`, which is how shell variables read. Escape every inline `$` or `$$` that does
+ * not pair, so it renders as the literal text it is. Code, links and `$$` fences on their own line are left alone.
  */
 export function escapeStrayDollars(text: string): string {
   if (!text.includes("$")) return text;
   const ranges = literalRanges(plainParser.parse(text), new Set(codeNodes));
   const inLiteral = (i: number) => ranges.some(([start, end]) => i >= start && i < end);
-  const singles = Array.from(text.matchAll(/\$+/g)).filter((m) => m[0].length === 1 && !escaped(text, m.index!) && !inLiteral(m.index!)).map((m) => m.index!);
-  const opens = (i: number) => i + 1 < text.length && !/\s/.test(text[i + 1]!);
+  // A `$$` with nothing else before or after it on its line fences display math.
+  const fence = (i: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) || /^[ \t]*(?:\n|$)/.test(text.slice(i + 2));
+  const runs = Array.from(text.matchAll(/\$+/g))
+    .filter((m) => m[0].length <= 2 && !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length === 2 && fence(m.index!)))
+    .map((m) => ({ at: m.index!, size: m[0].length }));
+  const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/\s/.test(text[at + size]!);
   // A dollar followed by a name, `{` or `(` starts a shell variable (`$HOME/$USER`), so it never closes math.
-  const closes = (i: number) => !/\s/.test(text[i - 1]!) && !/[\w{(]/.test(text[i + 1] ?? "");
-  const stray: number[] = [];
-  let open = -1;
-  for (const i of singles) {
-    if (open >= 0) {
+  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(]/.test(text[at + size] ?? "");
+  const stray: { at: number; size: number }[] = [];
+  let open: { at: number; size: number } | null = null;
+  for (const run of runs) {
+    if (open) {
+      // Only a run of the same length can close; a different one is part of the expression.
+      if (run.size !== open.size) continue;
       // Inline math never spans a blank line.
-      if (closes(i) && !/\n[ \t]*\n/.test(text.slice(open, i))) { open = -1; continue; }
-      stray.push(open); open = -1;
+      if (closes(run) && !/\n[ \t]*\n/.test(text.slice(open.at, run.at))) { open = null; continue; }
+      stray.push(open); open = null;
     }
-    if (opens(i)) open = i; else stray.push(i);
+    if (opens(run)) open = run; else stray.push(run);
   }
-  if (open >= 0) stray.push(open);
+  if (open) stray.push(open);
   let result = "", end = 0;
-  for (const i of stray) { result += text.slice(end, i) + "\\"; end = i; }
+  for (const { at, size } of stray.sort((a, b) => a.at - b.at)) { result += text.slice(end, at) + "\\$".repeat(size); end = at + size; }
   return result + text.slice(end);
 }
 

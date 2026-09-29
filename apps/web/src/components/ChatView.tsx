@@ -93,8 +93,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const liveRuns = runs?.filter(r => isLive(r.state)) ?? [];
   const [steerRunId, setSteerRunId] = useState<Id<"runs"> | null>(null);
 
-  const [text, setText] = useState(() => loadDraft(chat._id));
-  useEffect(() => { saveDraft(chat._id, text); }, [chat._id, text]);
+  const [text, setText] = useState(() => loadDraft(me.id, chat._id));
+  useEffect(() => { saveDraft(me.id, chat._id, text); }, [me.id, chat._id, text]);
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
