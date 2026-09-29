@@ -26,8 +26,9 @@ const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; 
 /**
  * remark-math pairs any two single dollars, so `for i in $(seq 1 120); do echo $i` or "$5 and $10" turn into
  * equations. Pandoc's rule tells them apart: an opening `$` has a non-space right after it, a closing `$` has a
- * non-space right before it and no digit right after it. Escape every single dollar that does not pair under
- * that rule, so it renders as the literal dollar it is. Code, links and `$$` fences are left alone.
+ * non-space right before it and no digit right after it. We also refuse a closer followed by a letter, `{` or `(`,
+ * which is how shell variables read. Escape every single dollar that does not pair, so it renders as the literal
+ * dollar it is. Code, links and `$$` fences are left alone.
  */
 export function escapeStrayDollars(text: string): string {
   if (!text.includes("$")) return text;
@@ -35,7 +36,8 @@ export function escapeStrayDollars(text: string): string {
   const inLiteral = (i: number) => ranges.some(([start, end]) => i >= start && i < end);
   const singles = Array.from(text.matchAll(/\$+/g)).filter((m) => m[0].length === 1 && !escaped(text, m.index!) && !inLiteral(m.index!)).map((m) => m.index!);
   const opens = (i: number) => i + 1 < text.length && !/\s/.test(text[i + 1]!);
-  const closes = (i: number) => !/\s/.test(text[i - 1]!) && !/\d/.test(text[i + 1] ?? "");
+  // A dollar followed by a name, `{` or `(` starts a shell variable (`$HOME/$USER`), so it never closes math.
+  const closes = (i: number) => !/\s/.test(text[i - 1]!) && !/[\w{(]/.test(text[i + 1] ?? "");
   const stray: number[] = [];
   let open = -1;
   for (const i of singles) {

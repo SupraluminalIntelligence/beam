@@ -1,6 +1,9 @@
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
+/** Open dialogs, oldest first: only the topmost answers Escape (Settings opened over a share dialog closes first). */
+const stack: object[] = [];
+
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 /**
@@ -14,13 +17,16 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
   close.current = onClose;
   useEffect(() => {
     if (!open) return;
+    const token = {};
+    stack.push(token);
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // A field with autoFocus inside already has it; otherwise the dialog itself takes focus.
     if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true });
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); close.current(); } };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && stack.at(-1) === token) { e.preventDefault(); close.current(); } };
     document.addEventListener("keydown", k);
     return () => {
       document.removeEventListener("keydown", k);
+      stack.splice(stack.indexOf(token), 1);
       if (before?.isConnected) before.focus({ preventScroll: true });
     };
   }, [open]);

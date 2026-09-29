@@ -56,7 +56,8 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   const onListKey = (e: ReactKeyboardEvent) => {
     const k = e.key;
     if (k === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return; }
-    if (k === "Tab") { close(false); return; }
+    // Back to the trigger, so focus never falls out of a dialog with the list; the next Tab moves on from there.
+    if (k === "Tab") { e.preventDefault(); close(); return; }
     e.preventDefault();
     if (k === "ArrowDown") setActive((a) => step(a, 1));
     else if (k === "ArrowUp") setActive((a) => step(a, -1));

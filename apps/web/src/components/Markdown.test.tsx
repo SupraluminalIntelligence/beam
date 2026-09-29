@@ -61,6 +61,7 @@ describe("chat math", () => {
     expect(shell).toContain(loop);
     expect(render("Moved $5 and $10 between accounts, then echo $HOME $PATH")).not.toContain('class="katex"');
     expect(render("It costs $20,000 or $30,000.")).not.toContain('class="katex"');
+    for (const path of ['echo "$HOME/$USER"', "cp $SRC/$NAME ${DEST}/", "ls $(pwd)/$(date +%F)"]) expect(render(path)).not.toContain('class="katex"');
     expect(render("A step of $x$ then $y^2$, and $5 left.").match(/class="katex"/g)).toHaveLength(2);
     expect(escapeStrayDollars("$$\nE=mc^2\n$$")).toBe("$$\nE=mc^2\n$$");
     expect(escapeStrayDollars("`echo $i` and\n\n```sh\necho $HOME\n```")).toBe("`echo $i` and\n\n```sh\necho $HOME\n```");

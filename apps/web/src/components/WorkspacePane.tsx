@@ -58,7 +58,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     if (el) setOverflow({ start: el.scrollLeft > 1, end: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
   };
   // The selected tool's tab is always in view, however many tabs the strip holds; hidden ones are a scroll away, with a fade to say so.
-  useLayoutEffect(() => {
+  const revealSelected = () => {
     const el = strip.current, tab = el?.querySelector<HTMLElement>(".workspace-tab.selected");
     if (el && tab) {
       // Clear of the fade, too.
@@ -67,7 +67,18 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
       else if (r.right > box.right - fade) el.scrollLeft += r.right - (box.right - fade);
     }
     measureStrip();
-  }, [panel.active, panel.tabs.length, paneWidth, panel.maximized]);
+  };
+  useLayoutEffect(revealSelected, [panel.active, panel.tabs.length]);
+  // Again whenever the strip or a tab changes size: the window or pane resizes, or a tab's label loads.
+  const tabKey = panel.tabs.join("\n");
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(el);
+    for (const tab of Array.from(el.children)) observer.observe(tab);
+    return () => observer.disconnect();
+  }, [tabKey]);
   useEffect(() => {
     const el = strip.current;
     if (!el) return;
