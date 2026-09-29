@@ -74,3 +74,15 @@ export const chargeCents = (centsPerHour: number, seconds: number) => Math.ceil(
  */
 export const authorizedCents = (centsPerHour: number, timeoutSeconds: number) => chargeCents(centsPerHour, cloudMachineSeconds(timeoutSeconds));
 export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/**
+ * machine_show: a picture an agent shows from its machine while it works, such as the mesh before a
+ * job runs. Images only, drawn inline in the agent's steps.
+ */
+export const MACHINE_SHOW = {
+  maxBytes: 10 * 1024 * 1024,
+  perRun: 24,
+  types: { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" } as Record<string, string>,
+} as const;
+/** The image type for a file name, or null when machine_show cannot draw it. */
+export const machineShowType = (name: string) => MACHINE_SHOW.types[name.split(".").pop()?.toLowerCase() ?? ""] ?? null;

@@ -263,7 +263,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
               <AgentAvatar harness={ag?.harness ?? "claude"} />
               <div>
                 <div className="hd"><span className={`nm ${ag?.harness ?? "claude"}`}>{name}</span>{attribution(run)}<span className="tm">{hhmm(row.at)}</span></div>
-                {row.kind === "activity" && <Activity t={row.turn} live={row.live} agentName={name} lastAt={view?.lastAt ?? null} queued={row.live ? view?.queuedSteers ?? 0 : 0} note={row.live ? view?.note ?? null : null} />}
+                {row.kind === "activity" && <Activity t={row.turn} runId={run._id} all={view?.activity} live={row.live} agentName={name} lastAt={view?.lastAt ?? null} queued={row.live ? view?.queuedSteers ?? 0 : 0} note={row.live ? view?.note ?? null : null} />}
                 {row.kind === "status" && <>
                   <RunStatus run={run} view={view} />
                   {current && !activeTable && !current.done && <Activity t={{ ...current, activity: [] }} live agentName={name} lastAt={view?.lastAt ?? null} queued={view?.queuedSteers ?? 0} note={view?.note ?? null} />}

@@ -162,6 +162,11 @@ export default defineSchema({
   }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]).index("by_backend_release", ["backend", "awaitingRelease"]),
   /** A workspace's cloud compute allowance. Reservations hold each approved job's authorized amount until it settles. */
   computeBudgets: defineTable({ workspaceId: v.id("workspaces"), allowanceCents: v.number(), reservedCents: v.number(), spentCents: v.number(), updatedAt: v.number(), updatedBy: v.string() }).index("by_workspace", ["workspaceId"]),
+  // Pictures an agent showed from its machine while it worked (machine_show): the mesh, a trial run.
+  machineShows: defineTable({
+    runId: v.id("runs"), chatId: v.id("chats"), storageId: v.id("_storage"), name: v.string(), caption: v.string(),
+    contentType: v.string(), size: v.number(), createdAt: v.number(),
+  }).index("by_run", ["runId", "createdAt"]).index("by_storage", ["storageId"]),
   computeAssets: defineTable({
     chatId: v.id("chats"), storageId: v.id("_storage"), path: v.string(), size: v.number(), sha256: v.string(),
     author: v.string(), jobId: v.optional(v.id("computeJobs")),

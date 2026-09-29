@@ -77,6 +77,7 @@ export const cleanup = internalMutation({args:{cursor:v.optional(v.string())},ha
   for (const blob of page.page) {
     if (blob._creationTime>cutoff) continue;
     if (await ctx.db.query("computeAssets").withIndex("by_storage",q=>q.eq("storageId",blob._id)).first()) continue;
+    if (await ctx.db.query("machineShows").withIndex("by_storage",q=>q.eq("storageId",blob._id)).first()) continue;
     const file=await ctx.db.query("files").withIndex("by_storage",q=>q.eq("storageId",blob._id)).first();
     if (!file || !file.messageId) {await ctx.storage.delete(blob._id);if(file)await ctx.db.delete(file._id);}
   }

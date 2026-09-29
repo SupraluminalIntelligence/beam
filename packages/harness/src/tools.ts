@@ -28,6 +28,8 @@ export function describeTool(name: string, input: Record<string, unknown>, cwd: 
     case "mcp__beam__machine_exec": return { kind: "machine", summary: short(String(i["command"] ?? "").replace(/\s+/g, " ").trim()) };
     case "mcp__beam__machine_open": return { kind: "beam", summary: `Open ${environmentName(i["environment"])} machine` };
     case "mcp__beam__machine_close": return { kind: "beam", summary: "Stop the machine" };
+    // A picture shown from the machine; the app draws it in the step.
+    case "mcp__beam__machine_show": return { kind: "show", summary: short(String(i["caption"] ?? "").trim()) || "Show a picture" };
     case "mcp__beam__job_submit": return { kind: "beam", summary: `Submit job: ${short(String(i["title"] ?? ""), 70)}` };
     default: {
       // Other Beam tools keep their bare name; the app knows how to say each one.

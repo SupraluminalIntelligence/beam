@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Agents can show you a picture from their machine while they work, such as the mesh around a body before they submit jobs, or a trial run's residuals. It appears inside that step; click it for full size.
 - The Simulation pane and its studies are retired: agents build every simulation from files in an environment, and opening a simulation now opens only its own page. Existing studies open as simulation pages with their jobs and results, read-only, and agents can read them but no longer create or run studies.
 - The built-in environments are updated: parallel OpenFOAM runs work in **cfd** (`mpirun` no longer refuses to start), and both environments can publish a flow's walls, slices and streamlines. Agents give the new `docker pull` commands.
 - The Simulation pane's studies (heated channel, cylinder wake, 2D fluid domain, parallel channels, 3D wind tunnel) now run in the cfd environment. Their results also appear as standard results: numbers with units, checks on setup, mesh, convergence and mass and energy balance, and plots of residuals, Nusselt number or forces, so studies can be compared and swept like any simulation. Install it once with the `docker pull` the pane shows.

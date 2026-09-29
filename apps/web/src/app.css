@@ -584,6 +584,15 @@ button,.sel,.tab,.ws-item,.th-item,.ag-item,.acct,.card,.ah{-webkit-app-region:n
 .stepline .what{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;color:var(--ink-2)}
 .stepline .r{color:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
 .step.open .stepline{background:var(--surface-2)}
+/* A picture an agent showed from its machine (machine_show), drawn under its step. */
+.step-show{margin:0;padding:4px 10px 10px 65px;display:grid;gap:5px;justify-items:start}
+.step-show>button{padding:0;border:1px solid var(--line-2);border-radius:var(--r-1);background:#fff;cursor:zoom-in;line-height:0}
+.step-show>button img{display:block;max-width:min(100%,520px);max-height:300px;object-fit:contain}
+.step-show figcaption{font:11px/1.45 var(--font-sans);color:var(--ink-2)}
+.step-show-zoom{position:fixed;inset:0;z-index:60;display:grid;place-items:center;align-content:center;gap:10px;padding:32px;background:rgba(0,0,0,.82);cursor:zoom-out}
+.step-show-zoom img{max-width:100%;max-height:calc(100vh - 110px);background:#fff;object-fit:contain}
+.step-show-zoom span{font:12px var(--font-sans);color:#e8e8e8}
+.step-show-zoom button{position:absolute;top:14px;right:18px;font-size:22px;color:#e8e8e8;background:none;border:0;cursor:pointer}
 .stepdetail{border-top:1px solid var(--line);background:var(--bg);padding:8px 10px 8px 65px;display:grid;gap:6px}
 .stepdetail pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:11.5px;line-height:1.45;color:var(--ink-2);max-height:260px;overflow:auto}
 .stepdetail pre.cmd{color:var(--ink)}

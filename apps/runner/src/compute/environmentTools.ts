@@ -1,11 +1,12 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { BUILT_IN_ENVIRONMENTS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINES, MachineId, ResultsManifest, checkCounts, headlineQuantities } from "@beam/contracts";
+import { BUILT_IN_ENVIRONMENTS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINE_SHOW, MACHINES, MachineId, ResultsManifest, checkCounts, headlineQuantities, machineShowType } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { closeLocalMachine, environmentAvailable, execOnLocalMachine, openLocalMachine } from "./environment.ts";
 import { stageInputs } from "./tools.ts";
+import { readJobFile } from "./local.ts";
 
 /** An environment by name (built-in) or by digest (custom). */
 function resolveEnvironment(raw: string) {
@@ -53,6 +54,24 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
       run: async a => {
         writable();
         return JSON.stringify(await execOnLocalMachine(directory, String(a["command"]), Number(a["timeoutSeconds"] ?? 120)));
+      },
+    },
+    {
+      name: "machine_show",
+      description: `Show the people in this chat a picture from the machine, drawn inline in your steps. Show what they should look at before trusting the setup: the mesh near the body before you submit jobs, then a trial run's residuals or flow. One to three pictures a turn, not every step. path: a PNG, JPEG, GIF, WebP or SVG under /work (draw it with matplotlib, or pyvista off screen), up to ${MACHINE_SHOW.maxBytes / 2 ** 20} MB. caption: one sentence on what it shows and what to check.`,
+      schema: { path: z.string().min(1).max(400), caption: z.string().min(1).max(200) },
+      run: async a => {
+        const path = String(a["path"]).replace(/^\/work\//, ""), caption = String(a["caption"]).trim();
+        const type = machineShowType(path);
+        if (!type) throw new Error("Show a PNG, JPEG, GIF, WebP or SVG image");
+        const bytes = await readJobFile(directory, path);
+        if (bytes.byteLength > MACHINE_SHOW.maxBytes) throw new Error(`Show an image of ${MACHINE_SHOW.maxBytes / 2 ** 20} MB or less; draw it smaller`);
+        const url = await client.mutation(api.shows.uploadUrl, { token, runId });
+        const response = await fetch(url, { method: "POST", headers: { "Content-Type": type }, body: new Blob([Uint8Array.from(bytes)]), signal: AbortSignal.timeout(60_000) });
+        if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+        const { storageId } = await response.json() as { storageId: Id<"_storage"> };
+        await client.mutation(api.shows.add, { token, runId, storageId, name: path.split("/").pop()!, caption });
+        return `Shown in the chat: ${caption}`;
       },
     },
     {

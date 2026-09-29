@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { ActivityLine } from "@beam/reducer";
-import { activityLabel, activitySummary } from "./activity";
+import { activityLabel, activitySummary, normalized } from "./activity";
 
 const step = (summary: string, kind = "beam", ok: boolean | null = true): ActivityLine => ({ itemId: summary, kind, summary, detail: null, ok, ms: 100, startedAt: 1 });
 
@@ -21,8 +21,8 @@ it("groups repeated polling while retaining other actions", () => {
 
 it("bounds mixed previews and retains every action in the full description", () => {
   const summary = activitySummary([step("list_simulations"), step("validate_simulation"), step("save_simulation"), step("run_simulation")]);
-  expect(summary.text).toBe("List simulation studies · Validate simulation setup · +2 more");
-  expect(summary.full).toBe("List simulation studies · Validate simulation setup · Save simulation study · Start simulation job");
+  expect(summary.text).toBe("List simulations · Validate simulation setup · +2 more");
+  expect(summary.full).toBe("List simulations · Validate simulation setup · Save simulation study · Start simulation job");
 });
 
 it("preserves commands, paths, unknown tools, and custom Beam summaries", () => {
@@ -61,4 +61,11 @@ it("labels the harness's machine steps and Codex's bare Beam names", () => {
   expect(activitySummary([step("cd /work && python run.py", "machine")]).text).toBe("Run on machine");
   expect(activityLabel(step("machine_exec"))).toBe("Run on machine");
   expect(activityLabel(step("Open fea machine"))).toBe("Open fea machine");
+});
+
+it("reads a picture shown from the machine, however the harness named it", () => {
+  expect(normalized(step("Mesh near the leading edge", "show"))).toMatchObject({ kind: "show", summary: "Mesh near the leading edge" });
+  expect(normalized(step("machine_show", "beam"))).toEqual({ kind: "show", summary: "Show a picture" });
+  expect(normalized(step('mcp__beam__machine_show {"path":"m.png","caption":"Mesh near the body"}', "mcp__beam__machine_show"))).toEqual({ kind: "show", summary: "Mesh near the body" });
+  expect(activitySummary([step("Mesh", "show"), step("Residuals", "show")]).text).toBe("Show a picture ×2");
 });

@@ -1,7 +1,7 @@
 import type { ActivityLine } from "@beam/reducer";
 
 const BEAM_ACTIONS: Record<string, string> = {
-  list_simulations: "List simulation studies",
+  list_simulations: "List simulations",
   validate_simulation: "Validate simulation setup",
   select_simulation: "Select simulation study",
   save_simulation: "Save simulation study",
@@ -22,6 +22,7 @@ const BEAM_ACTIONS: Record<string, string> = {
   machine_open: "Open machine",
   machine_exec: "Run on machine",
   machine_close: "Stop the machine",
+  machine_show: "Show a picture",
   list_sources: "List chat sources",
   read_source: "Read chat source",
   list_files: "List chat files",
@@ -50,11 +51,14 @@ const environmentName = (env: string) => (/[/@:]/.test(env) ? env.split("@")[0]!
  * "mcp__beam__machine_exec {json…}" as their summary. Read them the way the harness now writes them.
  */
 export function normalized(a: Pick<ActivityLine, "kind" | "summary">): { kind: string; summary: string } {
+  // Codex names a Beam tool call by the tool alone.
+  if (a.kind === "beam" && a.summary.trim() === "machine_show") return { kind: "show", summary: "Show a picture" };
   const m = a.kind.startsWith("mcp__") ? /^mcp__(.+?)__(\S+)\s*([\s\S]*)$/.exec(a.summary.trim()) : null;
   if (!m) return a;
   const [, server, tool, args] = m as unknown as [string, string, string, string];
   if (server !== "beam") return { kind: "tool", summary: `${server} · ${tool} ${args}`.trim() };
   if (tool === "machine_exec") return { kind: "machine", summary: jsonField(args, "command") || tool };
+  if (tool === "machine_show") return { kind: "show", summary: jsonField(args, "caption") || "Show a picture" };
   if (tool === "machine_open") {
     const env = jsonField(args, "environment");
     return { kind: "beam", summary: env && !env.endsWith("…") ? `Open ${environmentName(env)} machine` : tool }; // a name cut off in the summary says nothing
@@ -76,6 +80,7 @@ export function activityLabel(line: Pick<ActivityLine, "kind" | "summary">): str
 function overviewLabel(line: ActivityLine): string {
   const a = normalized(line);
   if (a.kind === "machine") return "Run on machine";
+  if (a.kind === "show") return "Show a picture";
   if (a.kind === "tool") return /^\S+ · \S+/.exec(a.summary)?.[0] ?? activityLabel(a);
   if (a.kind !== "bash") return activityLabel(a);
   // Ignore a leading directory change; otherwise classify only the first executable.

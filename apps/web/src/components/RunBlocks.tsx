@@ -1,5 +1,5 @@
-import { useMutation } from "convex/react";
-import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { useEffect, useMemo, useState } from "react";
 import type { ActivityLine, RunView, TurnView } from "@beam/reducer";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
@@ -20,10 +20,42 @@ function useNow(live: boolean) {
 }
 const QUIET_MS = 90_000;
 
-const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam", machine: "exec", tool: "tool" };
+const KIND_LABEL: Record<string, string> = { bash: "run", read: "read", edit: "edit", write: "write", search: "find", web: "web", agent: "agent", plan: "plan", ask: "ask", beam: "beam", machine: "exec", tool: "tool", show: "show" };
+
+type Shown = { id: string; name: string; caption: string; url: string | null };
+const isShow = (a: ActivityLine) => normalized(a).kind === "show";
+
+/**
+ * The pictures a run showed from its machine, by the step that showed each. The runner records them in
+ * the order the steps ran, and a failed step records none, so the k-th show step that did not fail
+ * showed the k-th picture.
+ */
+function useShown(runId: Id<"runs"> | undefined, all: readonly ActivityLine[], mine: readonly ActivityLine[]) {
+  const shows = useQuery(api.shows.forRun, runId && mine.some(isShow) ? { runId } : "skip");
+  return useMemo(() => {
+    const byStep = new Map<string, Shown>();
+    let k = 0;
+    for (const a of all) if (isShow(a) && a.ok !== false) { const s = shows?.[k++]; if (s) byStep.set(a.itemId, s); }
+    return byStep;
+  }, [shows, all]);
+}
+
+/** A picture in its step: a thumbnail that opens full size. */
+function ShowPicture({ shown }: { shown: Shown }) {
+  const [zoom, setZoom] = useState(false);
+  if (!shown.url) return null;
+  return <figure className="step-show">
+    <button onClick={() => setZoom(true)} title="Open full size"><img src={shown.url} alt={shown.caption} loading="lazy" /></button>
+    <figcaption>{shown.caption}</figcaption>
+    {zoom && <div className="step-show-zoom" role="dialog" aria-label={shown.caption} onClick={() => setZoom(false)} onKeyDown={e => { if (e.key === "Escape") setZoom(false); }}>
+      <img src={shown.url} alt={shown.caption} /><span>{shown.caption} · click or Esc to close</span>
+      <button autoFocus aria-label="Close" onClick={() => setZoom(false)}>×</button>
+    </div>}
+  </figure>;
+}
 
 /** One tool call: status square, kind, one clipped line, timing. Click for the full command and its output. */
-function Step({ a, now }: { a: ActivityLine; now: number }) {
+function Step({ a, now, shown }: { a: ActivityLine; now: number; shown?: Shown | undefined }) {
   const [open, setOpen] = useState(false);
   const running = a.ok === null && a.startedAt ? ms(Math.max(0, now - a.startedAt)) : null;
   const n = normalized(a);
@@ -39,6 +71,7 @@ function Step({ a, now }: { a: ActivityLine; now: number }) {
         <span className="what">{text}</span>
         <span className={`r${running ? " live" : ""}`}>{running ?? ms(a.ms)}</span>
       </button>
+      {shown && <ShowPicture shown={shown} />}
       {open && <div className="stepdetail">
         {(shell || activityLabel(n) !== a.summary) && <pre className="cmd">{shell ? n.summary : a.summary}</pre>}
         <pre className="out">{a.detail ?? (a.ok === null ? "still running" : "no output")}</pre>
@@ -48,8 +81,9 @@ function Step({ a, now }: { a: ActivityLine; now: number }) {
 }
 
 /** One turn's tool calls. Open while it runs, folded once it is done. */
-export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }: { t: TurnView; live: boolean; agentName: string; lastAt?: number | null; queued?: number; note?: string | null }) {
+export function Activity({ t, live, agentName, lastAt, queued = 0, note = null, runId, all }: { t: TurnView; live: boolean; agentName: string; lastAt?: number | null; queued?: number; note?: string | null; runId?: Id<"runs">; all?: readonly ActivityLine[] | undefined }) {
   const [open, setOpen] = useState<boolean | null>(null);
+  const shown = useShown(runId, all ?? t.activity, t.activity);
   const now = useNow(live);
   const isOpen = open ?? live;
   if (!t.activity.length && !live) return null;
@@ -75,7 +109,7 @@ export function Activity({ t, live, agentName, lastAt, queued = 0, note = null }
         </span>
       </button>
       <div className="stepwrap" inert={!isOpen} aria-hidden={!isOpen}><div className="steps">
-        {t.activity.map((a) => <Step key={a.itemId} a={a} now={now} />)}
+        {t.activity.map((a) => <Step key={a.itemId} a={a} now={now} shown={shown.get(a.itemId)} />)}
       </div></div>
     </div>
   );

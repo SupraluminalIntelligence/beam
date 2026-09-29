@@ -17,6 +17,8 @@ describe("tool summaries", () => {
   it("reads Beam's machine tools as people would say them", () => {
     expect(d("mcp__beam__machine_exec", { command: "cd /work &&\n  python run.py" })).toEqual({ kind: "machine", summary: "cd /work && python run.py" });
     expect(d("mcp__beam__machine_open", { environment: "fea" })).toEqual({ kind: "beam", summary: "Open fea machine" });
+    expect(d("mcp__beam__machine_show", { path: "mesh.png", caption: "Mesh near the leading edge" })).toEqual({ kind: "show", summary: "Mesh near the leading edge" });
+    expect(d("mcp__beam__machine_show", { path: "mesh.png" })).toEqual({ kind: "show", summary: "Show a picture" });
     expect(d("mcp__beam__machine_open", { environment: "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:abc" }).summary).toBe("Open fea machine");
     expect(d("mcp__beam__job_submit", { title: "Plate with a hole" }).summary).toBe("Submit job: Plate with a hole");
   });
