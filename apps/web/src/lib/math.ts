@@ -26,9 +26,8 @@ const escaped = (text: string, at: number) => { let n = 0; for (let i = at - 1; 
 /**
  * remark-math pairs any two dollar runs of the same length, so `for i in $(seq 1 120); do echo $i`, "$5 and $10"
  * or `echo $$; kill $$` turn into equations. Pandoc's rule tells them apart: an opening run has a non-space right
- * after it, a closing run has a non-space right before it and no digit right after it. We also refuse a closer
- * followed by a letter, `{` or `(`, and an opener that is a shell special parameter, which is how shell
- * expansions read. Escape every inline `$` or `$$` that does
+ * after it, a closing run has a non-space right before it and no digit right after it. We also refuse closers and
+ * openers that read as shell expansions (below). Escape every inline `$` or `$$` that does
  * not pair, so it renders as the literal text it is. Code, links and `$$` fences on their own line are left alone.
  */
 export function escapeStrayDollars(text: string): string {
@@ -42,11 +41,17 @@ export function escapeStrayDollars(text: string): string {
     .map((m) => ({ at: m.index!, size: m[0].length }));
   // A shell special parameter (`$?`, `$!`, `$#`, `$@`, `$*`) never opens math, so `"$?/$!"` stays literal.
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
-  // A dollar followed by a name, `{` or `(` starts a shell variable (`$HOME/$USER`), so it never closes math.
-  // Punctuation after a closer is fine: `Is $x$?` is math.
-  // A special parameter right after `=`, `:`, `/`, a quote or a separator is shell (`status=$?`), not the end of an expression.
-  const closes = ({ at, size }: { at: number; size: number }) => !/\s/.test(text[at - 1]!) && !/[\w{(]/.test(text[at + size] ?? "")
-    && !(/[?!#@*]/.test(text[at + size] ?? "") && /[=:/(,;|&<>"]/.test(text[at - 1]!));
+  // Shell glues expansions to `=`, `:`, `/`, `.`, quotes and separators; an expression rarely ends on one.
+  const shellBefore = (at: number) => /[=:/.(,;|&<>"]/.test(text[at - 1]!);
+  // What follows a closer: `{` or `(` starts a shell expansion; a name does too after shell glue (`$HOME/$USER`) or
+  // when it is an environment variable (`$HOME$USER`), but `the $n$th term` is math; a special parameter after
+  // shell glue is shell (`status=$?`), while `Is $x$?` is math.
+  const closes = ({ at, size }: { at: number; size: number }) => {
+    const next = text.slice(at + size, at + size + 64);
+    if (/\s/.test(text[at - 1]!) || /^[\d{(]/.test(next)) return false;
+    if (/^[A-Za-z_]/.test(next)) return !shellBefore(at) && !/^[A-Z_][A-Z0-9_]+\b/.test(next);
+    return !(/^[?!#@*]/.test(next) && shellBefore(at));
+  };
   const stray: { at: number; size: number }[] = [];
   let open: { at: number; size: number } | null = null;
   for (const run of runs) {
