@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { BUILT_IN_ENVIRONMENTS, compareQuantities, FilesSetup, ImageRef, JobPath, MachineId, Parameter, ResultsManifest, setupChanges, sweepSetups } from "@beam/contracts";
+import { BUILT_IN_ENVIRONMENTS, authorizedCents, cloudCentsPerHour, compareQuantities, FilesSetup, formatCents, ImageRef, JobPath, MACHINES, MachineId, Parameter, ResultsManifest, setupChanges, sweepSetups } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { stageInputs } from "./tools.ts";
@@ -37,6 +37,15 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
   };
   const save = (a: { id?: string | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
+  /** A cloud sweep starts only if the workspace's budget can hold every job's cap at once, so it never stops halfway for money. */
+  const affordable = async (machine: MachineId, setups: FilesSetup[]) => {
+    const centsPerHour = machine === "local" ? null : cloudCentsPerHour(MACHINES[machine]);
+    if (centsPerHour === null) return;
+    const cloud = await client.query(api.compute.cloudForRun, { token, runId });
+    const total = setups.reduce((n, s) => n + authorizedCents(centsPerHour, s.timeoutSeconds), 0);
+    if (cloud.enabled && total > cloud.availableCents)
+      throw new Error(`This sweep's ${setups.length} jobs on the ${MACHINES[machine].label} can cost up to ${formatCents(total)} together, but the workspace has ${formatCents(cloud.availableCents)} of cloud compute budget left. Sweep fewer values or a shorter timeoutSeconds, or ask the workspace's creator to raise the budget.`);
+  };
   const run = (id: string, version: number, machine: string, requestKey: string) =>
     client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey });
 
@@ -76,14 +85,22 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
         writable();
         const id = String(a["id"]), sim = await find(id), from = Number(a["version"]), base = await versionOf(id, from);
         const setups = sweepSetups(base, String(a["parameter"]), a["values"] as (number | string | boolean)[]);
+        const machine = MachineId.parse(a["machine"] ?? "local");
+        await affordable(machine, setups);
         let current = sim.version;
         const rows = [];
         for (const [i, setup] of setups.entries()) {
           const value = (a["values"] as unknown[])[i];
-          // The base's own value runs the base version rather than saving a copy of it.
-          const version = setupChanges(base, setup).length === 0 ? from
-            : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
-          rows.push({ value, version, jobId: await run(id, version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`) });
+          try {
+            // The base's own value runs the base version rather than saving a copy of it.
+            const version = setupChanges(base, setup).length === 0 ? from
+              : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
+            rows.push({ value, version, jobId: await run(id, version, machine, `${String(a["requestKey"])}-${i}`) });
+          } catch (e) {
+            if (!rows.length) throw e;
+            // Jobs already submitted stay submitted: say which, so none runs unaccounted for.
+            return JSON.stringify({ parameter: a["parameter"], runs: rows, stoppedAt: value, error: (e as Error).message, next: next("Tell the person which values were submitted and why the sweep stopped. Follow the submitted jobs with get_job; cancel_job any they do not want.") });
+          }
         }
         return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.") });
       },

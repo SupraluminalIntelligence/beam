@@ -44,12 +44,16 @@ async function workerAccess(ctx: Ctx, token: string, jobId: Id<"computeJobs">) {
   if (!job || job.runnerId !== runner._id) throw new Error("Not this runner's job");
   return { job, runner };
 }
+/** Without a gateway nothing claims a cloud job, so none is queued: not at submission, and not at approval. */
+function requireCloud() {
+  if (!cloudEnabled()) throw new Error("Cloud machines are not switched on for this Beam deployment yet. Run the job on the local machine.");
+}
 /** A cloud job's rate and authorized amount, or null for a job on the engineer's computer. */
 function cloudBilling(spec: JobSpec) {
   if (spec.kind !== "environment" || spec.machine === "local") return null;
   const machine = MACHINES[spec.machine], centsPerHour = cloudCentsPerHour(machine);
   if (centsPerHour === null) throw new Error(`The ${machine.label} is not available yet. Cloud jobs can use: ${Object.values(MACHINES).filter(m => cloudCentsPerHour(m) !== null).map(m => m.id).join(", ")}.`);
-  if (!cloudEnabled()) throw new Error("Cloud machines are not switched on for this Beam deployment yet. Run the job on the local machine.");
+  requireCloud();
   if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours (timeoutSeconds ${CLOUD_MAX_TIMEOUT_SECONDS})`);
   return { centsPerHour, authorizedCents: authorizedCents(centsPerHour, spec.timeoutSeconds), spentCents: 0, reserved: false };
 }
@@ -226,6 +230,7 @@ export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: as
   if (job.state !== "awaiting-approval") return;
   if (u.githubLogin !== job.requestedBy) throw new Error("Only the requester can approve this job");
   if (job.billing) {
+    requireCloud();
     const chat = await chatAccess(ctx, job.chatId, job.requestedBy);
     await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now(), billing: await reserve(ctx, chat.workspaceId, job.billing) });
     return;

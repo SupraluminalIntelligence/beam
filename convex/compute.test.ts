@@ -388,12 +388,17 @@ it("reserves an approval-gated cloud job only when approved, and releases it on 
   await expect(cloudFixture().enqueue("long",{...cloudSpec,timeoutSeconds:86400} as any)).rejects.toThrow("at most 23.4 hours");
 });
 it("refuses cloud jobs until the deployment has a gateway, and tells agents and settings whether cloud runs",async()=>{
-  const {ctx,enqueue}=cloudFixture(500);
+  const {ctx,tables,enqueue}=cloudFixture(500);
   expect(await call(cloudForRun,ctx,{token:"valid",runId:"run"})).toEqual({enabled:true,availableCents:500});
   expect(await call(getBudget,ctx,{workspaceId:"ws"})).toMatchObject({enabled:true,allowanceCents:500,availableCents:500,canEdit:true});
   const hash=process.env.BEAM_GATEWAY_TOKEN_SHA256;delete process.env.BEAM_GATEWAY_TOKEN_SHA256;
   try{
     await expect(enqueue("c",cloudSpec as any)).rejects.toThrow("not switched on");
+    // A job submitted while cloud was on is not queued, or charged, if cloud is off by its approval.
+    tables.computeJobs!.push({_id:"gated",chatId:"chat",runnerId:"runner",requestedBy:"alice",state:"awaiting-approval",spec:cloudSpec,backend:"modal-sandbox",billing:{centsPerHour:100,authorizedCents:75,spentCents:0,reserved:false}});
+    await expect(call(approve,ctx,{id:"gated"})).rejects.toThrow("not switched on");
+    expect(tables.computeJobs!.find(j=>j._id==="gated")).toMatchObject({state:"awaiting-approval",billing:{reserved:false}});
+    expect(tables.computeBudgets![0]).toMatchObject({reservedCents:0});
     expect(await call(cloudForRun,ctx,{token:"valid",runId:"run"})).toEqual({enabled:false,availableCents:500});
   }finally{process.env.BEAM_GATEWAY_TOKEN_SHA256=hash;}
   // A workspace with no budget yet reads as $0, and only its creator may change it.
