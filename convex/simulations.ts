@@ -157,6 +157,18 @@ export const runVersionForRun = readableMutation({ args: { token: v.string(), ru
   return runVersion(ctx, run.chatId, run.runnerId, run.dispatchedBy, a, agent.permissionMode !== "auto", run._id);
 } });
 
+/**
+ * Several versions' jobs in one transaction, for a sweep: if the workspace's cloud budget cannot hold every
+ * job, none is submitted, so a sweep never starts half its machines.
+ */
+export const runVersionsForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), id: v.id("simulationCases"), machine: v.string(), runs: v.array(v.object({ version: v.number(), requestKey: v.string() })) }, handler: async (ctx, a) => {
+  if (a.runs.length > 32) throw new Error("Run up to 32 versions at once");
+  const { run, agent } = await agentRun(ctx, a.token, a.runId);
+  const ids = [];
+  for (const r of a.runs) ids.push(await runVersion(ctx, run.chatId, run.runnerId, run.dispatchedBy, { id: a.id, machine: a.machine, ...r }, agent.permissionMode !== "auto", run._id));
+  return ids;
+} });
+
 /** A person runs a version from the app: explicit authorization, so no approval step. */
 export const run = mutation({ args: { runnerId: v.id("runners"), ...runArgs }, handler: async (ctx, a) => {
   const sim = await ctx.db.get(a.id); if (!sim) throw new Error("Simulation not found");

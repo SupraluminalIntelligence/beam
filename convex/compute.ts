@@ -6,8 +6,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireChat, readableAction, readableMutation, readableQuery } from "./lib";
 import { runnerForToken } from "./runners";
 import { ownRun } from "./runs";
-import { isGatewayToken } from "./gateway";
-import { metered, reserve, settle } from "./computeBudget";
+import { cloudEnabled, isGatewayToken } from "./gateway";
+import { cloudCompute, metered, reserve, settle } from "./computeBudget";
 import { JobPath, JobSpec, ProcessJobSpec, jobFinished, jobStudy, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES } from "../packages/contracts/src/compute";
 import { FieldPreview, MAX_RESULT_FILES, previewByteLengths, previewLengthMismatch, resultPaths, ResultsManifest, RESULTS_ROOT } from "../packages/contracts/src/results";
 import { LARGE_OUTPUT_PART_BYTES, MAX_JOB_LARGE_OUTPUT_BYTES, MAX_LARGE_OUTPUT_BYTES, PartNumbers, Sha256Hex, UploadId, largeOutputKey, largeOutputReasons, planParts, type LargeOutputStart, type LargeOutputUrls } from "../packages/contracts/src/largeOutputs";
@@ -44,11 +44,16 @@ async function workerAccess(ctx: Ctx, token: string, jobId: Id<"computeJobs">) {
   if (!job || job.runnerId !== runner._id) throw new Error("Not this runner's job");
   return { job, runner };
 }
+/** Without a gateway nothing claims a cloud job, so none is queued: not at submission, and not at approval. */
+function requireCloud() {
+  if (!cloudEnabled()) throw new Error("Cloud machines are not switched on for this Beam deployment yet. Run the job on the local machine.");
+}
 /** A cloud job's rate and authorized amount, or null for a job on the engineer's computer. */
 function cloudBilling(spec: JobSpec) {
   if (spec.kind !== "environment" || spec.machine === "local") return null;
   const machine = MACHINES[spec.machine], centsPerHour = cloudCentsPerHour(machine);
   if (centsPerHour === null) throw new Error(`The ${machine.label} is not available yet. Cloud jobs can use: ${Object.values(MACHINES).filter(m => cloudCentsPerHour(m) !== null).map(m => m.id).join(", ")}.`);
+  requireCloud();
   if (spec.timeoutSeconds > CLOUD_MAX_TIMEOUT_SECONDS) throw new Error(`Cloud jobs can run for at most ${Math.floor(CLOUD_MAX_TIMEOUT_SECONDS / 360) / 10} hours (timeoutSeconds ${CLOUD_MAX_TIMEOUT_SECONDS})`);
   return { centsPerHour, authorizedCents: authorizedCents(centsPerHour, spec.timeoutSeconds), spentCents: 0, reserved: false };
 }
@@ -219,18 +224,25 @@ export const submitForRun = readableMutation({ args: { token: v.string(), runId:
   if (!agent || agent.permissionMode === "plan") throw new Error("Plan mode cannot submit compute jobs");
   return enqueue(ctx, { chatId: run.chatId, runnerId: run.runnerId, requestedBy: run.dispatchedBy, sourceRunId: run._id, requestKey: a.requestKey, spec: a.spec, needsApproval: agent.permissionMode !== "auto" });
 } });
-export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => {
+async function approveJob(ctx: MutationCtx, id: Id<"computeJobs">) {
   const job = await ctx.db.get(id); if (!job) throw new Error("Job not found");
   const { u } = await requireChat(ctx, job.chatId);
   if (job.state !== "awaiting-approval") return;
   if (u.githubLogin !== job.requestedBy) throw new Error("Only the requester can approve this job");
   if (job.billing) {
+    requireCloud();
     const chat = await chatAccess(ctx, job.chatId, job.requestedBy);
     await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now(), billing: await reserve(ctx, chat.workspaceId, job.billing) });
     return;
   }
   await targetAccess(ctx, job.chatId, job.runnerId, job.requestedBy);
   await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now() });
+}
+export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => { await approveJob(ctx, id); } });
+/** Approve all: one transaction, so if the cloud budget cannot hold every job, none starts. */
+export const approveMany = mutation({ args: { ids: v.array(v.id("computeJobs")) }, handler: async (ctx, { ids }) => {
+  if (ids.length > 64) throw new Error("Approve up to 64 jobs at once");
+  for (const id of ids) await approveJob(ctx, id);
 } });
 async function cancelJob(ctx: MutationCtx, id: Id<"computeJobs">) {
   const job = await ctx.db.get(id); if (!job || jobFinished(job.state)) return;
@@ -294,6 +306,13 @@ export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("ru
     return detail(ctx, job);
   }
   return (await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", run.chatId)).order("desc").take(50)).map(summary);
+} });
+/** What an agent needs to choose a machine: whether cloud machines run here, and the workspace's cloud budget left. */
+export const cloudForRun = readableQuery({ args: { token: v.string(), runId: v.id("runs") }, handler: async (ctx, a) => {
+  const { run } = await runAccess(ctx, a.token, a.runId);
+  const chat = await ctx.db.get(run.chatId);
+  const cloud = await cloudCompute(ctx, chat!.workspaceId);
+  return { enabled: cloud.enabled, availableCents: cloud.availableCents };
 } });
 export const targets = query({ args: { chatId: v.id("chats") }, handler: async (ctx, { chatId }) => {
   const { chat, u } = await requireChat(ctx, chatId);

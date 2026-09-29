@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { get, list, forRun, run, saveParameters, saveVersionForRun, runVersionForRun } from "./simulations";
+import { get, list, forRun, run, saveParameters, saveVersionForRun, runVersionForRun, runVersionsForRun } from "./simulations";
 import { approve, claim, publishOutput, publishResults, report, saveSimulation, simulationCases, simulationForRun, study, studyContext, workspaceStudies } from "./compute";
 import { defaultChannel } from "../packages/contracts/src/simulation";
 
@@ -60,6 +60,13 @@ it("shows a derived version's changes against the version it came from, as a swe
 it("only snapshots files staged in this chat, and plan mode cannot save",async()=>{
   await expect(save(fixture().ctx,{setup:setup("foreign")})).rejects.toThrow("not in this chat");
   await expect(save(fixture("plan").ctx)).rejects.toThrow("Plan mode");
+});
+it("runs several versions' jobs in one call for a sweep",async()=>{
+  const {ctx,tables}=fixture();const {id}=await save(ctx);await save(ctx,{id,version:1,setup:setup("a1",4)});
+  const ids=await call(runVersionsForRun,ctx,{token:"valid",runId:"run",id,machine:"local",runs:[{version:1,requestKey:"s-0"},{version:2,requestKey:"s-1"}]});
+  expect(ids).toHaveLength(2);
+  expect(tables.computeJobs!.map((j:any)=>[j.requestKey,j.spec.simulation.version])).toEqual([["s-0",1],["s-1",2]]);
+  await expect(call(runVersionsForRun,ctx,{token:"valid",runId:"run",id,machine:"local",runs:Array.from({length:33},(_,i)=>({version:1,requestKey:`x-${i}`}))})).rejects.toThrow("up to 32");
 });
 it("runs a version as an environment job with its parameters, linked to the version, without another chat message",async()=>{
   const {ctx,tables}=fixture();const {id}=await save(ctx);

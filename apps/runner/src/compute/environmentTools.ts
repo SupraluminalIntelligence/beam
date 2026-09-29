@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { BUILT_IN_ENVIRONMENTS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINES, MachineId, ResultsManifest, checkCounts, headlineQuantities } from "@beam/contracts";
+import { BUILT_IN_ENVIRONMENTS, authorizedCents, CLOUD_COLLECT_WINDOW_SECONDS, CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINES, MachineId, ResultsManifest, checkCounts, cloudCentsPerHour, formatCents, headlineQuantities, usefulProcesses } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { closeLocalMachine, environmentAvailable, execOnLocalMachine, openLocalMachine } from "./environment.ts";
@@ -17,6 +17,34 @@ function resolveEnvironment(raw: string) {
 }
 const installed = (image: string) => environmentAvailable(image).then(() => true, () => false);
 
+/** Cloud machines a job can run on: the ones Beam can price and launch, except the chat machine, which is for commands. */
+export const CLOUD_JOB_MACHINES = Object.values(MACHINES).filter(m => m.location === "cloud" && !m.interactive && cloudCentsPerHour(m) !== null);
+
+/** What choosing a cloud machine means, for every tool that submits jobs. */
+export const CLOUD_JOB_HELP = `Machine: "local" (the default) unless environment_list shows a cloud machine available and the person asked for one, or the job needs more cores, memory or a GPU than this computer has. A cloud job reserves its machine's price for timeoutSeconds plus ${Math.round((CLOUD_LAUNCH_WINDOW_SECONDS + CLOUD_COLLECT_WINDOW_SECONDS) / 60)} minutes of start-up and collection from the workspace's cloud budget, and spends only the time its machine runs, so set timeoutSeconds close to what the job needs (at most ${CLOUD_MAX_TIMEOUT_SECONDS}). Tell the person the machine and the most it can cost. On a cloud machine, files over 20 MB are not kept.`;
+
+/** The machines an agent may choose, with what each cloud one costs and why one is unavailable. */
+export function machineChoices(cloud: { enabled: boolean; availableCents: number } | null) {
+  const cloudNote = !cloud?.enabled ? "Cloud machines are not switched on for this Beam deployment yet."
+    : cloud.availableCents <= 0 ? "This workspace has no cloud compute budget left. Its creator sets one in workspace Settings."
+    : null;
+  return {
+    machines: Object.values(MACHINES).map(m => {
+      const centsPerHour = cloudCentsPerHour(m), job = m.id === "local" || CLOUD_JOB_MACHINES.includes(m);
+      // Even a one-second job holds the machine's start-up and collection time.
+      const smallestHold = centsPerHour === null ? null : authorizedCents(centsPerHour, 1);
+      const affordable = smallestHold !== null && !!cloud && cloud.availableCents >= smallestHold;
+      return {
+        id: m.id, label: m.label, location: m.location, cores: m.cores, memoryGiB: m.memoryGiB, gpus: m.gpus,
+        ...(m.location === "cloud" && centsPerHour !== null ? { perHour: formatCents(centsPerHour), smallestHold: formatCents(smallestHold!), mpiProcesses: usefulProcesses(m) } : {}),
+        available: m.id === "local" || (job && !cloudNote && affordable),
+        ...(job && m.location === "cloud" && !cloudNote && !affordable ? { note: `The workspace's cloud budget left is less than this machine's smallest hold.` } : {}),
+      };
+    }),
+    cloud: cloud?.enabled ? { budgetLeft: formatCents(cloud.availableCents), ...(cloudNote ? { note: cloudNote } : {}) } : { note: cloudNote },
+  };
+}
+
 /**
  * Tools for running physics tools in environments: a chat machine for trying things in seconds, and
  * durable jobs whose results (beam/out) are published to the chat. See docs/decisions/2026-09-27-compute-plane.md.
@@ -26,13 +54,17 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
   return [
     {
       name: "environment_list",
-      description: "List the environments (pinned images of physics and engineering tools) and machines available to this chat. Each environment ships a guide at /beam/env.md with installed tools, a worked example and known gotchas: read it (machine_open returns it) before writing a setup. Only the local machine (this computer's Docker) is available today; cloud machines are listed for planning.",
+      description: "List the environments (pinned images of physics and engineering tools) and the machines this chat's jobs can run on. Each environment ships a guide at /beam/env.md with installed tools, a worked example and known gotchas: read it (machine_open returns it) before writing a setup. The local machine is this computer's Docker. Cloud machines, when available, run jobs side by side, each on its own machine, at the listed price per hour from the workspace's cloud budget.",
       schema: {},
-      run: async () => JSON.stringify({
-        environments: await Promise.all(BUILT_IN_ENVIRONMENTS.map(async e => ({ ...e, installedOnThisComputer: await installed(e.image) }))),
-        machines: Object.values(MACHINES).map(m => ({ id: m.id, label: m.label, cores: m.cores, memoryGiB: m.memoryGiB, gpus: m.gpus, available: m.id === "local" })),
-        next: "machine_open with an environment, then machine_exec to try commands; job_submit for the full run.",
-      }),
+      run: async () => {
+        // An older backend has no cloudForRun: treat cloud machines as unavailable rather than failing the list.
+        const cloud = await client.query(api.compute.cloudForRun, { token, runId }).catch(() => null);
+        return JSON.stringify({
+          environments: await Promise.all(BUILT_IN_ENVIRONMENTS.map(async e => ({ ...e, installedOnThisComputer: await installed(e.image) }))),
+          ...machineChoices(cloud),
+          next: "machine_open with an environment, then machine_exec to try commands; job_submit for the full run.",
+        });
+      },
     },
     {
       name: "machine_open",
@@ -63,7 +95,7 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
     },
     {
       name: "job_submit",
-      description: "Run a command in an environment on a machine as a durable job, and return its job ID immediately. Input paths are snapshotted from the thread directory into the job's /work; the command runs with bash -lc in a fresh container with no network. Results are whatever the command writes under beam/out: use beam_out in Python (from beam_out import out; out.quantity/check/series/table/field; out.write()) so the chat shows numbers with units, checks, plots and 3D. Files the manifest names are published; files over 20 MB stay on the machine and are listed. Use $BEAM_CORES for the MPI process count: that is how a job uses the whole machine, since the local machine runs one job at a time. Reuse requestKey when retrying. Do not assume success: read job state with get_job and results with results_read. In non-auto modes the requester approves first; unavailable in plan mode. Machine: only local today.",
+      description: `Run a command in an environment on a machine as a durable job, and return its job ID immediately. Input paths are snapshotted from the thread directory into the job's /work; the command runs with bash -lc in a fresh container with no network. Results are whatever the command writes under beam/out: use beam_out in Python (from beam_out import out; out.quantity/check/series/table/field; out.write()) so the chat shows numbers with units, checks, plots and 3D. Files the manifest names are published; files over 20 MB stay on the machine and are listed. Use $BEAM_CORES for the MPI process count: that is how a job uses the whole machine, since the local machine runs one job at a time. Reuse requestKey when retrying. Do not assume success: read job state with get_job and results with results_read. In non-auto modes the requester approves first; unavailable in plan mode. ${CLOUD_JOB_HELP}`,
       schema: {
         requestKey: z.string().min(1).max(160), title: z.string().min(1).max(120), environment: z.string(),
         command: z.string().min(1).max(8000), inputPaths: z.array(JobPath).max(64),

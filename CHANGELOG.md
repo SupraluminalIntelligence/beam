@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Cloud compute: a workspace's creator can set a cloud compute budget under Settings › Cloud compute, and see what has been spent and what running jobs hold. Where Beam's cloud machines are switched on, agents can run a job or sweep on an 8-core or GPU cloud machine when you ask for one, and say what it can cost. A cloud job's page shows its hourly rate, what it has spent and the most it can cost, and approving it holds that amount until its machine stops.
 - The Simulation pane and its studies are retired: agents build every simulation from files in an environment, and opening a simulation now opens only its own page. Existing studies open as simulation pages with their jobs and results, read-only, and agents can read them but no longer create or run studies.
 - The built-in environments are updated: parallel OpenFOAM runs work in **cfd** (`mpirun` no longer refuses to start), and both environments can publish a flow's walls, slices and streamlines. Agents give the new `docker pull` commands.
 - The Simulation pane's studies (heated channel, cylinder wake, 2D fluid domain, parallel channels, 3D wind tunnel) now run in the cfd environment. Their results also appear as standard results: numbers with units, checks on setup, mesh, convergence and mass and energy balance, and plots of residuals, Nusselt number or forces, so studies can be compared and swept like any simulation. Install it once with the `docker pull` the pane shows.

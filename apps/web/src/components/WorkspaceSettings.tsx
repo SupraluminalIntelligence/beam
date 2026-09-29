@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
+import { formatCents } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { HARNESS_INFO } from "../lib/harness-info";
@@ -30,6 +31,7 @@ export function WorkspaceSettings({ detail, focusAgent, onInvite, onAddRepo, onO
       : <div className="row connection-note"><span className="hint">No repo yet. Agents need one to work in.</span></div>}
     <div className="sb-sec ws-sec">Members<button className="btn ghost" onClick={onInvite}>Invite</button></div>
     {detail.members.map((l) => <div key={l} className="row ws-item"><span className="ws-person"><PersonAvatar login={l} name={people?.[l]?.name ?? l} image={people?.[l]?.image ?? null} className="xs" />{people?.[l]?.name ?? l}{people?.[l] && people[l]!.name !== l && <span className="k">{l}</span>}</span></div>)}
+    <CloudBudget workspaceId={detail.id} />
     <div className="sb-sec ws-sec">Agents<button className="btn ghost" aria-expanded={open === "new"} onClick={() => setOpen(open === "new" ? null : "new")}>Add agent</button></div>
     {open === "new" && <AddAgent detail={detail} onAdded={(id) => setOpen(id)} />}
     {detail.agents.map((a) => <div key={a._id} className={`ws-agent${open === a._id ? " open" : ""}`}>
@@ -48,6 +50,31 @@ function WorkspaceName({ detail }: { detail: WorkspaceDetail }) {
   return <div className="row"><span>Name</span><input type="text" aria-label="Workspace name" key={detail.name} defaultValue={detail.name} maxLength={48}
     onBlur={(e) => { const next = e.target.value.trim(); if (!next) e.target.value = detail.name; else if (next !== detail.name) void rename({ workspaceId: detail.id, name: next }).then(() => toast("Workspace renamed")).catch((err) => { e.target.value = detail.name; toast(err.message); }); }}
     onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); e.currentTarget.value = detail.name; e.currentTarget.blur(); } }} /></div>;
+}
+
+/** The most this workspace's agents and people may spend on cloud machines. Jobs reserve their cap when they start. */
+function CloudBudget({ workspaceId }: { workspaceId: Id<"workspaces"> }) {
+  const budget = useQuery(api.computeBudget.get, { workspaceId });
+  const setAllowance = useMutation(api.computeBudget.setAllowance);
+  if (!budget) return null;
+  const dollars = (budget.allowanceCents / 100).toFixed(2);
+  const save = (input: HTMLInputElement) => {
+    const cents = Math.round(Number(input.value) * 100);
+    if (input.value.trim() === "" || !Number.isFinite(cents)) { input.value = dollars; return; }
+    if (cents === budget.allowanceCents) return;
+    void setAllowance({ workspaceId, allowanceCents: cents }).then(() => toast(`Cloud budget set to ${formatCents(cents)}`)).catch((err) => { input.value = dollars; toast((err as Error).message); });
+  };
+  return <>
+    <div className="sb-sec ws-sec">Cloud compute</div>
+    <div className="row"><span>Budget</span>{budget.canEdit
+      ? <span className="val">$<input type="number" aria-label="Cloud compute budget in dollars" min={0} max={100000} step={1} key={budget.allowanceCents} defaultValue={dollars} style={{ width: 110, display: "inline-block", marginLeft: 2 }}
+          onBlur={(e) => save(e.target)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { e.stopPropagation(); e.currentTarget.value = dollars; e.currentTarget.blur(); } }} /></span>
+      : <span className="k">{formatCents(budget.allowanceCents)}</span>}</div>
+    <div className="row"><span>Spent</span><span className="k">{formatCents(budget.spentCents)} spent · {formatCents(budget.reservedCents)} held by running jobs · {formatCents(budget.availableCents)} left</span></div>
+    <div className="row connection-note"><span className="hint">{!budget.enabled ? "Cloud machines are not switched on for this Beam deployment yet. Jobs run on members' computers."
+      : budget.allowanceCents === 0 ? `Set a budget to let jobs run on cloud machines.${budget.canEdit ? "" : " Only the workspace's creator can set it."}`
+      : "Each cloud job holds the most it can cost until its machine stops, then keeps only what it used."}</span></div>
+  </>;
 }
 
 function AddAgent({ detail, onAdded }: { detail: WorkspaceDetail; onAdded: (id: Id<"agents">) => void }) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { compareQuantities, formatQuantity, type FilesSetup, type Parameter, type ResultsManifest } from "@beam/contracts";
+import { compareQuantities, formatCents, formatQuantity, type FilesSetup, type Parameter, type ResultsManifest } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui } from "../lib/ui";
@@ -126,18 +126,21 @@ function Setup({ sim, chatId, onRun }: { sim: Sim; chatId: Id<"chats">; onRun: (
 }
 
 function Jobs({ sim, chatId, login, onOpen }: { sim: Sim; chatId: Id<"chats">; login: string; onOpen: (jobId: string) => void }) {
-  const approve = useMutation(api.compute.approve);
+  const approve = useMutation(api.compute.approveMany);
   const [busy, setBusy] = useState(false);
   if (!sim.jobs.length) return <p className="results-empty">No jobs yet. Run a version from Setup.</p>;
   const mine = sim.jobs.filter(j => j.state === "awaiting-approval" && j.requestedBy === login);
-  const go = async (jobs: Job[]) => { setBusy(true); try { await Promise.all(jobs.map(j => approve({ id: j._id }))); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
+  const go = async (jobs: Job[]) => { setBusy(true); try { await approve({ ids: jobs.map(j => j._id) }); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
+  // What approving cloud jobs holds from the workspace's budget: each job's cap until its machine stops.
+  const held = (jobs: Job[]) => jobs.reduce((n, j) => n + (j.billing?.authorizedCents ?? 0), 0);
   const what = (j: Job) => { const v = sim.versions.find(x => x.version === j.version); return v?.changes.length ? v.changes.join(", ") : v?.note ?? null; };
   return <div className="sim-jobs">
-    {mine.length > 1 && <div className="sim-approve-all"><span>{mine.length} jobs are waiting for you to approve them.</span><button className="btn" disabled={busy} onClick={() => void go(mine)}>Approve all {mine.length}</button></div>}
+    {mine.length > 1 && <div className="sim-approve-all"><span>{mine.length} jobs are waiting for you to approve them.{held(mine) ? ` Approving all holds up to ${formatCents(held(mine))} of the workspace's cloud budget until their machines stop.` : ""}</span><button className="btn" disabled={busy} onClick={() => void go(mine)}>Approve all {mine.length}</button></div>}
     {sim.jobs.map(j => <div key={j._id} className="compute-card sim-job">
     <span className={`job-dot ${j.state}`} />
     <span><b>v{j.version} · {state(j.state)}</b>
       {what(j) && <small className="sim-job-what" title={what(j) ?? undefined}>{what(j)}</small>}
+      {j.billing && <small>Cloud · {formatCents(j.billing.centsPerHour)}/hour · {j.state === "awaiting-approval" ? `approving holds up to ${formatCents(j.billing.authorizedCents)}` : `spent ${formatCents(j.billing.spentCents)}`}</small>}
       {j.results ? <small>{j.results.headline.map(q => `${q.label} ${quantityText(q)}`).join(" · ")}{" · "}✓ {j.results.checks.pass}{j.results.checks.review ? ` · ! ${j.results.checks.review}` : ""}{j.results.checks.fail ? ` · ✕ ${j.results.checks.fail}` : ""}</small> : <small>{j.error ?? new Date(j.createdAt).toLocaleString()}</small>}</span>
     {j.results && <button className="btn ghost" onClick={() => onOpen(j._id)}>Results</button>}
     {mine.includes(j) && <button className="btn" disabled={busy} onClick={() => void go([j])}>Approve</button>}

@@ -35,7 +35,7 @@ npx convex env set BEAM_GATEWAY_TOKEN_SHA256 $(printf %s "$TOKEN" | shasum -a 25
 CONVEX_URL=… BEAM_GATEWAY_TOKEN=$TOKEN MODAL_TOKEN_ID=… MODAL_TOKEN_SECRET=… pnpm --filter @beam/gateway start
 ```
 
-A workspace needs a compute budget before it can queue cloud jobs; its creator sets one with `computeBudget.setAllowance` (no UI yet).
+Setting `BEAM_GATEWAY_TOKEN_SHA256` is also what switches cloud machines on: without it Convex refuses cloud jobs, and agents and workspace Settings say cloud is off. So set it only on a deployment whose gateway is running. A workspace also needs a compute budget before it can queue cloud jobs; its creator sets one under Settings › Cloud compute.
 
 Without Convex, the smoke test runs one job straight through the executor:
 
@@ -46,8 +46,9 @@ MODAL_TOKEN_ID=… MODAL_TOKEN_SECRET=… pnpm --filter @beam/gateway smoke 8-co
 
 ## Not yet
 
-- Somewhere to host the gateway process, and a budget setting in the app.
-- Approval cards that show expected cost beside the authorized amount; agent tools that pick a cloud machine.
+- Somewhere to host the gateway process.
+- Approval cards that show expected cost beside the authorized amount (they show the authorized amount today).
+- Cloud results over 20 MB in R2, as local jobs do; today they are not kept.
 - The chat machine as an interactive cloud machine (`machine_open`, `machine_exec`); today `chat` runs batch jobs.
 - Modal Functions for restartable batch jobs. They cost about a third of a Sandbox per core-second but may be preempted, and can only be defined in Python.
 - EC2 whole nodes for the 32- and 96-core machines, and results in R2.
