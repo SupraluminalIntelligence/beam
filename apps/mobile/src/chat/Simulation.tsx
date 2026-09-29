@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
-import { formatQuantity } from "@beam/contracts";
+import { formatCents, formatQuantity } from "@beam/contracts";
 import { api, type Id } from "../lib/convex";
 import { errorText } from "../lib/format";
 import { radius, useTheme } from "../lib/theme";
@@ -40,7 +40,7 @@ export function SimulationCard({ id, me }: { id: Id<"simulationCases">; me: stri
         {done.results.flagged.map((c) => <T key={c.id} mono size={11} tone={c.status === "fail" ? "bad" : "warn"}>{c.status === "fail" ? "✕" : "!"} {c.label}{c.value ? ` · ${c.value}` : ""}</T>)}
       </View> : null}
       {waiting ? <View style={{ gap: 6, marginTop: 8 }}>
-        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.</T>
+        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.{waiting.billing ? ` It runs on a cloud machine and holds up to ${formatCents(waiting.billing.authorizedCents)} of the workspace's cloud budget until the machine stops.` : ""}</T>
         <Pressable accessibilityRole="button" disabled={busy} onPress={async () => {
           setBusy(true); setError(null);
           try { await approve({ id: waiting._id }); if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }

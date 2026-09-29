@@ -394,6 +394,10 @@ it("refuses cloud jobs until the deployment has a gateway, and tells agents and 
   const hash=process.env.BEAM_GATEWAY_TOKEN_SHA256;delete process.env.BEAM_GATEWAY_TOKEN_SHA256;
   try{
     await expect(enqueue("c",cloudSpec as any)).rejects.toThrow("not switched on");
+    // A value no token's digest could match does not switch cloud on either.
+    process.env.BEAM_GATEWAY_TOKEN_SHA256="changeme";
+    expect(await call(cloudForRun,ctx,{token:"valid",runId:"run"})).toMatchObject({enabled:false});
+    delete process.env.BEAM_GATEWAY_TOKEN_SHA256;
     // A job submitted while cloud was on is not queued, or charged, if cloud is off by its approval.
     tables.computeJobs!.push({_id:"gated",chatId:"chat",runnerId:"runner",requestedBy:"alice",state:"awaiting-approval",spec:cloudSpec,backend:"modal-sandbox",billing:{centsPerHour:100,authorizedCents:75,spentCents:0,reserved:false}});
     await expect(call(approve,ctx,{id:"gated"})).rejects.toThrow("not switched on");

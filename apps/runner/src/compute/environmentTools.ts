@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { BUILT_IN_ENVIRONMENTS, CLOUD_COLLECT_WINDOW_SECONDS, CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINES, MachineId, ResultsManifest, checkCounts, cloudCentsPerHour, formatCents, headlineQuantities, usefulProcesses } from "@beam/contracts";
+import { BUILT_IN_ENVIRONMENTS, authorizedCents, CLOUD_COLLECT_WINDOW_SECONDS, CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, EnvironmentJobSpec, EnvironmentName, ImageRef, JobPath, MACHINES, MachineId, ResultsManifest, checkCounts, cloudCentsPerHour, formatCents, headlineQuantities, usefulProcesses } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { closeLocalMachine, environmentAvailable, execOnLocalMachine, openLocalMachine } from "./environment.ts";
@@ -31,10 +31,14 @@ export function machineChoices(cloud: { enabled: boolean; availableCents: number
   return {
     machines: Object.values(MACHINES).map(m => {
       const centsPerHour = cloudCentsPerHour(m), job = m.id === "local" || CLOUD_JOB_MACHINES.includes(m);
+      // Even a one-second job holds the machine's start-up and collection time.
+      const smallestHold = centsPerHour === null ? null : authorizedCents(centsPerHour, 1);
+      const affordable = smallestHold !== null && !!cloud && cloud.availableCents >= smallestHold;
       return {
         id: m.id, label: m.label, location: m.location, cores: m.cores, memoryGiB: m.memoryGiB, gpus: m.gpus,
-        ...(m.location === "cloud" && centsPerHour !== null ? { perHour: formatCents(centsPerHour), mpiProcesses: usefulProcesses(m) } : {}),
-        available: m.id === "local" || (job && !cloudNote),
+        ...(m.location === "cloud" && centsPerHour !== null ? { perHour: formatCents(centsPerHour), smallestHold: formatCents(smallestHold!), mpiProcesses: usefulProcesses(m) } : {}),
+        available: m.id === "local" || (job && !cloudNote && affordable),
+        ...(job && m.location === "cloud" && !cloudNote && !affordable ? { note: `The workspace's cloud budget left is less than this machine's smallest hold.` } : {}),
       };
     }),
     cloud: cloud?.enabled ? { budgetLeft: formatCents(cloud.availableCents), ...(cloudNote ? { note: cloudNote } : {}) } : { note: cloudNote },

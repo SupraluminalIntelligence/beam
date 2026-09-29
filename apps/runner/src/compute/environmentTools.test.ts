@@ -9,6 +9,9 @@ describe("machineChoices", () => {
     expect(choices.cloud).toEqual({ budgetLeft: "$25.00" });
     expect(m["local"]).toMatchObject({ available: true });
     expect(m["8-core"]).toMatchObject({ available: true, perHour: expect.stringMatching(/^\$\d+\.\d\d$/), mpiProcesses: 8 });
+    // $25 cannot hold even a one-second job on eight H100s, whose start-up and collection alone cost more.
+    expect(m["gpu-8"]).toMatchObject({ available: false, note: expect.stringContaining("smallest hold") });
+    expect(m["gpu-1"]).toMatchObject({ available: true });
     // The chat machine is for commands, and EC2 machines cannot launch yet.
     expect(m["chat"]?.available).toBe(false);
     expect(m["32-core"]).toMatchObject({ available: false });

@@ -37,7 +37,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
   };
   const save = (a: { id?: string | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
-  /** A cloud sweep starts only if the workspace's budget can hold every job's cap at once, so it never stops halfway for money. */
+  /** Before saving a cloud sweep's versions, whether the workspace's budget can hold every job's cap at once; the submission itself is atomic. */
   const affordable = async (machine: MachineId, setups: FilesSetup[]) => {
     const centsPerHour = machine === "local" ? null : cloudCentsPerHour(MACHINES[machine]);
     if (centsPerHour === null) return;
@@ -88,20 +88,16 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
         const machine = MachineId.parse(a["machine"] ?? "local");
         await affordable(machine, setups);
         let current = sim.version;
-        const rows = [];
+        const versions = [];
         for (const [i, setup] of setups.entries()) {
           const value = (a["values"] as unknown[])[i];
-          try {
-            // The base's own value runs the base version rather than saving a copy of it.
-            const version = setupChanges(base, setup).length === 0 ? from
-              : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
-            rows.push({ value, version, jobId: await run(id, version, machine, `${String(a["requestKey"])}-${i}`) });
-          } catch (e) {
-            if (!rows.length) throw e;
-            // Jobs already submitted stay submitted: say which, so none runs unaccounted for.
-            return JSON.stringify({ parameter: a["parameter"], runs: rows, stoppedAt: value, error: (e as Error).message, next: next("Tell the person which values were submitted and why the sweep stopped. Follow the submitted jobs with get_job; cancel_job any they do not want.") });
-          }
+          // The base's own value runs the base version rather than saving a copy of it.
+          versions.push({ value, version: setupChanges(base, setup).length === 0 ? from
+            : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version) });
         }
+        // Every job in one transaction: all are submitted, or none is.
+        const jobIds = await client.mutation(api.simulations.runVersionsForRun, { token, runId, id: id as Id<"simulationCases">, machine, runs: versions.map((v, i) => ({ version: v.version, requestKey: `${String(a["requestKey"])}-${i}` })) });
+        const rows = versions.map((v, i) => ({ ...v, jobId: jobIds[i] }));
         return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.") });
       },
     },

@@ -14,7 +14,8 @@ describe("sweep", () => {
       query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }] })),
       mutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
         if ("setup" in args) { saves.push(args); return { id: "sim", version: ++version, unchanged: false }; }
-        runs.push(args["version"] as number); return `job-${args["version"]}`;
+        const batch = args["runs"] as { version: number }[];
+        runs.push(...batch.map(r => r.version)); return batch.map(r => `job-${r.version}`);
       }),
     } as unknown as ConvexClient;
     const sweep = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
@@ -24,19 +25,20 @@ describe("sweep", () => {
     expect(runs).toEqual([6, 5, 7]);
   });
 
-  const cloudClient = (availableCents: number, failRunAt = Infinity) => {
-    let version = 5, runs = 0;
-    const saves: unknown[] = [];
+  const cloudClient = (availableCents: number, refuse = false) => {
+    let version = 5;
+    const saves: unknown[] = [], batches: unknown[] = [];
     const client = {
       // One answer for both queries the sweep makes: the simulation list and the workspace's cloud budget.
       query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }], enabled: true, availableCents })),
       mutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
         if ("setup" in args) { saves.push(args); return { id: "sim", version: ++version, unchanged: false }; }
-        if (++runs >= failRunAt) throw new Error("The workspace has $0.10 of cloud compute budget left");
-        return `job-${args["version"]}`;
+        batches.push(args);
+        if (refuse) throw new Error("The workspace has $0.10 of cloud compute budget left");
+        return (args["runs"] as { version: number }[]).map(r => `job-${r.version}`);
       }),
     } as unknown as ConvexClient;
-    return { client, saves };
+    return { client, saves, batches };
   };
 
   it("refuses a cloud sweep the workspace's budget cannot hold in full, before saving or submitting anything", async () => {
@@ -47,11 +49,15 @@ describe("sweep", () => {
     expect(vi.mocked(client.mutation)).not.toHaveBeenCalled();
   });
 
-  it("reports the jobs a sweep already submitted when a later one is refused", async () => {
-    const { client } = cloudClient(1_000_000, 3);
-    const sweep = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
+  it("submits every value's job in one call, so a refusal submits none", async () => {
+    const ok = cloudClient(1_000_000);
+    const sweep = simulationTools(ok.client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
     const out = JSON.parse(String(await sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "8-core", requestKey: "k" })));
-    expect(out.runs.map((r: { value: number; jobId: string }) => [r.value, r.jobId])).toEqual([[250, "job-6"], [500, "job-5"]]);
-    expect(out).toMatchObject({ stoppedAt: 1000, error: expect.stringContaining("budget left") });
+    expect(out.runs.map((r: { value: number; jobId: string }) => [r.value, r.jobId])).toEqual([[250, "job-6"], [500, "job-5"], [1000, "job-7"]]);
+    expect(ok.batches).toEqual([expect.objectContaining({ machine: "8-core", runs: [{ version: 6, requestKey: "k-0" }, { version: 5, requestKey: "k-1" }, { version: 7, requestKey: "k-2" }] })]);
+    const refused = cloudClient(1_000_000, true);
+    const again = simulationTools(refused.client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
+    await expect(again.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "8-core", requestKey: "k" })).rejects.toThrow("budget left");
+    expect(refused.batches).toHaveLength(1);
   });
 });
