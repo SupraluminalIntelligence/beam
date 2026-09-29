@@ -51,6 +51,31 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
     return () => window.removeEventListener("keydown", restore);
   }, [chatId, panel.open, panel.maximized]);
   const activate = (id:string)=>ui.openSurface(chatId,id);
+  const strip = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ start: false, end: false });
+  const measureStrip = () => {
+    const el = strip.current;
+    if (el) setOverflow({ start: el.scrollLeft > 1, end: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
+  };
+  // The selected tool's tab is always in view, however many tabs the strip holds; hidden ones are a scroll away, with a fade to say so.
+  useLayoutEffect(() => {
+    const el = strip.current, tab = el?.querySelector<HTMLElement>(".workspace-tab.selected");
+    if (el && tab) {
+      // Clear of the fade, too.
+      const box = el.getBoundingClientRect(), r = tab.getBoundingClientRect(), fade = 28;
+      if (r.left < box.left + fade) el.scrollLeft -= box.left + fade - r.left;
+      else if (r.right > box.right - fade) el.scrollLeft += r.right - (box.right - fade);
+    }
+    measureStrip();
+  }, [panel.active, panel.tabs.length, paneWidth, panel.maximized]);
+  useEffect(() => {
+    const el = strip.current;
+    if (!el) return;
+    // A mouse wheel scrolls the strip sideways.
+    const wheel = (e: WheelEvent) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && el.scrollWidth > el.clientWidth) { e.preventDefault(); el.scrollLeft += e.deltaY; } };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
   return <aside ref={host} className={`workspace-pane${panel.open ? " is-open" : ""}${panel.maximized ? " maximized" : ""}${compact ? " compact" : ""}`} style={{ "--tools-pane-width": panel.maximized || compact ? "100%" : `${paneWidth}px` } as CSSProperties} aria-label="Tools pane" aria-hidden={!panel.open} inert={!panel.open}>
     {!panel.maximized && !compact && <div className="workspace-resize" role="separator" aria-label="Resize tools pane" aria-orientation="vertical" tabIndex={0} aria-valuenow={paneWidth} aria-valuemin={MIN_TOOL_WIDTH} aria-valuemax={maxWidth} onKeyDown={e=>{if(e.key==="ArrowLeft" || e.key==="ArrowRight"){e.preventDefault();ui.panel(chatId,{width:Math.min(maxWidth,Math.max(MIN_TOOL_WIDTH,paneWidth+(e.key==="ArrowLeft"?20:-20)))});}}} onPointerDown={e=>{
       e.preventDefault();resizeCleanup.current?.();const start=e.clientX,width=host.current?.getBoundingClientRect().width ?? paneWidth;
@@ -59,7 +84,7 @@ export function WorkspacePane({ chatId, login }: { chatId: Id<"chats">; login: s
       resizeCleanup.current=end;
       window.addEventListener("pointermove",move);window.addEventListener("pointerup",end);window.addEventListener("pointercancel",end);
     }} />}
-    <div className="workspace-bar"><div className="workspace-tabs" role="tablist" aria-label="Open tools">{panel.tabs.map(id=><div key={id} className={`workspace-tab${panel.active===id?" selected":""}`}><button role="tab" aria-selected={panel.active===id} onClick={()=>ui.panel(chatId,{active:id})}>{id.startsWith("sim:") ? <SimulationTabLabel id={id.slice(4) as Id<"simulationCases">} /> : label(id)}</button><button aria-label={`Close ${label(id)}`} onClick={()=>ui.closeSurface(chatId,id)}>×</button></div>)}</div><button title="Open a tool" aria-label="Open a tool" onClick={()=>ui.panel(chatId,{active:null})}>＋</button><button className="workspace-expand" title={panel.maximized ? "Restore split view (Esc)" : "Expand tool to full workspace"} aria-label={panel.maximized ? "Restore split view" : "Expand tool to full workspace"} aria-pressed={panel.maximized} onClick={()=>ui.panel(chatId,{maximized:!panel.maximized})}>
+    <div className="workspace-bar"><div ref={strip} className={`workspace-tabs${overflow.start ? " more-start" : ""}${overflow.end ? " more-end" : ""}`} role="tablist" aria-label="Open tools" onScroll={measureStrip}>{panel.tabs.map(id=><div key={id} className={`workspace-tab${panel.active===id?" selected":""}`}><button role="tab" aria-selected={panel.active===id} onClick={()=>ui.panel(chatId,{active:id})}>{id.startsWith("sim:") ? <SimulationTabLabel id={id.slice(4) as Id<"simulationCases">} /> : label(id)}</button><button aria-label={`Close ${label(id)}`} onClick={()=>ui.closeSurface(chatId,id)}>×</button></div>)}</div><button title="Open a tool" aria-label="Open a tool" onClick={()=>ui.panel(chatId,{active:null})}>＋</button><button className="workspace-expand" title={panel.maximized ? "Restore split view (Esc)" : "Expand tool to full workspace"} aria-label={panel.maximized ? "Restore split view" : "Expand tool to full workspace"} aria-pressed={panel.maximized} onClick={()=>ui.panel(chatId,{maximized:!panel.maximized})}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {panel.maximized ? <path d="M21 3l-7 7m0-6v6h6M3 21l7-7m-6 0h6v6" /> : <path d="M14 3h7v7m0-7-7 7M10 21H3v-7m0 7 7-7" />}
       </svg>

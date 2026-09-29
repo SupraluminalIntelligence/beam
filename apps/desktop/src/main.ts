@@ -1,6 +1,6 @@
 import { openTerminal, psQuote } from "./terminal";
 import { showNotification } from "./notifications";
-import { app, BrowserWindow, dialog, ipcMain, shell, Notification, clipboard } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, Notification, clipboard } from "electron";
 import { installPreviewHost } from "./preview";
 import { autoUpdater } from "electron-updater";
 import { readFile, stat } from "node:fs/promises";
@@ -264,7 +264,22 @@ ipcMain.handle("beam:openExternal", (_e, url: string) => { if (process.env["BEAM
 ipcMain.handle("beam:runnerStatus", () => ({ runnerId: localRunnerId ?? borrowed?.runnerId ?? null, running: !!runner || !!borrowed, pid: runner?.pid ?? null, pendingPair, log: runnerLog.slice(-40), borrowed: noRunner, convexUrl: borrowed?.convexUrl ?? null }));
 ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; void stopRunner().then(() => setTimeout(startRunner, 500)); });
 
-app.whenReady().then(() => { setupUpdates(); }).then(() => { startRunner(); createWindow(); });
+/**
+ * Electron's default macOS menu labels its app items with the package name ("Quit @beam/desktop"). Same menu, named Beam.
+ * Renaming the app itself (app.setName) would also move its profile and keychain entry, signing everyone out.
+ */
+function setupMenu() {
+  if (process.platform !== "darwin") return;
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: "Beam", submenu: [
+      { role: "about", label: "About Beam" }, { type: "separator" }, { role: "services" }, { type: "separator" },
+      { role: "hide", label: "Hide Beam" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit", label: "Quit Beam" },
+    ] },
+    { role: "fileMenu" }, { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
+  ]));
+}
+
+app.whenReady().then(() => { setupMenu(); setupUpdates(); }).then(() => { startRunner(); createWindow(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", (event) => {
   quitting = true;

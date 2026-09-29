@@ -1,17 +1,41 @@
-import type { ReactNode } from "react";
-import { useEffect } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { useEffect, useRef } from "react";
 
+const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+/**
+ * A dialog over the app. Opening it moves keyboard focus inside and Tab stays there, so typing never
+ * reaches the composer behind it; closing hands focus back to where it was. Escape closes it unless a
+ * control inside already handled the key (a Select's list, a rename field).
+ */
 export function Modal({ open, onClose, className = "", children }: { open: boolean; onClose: () => void; className?: string; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // A field with autoFocus inside already has it; otherwise the dialog itself takes focus.
+    if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true });
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) { e.preventDefault(); close.current(); } };
     document.addEventListener("keydown", k);
-    return () => document.removeEventListener("keydown", k);
-  }, [open, onClose]);
+    return () => {
+      document.removeEventListener("keydown", k);
+      if (before?.isConnected) before.focus({ preventScroll: true });
+    };
+  }, [open]);
   if (!open) return null;
+  const trap = (e: ReactKeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current) return;
+    const items = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0]!, last = items.at(-1)!;
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
   return (
     <div className="scrim open" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`modal ${className}`}>{children}</div>
+      <div ref={box} className={`modal ${className}`} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={trap}>{children}</div>
     </div>
   );
 }

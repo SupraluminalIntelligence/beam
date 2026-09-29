@@ -13,6 +13,7 @@ vi.mock("electron", () => ({
     constructor(readonly options: any) { super(); host.windows.push(this); }
   },
   ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => host.handlers.set(name, handler) },
+  Menu: { buildFromTemplate: (template: unknown) => template, setApplicationMenu: vi.fn() },
   dialog: {}, shell: {}, Notification: {}, clipboard: {},
 }));
 vi.mock("electron-updater", () => ({ autoUpdater: Object.assign(new EventEmitter(), { quitAndInstall: vi.fn(), checkForUpdates: vi.fn(async () => null), downloadUpdate: vi.fn(async () => []) }) }));

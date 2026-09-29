@@ -24,6 +24,7 @@ import { ComposerPermissions } from "./Permissions";
 import { useLocalRunner } from "../lib/localRunner";
 import { ComposerAgent } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
+import { loadDraft, saveDraft } from "../lib/drafts";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
 function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
@@ -92,7 +93,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const liveRuns = runs?.filter(r => isLive(r.state)) ?? [];
   const [steerRunId, setSteerRunId] = useState<Id<"runs"> | null>(null);
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => loadDraft(chat._id));
+  useEffect(() => { saveDraft(chat._id, text); }, [chat._id, text]);
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -116,7 +118,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   useEffect(() => { if (steerRunId && runs && !runs.some(r => r._id === steerRunId && isLive(r.state))) setSteerRunId(null); }, [runs, steerRunId]);
   const connectionPreview = useQuery(api.connections.preview, composerAgent && !liveRun ? { chatId: chat._id, harness: composerAgent.harness, ...(localRunnerId ? { localRunnerId } : {}) } : "skip");
 
-  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, [chat._id]);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // A restored draft picks up where you left off, at its end.
+    el.selectionStart = el.selectionEnd = el.value.length;
+  }, [chat._id]);
   useEffect(() => {
     const close = () => { setRepoOpen(false); setScopeOpen(false); setMore(null); };
     document.addEventListener("click", close);

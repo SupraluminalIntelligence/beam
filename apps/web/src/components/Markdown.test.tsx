@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
-import { normalizeMath } from "../lib/math";
+import { escapeStrayDollars, normalizeMath } from "../lib/math";
 
 const render = (text: string, live = false) => renderToStaticMarkup(<Markdown text={text} handles={new Set(["codex"])} people={new Set()} live={live} />);
 
@@ -52,6 +52,19 @@ describe("chat math", () => {
     expect(normalizeMath(String.raw`\\(literal\\)`)).toBe(String.raw`\\(literal\\)`);
     expect(normalizeMath(String.raw`$\text{\(literal\)}$`)).toBe(String.raw`$\text{\(literal\)}$`);
     expect(render("Costs $20.")).not.toContain('class="katex"');
+  });
+
+  it("keeps shell variables and prices literal while pairing real math", () => {
+    const loop = "for i in $(seq 1 120); do echo $i; sleep 1; done";
+    const shell = render(loop);
+    expect(shell).not.toContain('class="katex"');
+    expect(shell).toContain(loop);
+    expect(render("Moved $5 and $10 between accounts, then echo $HOME $PATH")).not.toContain('class="katex"');
+    expect(render("It costs $20,000 or $30,000.")).not.toContain('class="katex"');
+    expect(render("A step of $x$ then $y^2$, and $5 left.").match(/class="katex"/g)).toHaveLength(2);
+    expect(escapeStrayDollars("$$\nE=mc^2\n$$")).toBe("$$\nE=mc^2\n$$");
+    expect(escapeStrayDollars("`echo $i` and\n\n```sh\necho $HOME\n```")).toBe("`echo $i` and\n\n```sh\necho $HOME\n```");
+    expect(escapeStrayDollars(String.raw`already \$5`)).toBe(String.raw`already \$5`);
   });
 
   it("does not allow TeX to load external images or create trusted links", () => {
