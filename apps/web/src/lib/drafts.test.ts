@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { loadDraft, saveDraft } from "./drafts";
+import { loadDraft, onDraftRestored, restoreDraft, saveDraft } from "./drafts";
 
 const memory = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), m }; };
 
@@ -26,4 +26,18 @@ it("reads as empty when storage is unavailable or throws", () => {
   const broken = { getItem: () => { throw new Error("denied"); }, setItem: () => { throw new Error("full"); }, removeItem: () => {} };
   expect(loadDraft("me", "a", broken)).toBe("");
   expect(() => saveDraft("me", "a", "text", broken)).not.toThrow();
+});
+
+it("puts a failed send back ahead of newer text and tells the composer showing that chat", () => {
+  const store = memory();
+  const seen: string[] = [];
+  const stop = onDraftRestored((userId, chatId, text) => { if (userId === "me" && chatId === "a") seen.push(text); });
+  saveDraft("me", "a", "typed since", store);
+  restoreDraft("me", "a", "failed message", store);
+  expect(loadDraft("me", "a", store)).toBe("failed message\ntyped since");
+  expect(seen).toEqual(["failed message\ntyped since"]);
+  stop();
+  restoreDraft("me", "b", "elsewhere", store);
+  expect(seen).toHaveLength(1);
+  expect(loadDraft("me", "b", store)).toBe("elsewhere");
 });

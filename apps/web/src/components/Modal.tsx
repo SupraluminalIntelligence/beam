@@ -40,9 +40,22 @@ export function Modal({ open, onClose, label, className = "", children }: { open
       // never sees Tab; bring focus back inside first.
       else if (e.key === "Tab" && box.current && !box.current.contains(document.activeElement)) { e.preventDefault(); (focusables(box.current)[0] ?? box.current).focus({ preventScroll: true }); }
     };
+    // Something behind the dialog taking focus (a shortcut that opens a chat and focuses its composer) would get
+    // the typing; send focus back to where it was inside. A dialog opening on top, or a popover opened from
+    // inside (a Select's list), may take it.
+    let last: HTMLElement | null = null;
+    const f = (e: FocusEvent) => {
+      const t = e.target;
+      if (!(t instanceof HTMLElement) || !box.current) return;
+      if (box.current.contains(t)) { last = t; return; }
+      if (stack.at(-1) !== entry || t.closest(".modal, [data-popover]")) return;
+      (last?.isConnected && box.current.contains(last) ? last : box.current).focus({ preventScroll: true });
+    };
     document.addEventListener("keydown", k);
+    document.addEventListener("focusin", f);
     return () => {
       document.removeEventListener("keydown", k);
+      document.removeEventListener("focusin", f);
       stack.splice(stack.indexOf(entry), 1);
       // After the rest of this commit: a dialog replacing this one (Settings to Invite) mounts in the same pass.
       // It opened from inside this one, so it inherits where to return focus; otherwise focus goes back now.

@@ -49,8 +49,8 @@ export function escapeStrayDollars(text: string): string {
   const opens = ({ at, size }: { at: number; size: number }) => at + size < text.length && !/[\s?!#@*]/.test(text[at + size]!);
   // Shell glues expansions to `=`, `:`, `/`, `.`, `-`, quotes and separators; an expression rarely ends on one.
   const shellBefore = (at: number) => /[=:/.\-(,;|&<>"]/.test(text[at - 1]!);
-  // What follows a closer: `{` or `(` starts a shell expansion; a name does too after shell glue or a single quote
-  // (`$HOME/$USER`, `'$dir' '$file'`), when it is an environment variable (`$HOME$USER`), or when the span is a
+  // What follows a closer: `{` or `(` starts a shell expansion; a name does too unless the expression ends in a
+  // letter, digit or bracket (`$HOME/$USER`, `'$dir' '$file'`, `$user@$host`), when it is an environment variable (`$HOME$USER`), or when the span is a
   // bare multi-letter name (`$first$last`); `the $n$th term` is math. A special parameter after shell glue is
   // shell (`status=$?`), while `Is $x$?` is math.
   type Run = { at: number; size: number };
@@ -58,7 +58,7 @@ export function escapeStrayDollars(text: string): string {
     const next = text.slice(at + size, at + size + 64);
     if (/\s/.test(text[at - 1]!) || /^[\d{(]/.test(next)) return false;
     if (/^[A-Za-z_]/.test(next)) {
-      return !shellBefore(at) && text[at - 1] !== "'" && !/^[A-Z_][A-Z0-9_]+\b/.test(next)
+      return /[A-Za-z0-9})\]]/.test(text[at - 1]!) && !/^[A-Z_][A-Z0-9_]+\b/.test(next)
         && !/^[A-Za-z_]\w+$/.test(text.slice(open.at + open.size, at));
     }
     return !(/^[?!#@*]/.test(next) && shellBefore(at));

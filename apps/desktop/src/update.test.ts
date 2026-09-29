@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const host = vi.hoisted(() => ({ handlers: new Map<string, (...args: any[]) => any>(), windows: [] as any[], children: [] as any[] }));
 vi.mock("electron", () => ({
-  app: Object.assign(new EventEmitter(), { isPackaged: true, whenReady: () => Promise.resolve(), getPath: () => "/tmp", quit: vi.fn(), setAppUserModelId: vi.fn() }),
+  app: Object.assign(new EventEmitter(), { isPackaged: true, whenReady: () => Promise.resolve(), getPath: () => "/tmp", quit: vi.fn(), setAppUserModelId: vi.fn(), setAboutPanelOptions: vi.fn() }),
   BrowserWindow: class extends EventEmitter {
     static getAllWindows() { return host.windows; }
     webContents = Object.assign(new EventEmitter(), { send: vi.fn() });

@@ -19,3 +19,22 @@ export function saveDraft(userId: string, chatId: string, text: string, store: S
     else store?.removeItem(`${PREFIX}${userId}:${chatId}`);
   } catch {}
 }
+
+type Restored = (userId: string, chatId: string, text: string) => void;
+const restored = new Set<Restored>();
+
+/**
+ * Put a failed send back as the draft. The composer that sent it may be gone by the time the send fails (you
+ * switched chats, maybe back again), so this writes storage and tells whichever composer shows that chat now.
+ */
+export function restoreDraft(userId: string, chatId: string, body: string, store: Store | null = storage()) {
+  const typed = loadDraft(userId, chatId, store);
+  const text = typed.trim() ? `${body}\n${typed}` : body;
+  saveDraft(userId, chatId, text, store);
+  for (const listener of restored) listener(userId, chatId, text);
+}
+
+export function onDraftRestored(listener: Restored) {
+  restored.add(listener);
+  return () => { restored.delete(listener); };
+}

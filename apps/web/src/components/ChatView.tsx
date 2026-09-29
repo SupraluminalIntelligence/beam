@@ -24,7 +24,7 @@ import { ComposerPermissions } from "./Permissions";
 import { useLocalRunner } from "../lib/localRunner";
 import { ComposerAgent } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
-import { loadDraft, saveDraft } from "../lib/drafts";
+import { loadDraft, onDraftRestored, restoreDraft, saveDraft } from "../lib/drafts";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
 function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
@@ -95,6 +95,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
 
   const [text, setText] = useState(() => loadDraft(me.id, chat._id));
   useEffect(() => { saveDraft(me.id, chat._id, text); }, [me.id, chat._id, text]);
+  useEffect(() => onDraftRestored((userId, chatId, restored) => { if (userId === me.id && chatId === chat._id) setText(restored); }), [me.id, chat._id]);
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -178,10 +179,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
     } catch (e) {
       toast(String((e as Error).message).replace(/^.*Uncaught Error: /, ""));
-      // Put the message back, ahead of anything typed since. Straight to storage too: you may have left the chat by now.
-      const keep = (typed: string) => (typed.trim() ? `${body}\n${typed}` : body);
-      saveDraft(me.id, chat._id, keep(loadDraft(me.id, chat._id)));
-      setText(keep);
+      // Put the message back, ahead of anything typed since, in whichever composer shows this chat now.
+      restoreDraft(me.id, chat._id, body);
     } finally { setSending(false); }
   }
 

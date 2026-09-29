@@ -270,6 +270,8 @@ ipcMain.handle("beam:restartRunner", () => { runnerFailures = 0; void stopRunner
  */
 function setupMenu() {
   if (process.platform !== "darwin") return;
+  // The About panel reads the package name otherwise; renaming the app itself would move its data (see above).
+  app.setAboutPanelOptions({ applicationName: "Beam" });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "Beam", submenu: [
       { role: "about", label: "About Beam" }, { type: "separator" }, { role: "services" }, { type: "separator" },

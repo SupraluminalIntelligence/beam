@@ -86,7 +86,7 @@ export function Select<T extends string>({ value, options, onChange, label, disa
       <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
     </button>
     {open && pos && createPortal(
-      <div ref={list} id={id} className="bsel-list" role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={`${id}-${active}`} onKeyDown={onListKey}
+      <div ref={list} id={id} className="bsel-list" data-popover role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={`${id}-${active}`} onKeyDown={onListKey}
         style={{ left: pos.left, minWidth: pos.minWidth, maxWidth: pos.maxWidth, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }}>
         {options.map((o, i) => <div key={o.value} id={`${id}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
           className={i === active ? "active" : ""} onPointerEnter={() => enabled(i) && setActive(i)} onClick={() => pick(i)}>
