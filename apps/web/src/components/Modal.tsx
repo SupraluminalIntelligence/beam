@@ -1,8 +1,12 @@
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 
-/** Open dialogs, oldest first: only the topmost answers Escape (Settings opened over a share dialog closes first). */
-const stack: object[] = [];
+/**
+ * Open dialogs, oldest first, each with where focus was before it opened. Only the topmost answers Escape
+ * (Settings opened over a share dialog closes first).
+ */
+type Entry = { opener: HTMLElement | null };
+const stack: Entry[] = [];
 
 const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
@@ -24,17 +28,22 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
   }
   useEffect(() => {
     if (!open) return;
-    const token = {};
-    stack.push(token);
-    const before = opener.current;
+    const entry: Entry = { opener: opener.current };
+    stack.push(entry);
     // A field with autoFocus inside already has it; otherwise the dialog itself takes focus.
     if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true });
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && stack.at(-1) === token) { e.preventDefault(); close.current(); } };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && stack.at(-1) === entry) { e.preventDefault(); close.current(); } };
     document.addEventListener("keydown", k);
     return () => {
       document.removeEventListener("keydown", k);
-      stack.splice(stack.indexOf(token), 1);
-      if (before?.isConnected) before.focus({ preventScroll: true });
+      stack.splice(stack.indexOf(entry), 1);
+      // After the rest of this commit: a dialog replacing this one (Settings to Invite) mounts in the same pass.
+      // It opened from inside this one, so it inherits where to return focus; otherwise focus goes back now.
+      queueMicrotask(() => {
+        const next = stack.at(-1);
+        if (next && !next.opener?.isConnected) next.opener = entry.opener;
+        else if (entry.opener?.isConnected) entry.opener.focus({ preventScroll: true });
+      });
     };
   }, [open]);
   if (!open) return null;
