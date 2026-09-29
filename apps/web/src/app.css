@@ -281,6 +281,11 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .empty b{color:var(--ink-2);font-weight:500}
 .msg{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:6px 10px;margin:0 -10px;transition:background .12s ease}
 .msg:hover{background:var(--surface-2)}
+.row-error{color:var(--ink-3);font-style:italic}
+.app-error{min-height:100vh;display:grid;place-content:center;gap:10px;padding:40px;max-width:60ch;margin:0 auto;color:var(--ink-2);font-size:13.5px}
+.app-error b{color:var(--ink);font-weight:500}
+.app-error>div{display:flex;gap:8px;align-items:center}
+.app-error pre{white-space:pre-wrap;max-height:30vh;overflow:auto;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
 .msg.cont{margin-top:-14px}.msg.cont .av{visibility:hidden}.msg.cont .hd{display:none}
 .msg .av{width:26px;height:26px;font-size:11px}
 .msg .hd{display:flex;gap:8px;align-items:baseline}
