@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
-import { normalizeMath } from "../lib/math";
+import { escapeStrayDollars, normalizeMath } from "../lib/math";
 
 const render = (text: string, live = false) => renderToStaticMarkup(<Markdown text={text} handles={new Set(["codex"])} people={new Set()} live={live} />);
 
@@ -52,6 +52,41 @@ describe("chat math", () => {
     expect(normalizeMath(String.raw`\\(literal\\)`)).toBe(String.raw`\\(literal\\)`);
     expect(normalizeMath(String.raw`$\text{\(literal\)}$`)).toBe(String.raw`$\text{\(literal\)}$`);
     expect(render("Costs $20.")).not.toContain('class="katex"');
+  });
+
+  it("keeps shell variables and prices literal while pairing real math", () => {
+    const loop = "for i in $(seq 1 120); do echo $i; sleep 1; done";
+    const shell = render(loop);
+    expect(shell).not.toContain('class="katex"');
+    expect(shell).toContain(loop);
+    expect(render("Moved $5 and $10 between accounts, then echo $HOME $PATH")).not.toContain('class="katex"');
+    expect(render("It costs $20,000 or $30,000.")).not.toContain('class="katex"');
+    expect(render("echo $$; kill $$")).not.toContain('class="katex"');
+    expect(render("echo $$\nkill $$")).not.toContain('class="katex"');
+    expect(render('echo "$?/$!" and $#/$@/$*')).not.toContain('class="katex"');
+    expect(render("the $x$-axis")).toContain('class="katex"');
+    expect(render("Is $x$? Yes, $y$! And $z$*.").match(/class="katex"/g)).toHaveLength(3);
+    expect(render("Inline $$x^2$$ still renders.")).toContain('class="katex"');
+    expect(render("echo $$$USER $$$HOME")).not.toContain('class="katex"');
+    expect(escapeStrayDollars("$$$\nE=mc^2\n$$$")).toBe("$$$\nE=mc^2\n$$$");
+    for (const cmd of ['echo "$first$last"', "echo '$dir' '$file'", "echo $USER $$; echo $HOME $$", 'ssh "$user@$host"', "echo $a+$b $x%$y", "pid=$$; child=$$", "a=$x; b=$y"]) expect(render(cmd)).not.toContain('class="katex"');
+    expect(render("the derivative $f'$ and $a$ plus $$b$$").match(/class="katex"/g)).toHaveLength(3);
+    expect(render("echo prefix-$dir suffix-$file")).not.toContain('class="katex"');
+    expect(render("the $x$-$y$ plane").match(/class="katex"/g)).toHaveLength(2);
+    expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).not.toContain('class="katex"');
+    expect(render("[Moved $5 and $10](https://example.com/$a/$b)")).toContain('href="https://example.com/$a/$b"');
+    expect(render("[the $x$ axis](https://example.com) and <https://example.com/$a$b>")).toContain('href="https://example.com/$a$b"');
+    expect(render("[the $x$ axis](https://example.com)")).toContain('class="katex"');
+    expect(render("$\\alpha$s and $x_{i}$th and the $2$nd and $n^2$s").match(/class="katex"/g)).toHaveLength(4);
+    for (const cmd of ['echo "${first}$last"', 'echo "$(date)$suffix"']) expect(render(cmd)).not.toContain('class="katex"');
+    expect(render("so $x$/$y$ and ($a$) and $p$:$q$").match(/class="katex"/g)).toHaveLength(5);
+    expect(render("the $n$th term, a length of $L$m").match(/class="katex"/g)).toHaveLength(2);
+    for (const cmd of ["echo $HOME$USER", "cp $dir/$file .", "mv $name.$ext out", "x=$HOME; status=$?", 'echo "$HOME:$!"', "run $CMD|grep $#"]) expect(render(cmd)).not.toContain('class="katex"');
+    for (const path of ['echo "$HOME/$USER"', "cp $SRC/$NAME ${DEST}/", "ls $(pwd)/$(date +%F)"]) expect(render(path)).not.toContain('class="katex"');
+    expect(render("A step of $x$ then $y^2$, and $5 left.").match(/class="katex"/g)).toHaveLength(2);
+    expect(escapeStrayDollars("$$\nE=mc^2\n$$")).toBe("$$\nE=mc^2\n$$");
+    expect(escapeStrayDollars("`echo $i` and\n\n```sh\necho $HOME\n```")).toBe("`echo $i` and\n\n```sh\necho $HOME\n```");
+    expect(escapeStrayDollars(String.raw`already \$5`)).toBe(String.raw`already \$5`);
   });
 
   it("does not allow TeX to load external images or create trusted links", () => {
