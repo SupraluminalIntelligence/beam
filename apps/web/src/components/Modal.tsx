@@ -15,11 +15,18 @@ export function Modal({ open, onClose, className = "", children }: { open: boole
   const box = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
+  // Where focus was before opening, read while rendering: a child's autoFocus takes focus in the commit, before any effect runs.
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open !== wasOpen.current) {
+    wasOpen.current = open;
+    if (open) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
   useEffect(() => {
     if (!open) return;
     const token = {};
     stack.push(token);
-    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const before = opener.current;
     // A field with autoFocus inside already has it; otherwise the dialog itself takes focus.
     if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true });
     const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && stack.at(-1) === token) { e.preventDefault(); close.current(); } };

@@ -34,8 +34,8 @@ export function escapeStrayDollars(text: string): string {
   if (!text.includes("$")) return text;
   const ranges = literalRanges(plainParser.parse(text), new Set(codeNodes));
   const inLiteral = (i: number) => ranges.some(([start, end]) => i >= start && i < end);
-  // A `$$` with nothing else before or after it on its line fences display math.
-  const fence = (i: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) || /^[ \t]*(?:\n|$)/.test(text.slice(i + 2));
+  // A `$$` alone on its line fences display math; one with a command beside it (`echo $$`) is text.
+  const fence = (i: number) => /(?:^|\n)[ \t]*$/.test(text.slice(0, i)) && /^[ \t]*(?:\n|$)/.test(text.slice(i + 2));
   const runs = Array.from(text.matchAll(/\$+/g))
     .filter((m) => m[0].length <= 2 && !escaped(text, m.index!) && !inLiteral(m.index!) && !(m[0].length === 2 && fence(m.index!)))
     .map((m) => ({ at: m.index!, size: m[0].length }));
