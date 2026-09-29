@@ -42,8 +42,9 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     const centsPerHour = machine === "local" ? null : cloudCentsPerHour(MACHINES[machine]);
     if (centsPerHour === null) return;
     const cloud = await client.query(api.compute.cloudForRun, { token, runId });
+    if (!cloud.enabled) throw new Error("Cloud machines are not switched on for this Beam deployment yet. Sweep on the local machine.");
     const total = setups.reduce((n, s) => n + authorizedCents(centsPerHour, s.timeoutSeconds), 0);
-    if (cloud.enabled && total > cloud.availableCents)
+    if (total > cloud.availableCents)
       throw new Error(`This sweep's ${setups.length} jobs on the ${MACHINES[machine].label} can cost up to ${formatCents(total)} together, but the workspace has ${formatCents(cloud.availableCents)} of cloud compute budget left. Sweep fewer values or a shorter timeoutSeconds, or ask the workspace's creator to raise the budget.`);
   };
   const run = (id: string, version: number, machine: string, requestKey: string) =>

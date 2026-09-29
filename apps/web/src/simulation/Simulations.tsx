@@ -126,11 +126,11 @@ function Setup({ sim, chatId, onRun }: { sim: Sim; chatId: Id<"chats">; onRun: (
 }
 
 function Jobs({ sim, chatId, login, onOpen }: { sim: Sim; chatId: Id<"chats">; login: string; onOpen: (jobId: string) => void }) {
-  const approve = useMutation(api.compute.approve);
+  const approve = useMutation(api.compute.approveMany);
   const [busy, setBusy] = useState(false);
   if (!sim.jobs.length) return <p className="results-empty">No jobs yet. Run a version from Setup.</p>;
   const mine = sim.jobs.filter(j => j.state === "awaiting-approval" && j.requestedBy === login);
-  const go = async (jobs: Job[]) => { setBusy(true); try { await Promise.all(jobs.map(j => approve({ id: j._id }))); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
+  const go = async (jobs: Job[]) => { setBusy(true); try { await approve({ ids: jobs.map(j => j._id) }); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
   // What approving cloud jobs holds from the workspace's budget: each job's cap until its machine stops.
   const held = (jobs: Job[]) => jobs.reduce((n, j) => n + (j.billing?.authorizedCents ?? 0), 0);
   const what = (j: Job) => { const v = sim.versions.find(x => x.version === j.version); return v?.changes.length ? v.changes.join(", ") : v?.note ?? null; };

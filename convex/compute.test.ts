@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
-import { cloudForRun, launching, pending, releasing, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
+import { approveMany, cloudForRun, launching, pending, releasing, released, resumeSimulationExport, submit, submitForRun, claim, cancel, report, approve, get, forRun, stageInput, inputs, publishOutput, saveSimulation, submitSimulation, saveSimulationForRun, submitSimulationForRun, simulationForRun, selectSimulation, selectSimulationForRun, studyContext, study, workspaceStudies, modelUploadUrl, stageModel, stageModelForRun, modelFiles, publishResults } from "./compute";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { get as getBudget, setAllowance } from "./computeBudget";
@@ -408,6 +408,14 @@ it("refuses cloud jobs until the deployment has a gateway, and tells agents and 
   // A workspace with no budget yet reads as $0, and only its creator may change it.
   const none=cloudFixture(null as any);none.tables.workspaces![0].createdBy="someone";
   expect(await call(getBudget,none.ctx,{workspaceId:"ws"})).toMatchObject({allowanceCents:0,availableCents:0,canEdit:false});
+});
+it("approves several jobs in one call, reserving each one's cap",async()=>{
+  const {ctx,tables,budget}=cloudFixture(500);
+  for(const id of ["a","b"])tables.computeJobs!.push({_id:id,chatId:"chat",runnerId:"runner",requestedBy:"alice",state:"awaiting-approval",spec:cloudSpec,backend:"modal-sandbox",billing:{centsPerHour:100,authorizedCents:75,spentCents:0,reserved:false}});
+  await call(approveMany,ctx,{ids:["a","b"]});
+  expect(tables.computeJobs!.map((j:any)=>[j.state,j.billing.reserved])).toEqual([["queued",true],["queued",true]]);
+  expect(budget()).toMatchObject({reservedCents:150});
+  await expect(call(approveMany,ctx,{ids:Array.from({length:65},()=>"a")})).rejects.toThrow("up to 64");
 });
 it("lets only the workspace's creator set its compute budget",async()=>{
   const {ctx,tables}=cloudFixture(null as any);

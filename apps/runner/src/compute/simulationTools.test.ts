@@ -25,12 +25,12 @@ describe("sweep", () => {
     expect(runs).toEqual([6, 5, 7]);
   });
 
-  const cloudClient = (availableCents: number, refuse = false) => {
+  const cloudClient = (availableCents: number, refuse = false, enabled = true) => {
     let version = 5;
     const saves: unknown[] = [], batches: unknown[] = [];
     const client = {
       // One answer for both queries the sweep makes: the simulation list and the workspace's cloud budget.
-      query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }], enabled: true, availableCents })),
+      query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }], enabled, availableCents })),
       mutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
         if ("setup" in args) { saves.push(args); return { id: "sim", version: ++version, unchanged: false }; }
         batches.push(args);
@@ -47,6 +47,11 @@ describe("sweep", () => {
     await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "8-core", requestKey: "k" })).rejects.toThrow(/3 jobs on the 8-core cloud machine can cost up to \$\d+\.\d\d together, but the workspace has \$1\.00/);
     expect(saves).toHaveLength(0);
     expect(vi.mocked(client.mutation)).not.toHaveBeenCalled();
+    // Nor, while cloud is off, does it save versions that could never run.
+    const off = cloudClient(1_000_000, false, false);
+    const offSweep = simulationTools(off.client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
+    await expect(offSweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 1000], machine: "8-core", requestKey: "k" })).rejects.toThrow("not switched on");
+    expect(off.saves).toHaveLength(0);
   });
 
   it("submits every value's job in one call, so a refusal submits none", async () => {

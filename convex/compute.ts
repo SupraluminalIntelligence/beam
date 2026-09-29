@@ -224,7 +224,7 @@ export const submitForRun = readableMutation({ args: { token: v.string(), runId:
   if (!agent || agent.permissionMode === "plan") throw new Error("Plan mode cannot submit compute jobs");
   return enqueue(ctx, { chatId: run.chatId, runnerId: run.runnerId, requestedBy: run.dispatchedBy, sourceRunId: run._id, requestKey: a.requestKey, spec: a.spec, needsApproval: agent.permissionMode !== "auto" });
 } });
-export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => {
+async function approveJob(ctx: MutationCtx, id: Id<"computeJobs">) {
   const job = await ctx.db.get(id); if (!job) throw new Error("Job not found");
   const { u } = await requireChat(ctx, job.chatId);
   if (job.state !== "awaiting-approval") return;
@@ -237,6 +237,12 @@ export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: as
   }
   await targetAccess(ctx, job.chatId, job.runnerId, job.requestedBy);
   await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now() });
+}
+export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => { await approveJob(ctx, id); } });
+/** Approve all: one transaction, so if the cloud budget cannot hold every job, none starts. */
+export const approveMany = mutation({ args: { ids: v.array(v.id("computeJobs")) }, handler: async (ctx, { ids }) => {
+  if (ids.length > 64) throw new Error("Approve up to 64 jobs at once");
+  for (const id of ids) await approveJob(ctx, id);
 } });
 async function cancelJob(ctx: MutationCtx, id: Id<"computeJobs">) {
   const job = await ctx.db.get(id); if (!job || jobFinished(job.state)) return;
