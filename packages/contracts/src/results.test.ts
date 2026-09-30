@@ -23,6 +23,11 @@ describe("what beam_out writes", () => {
     expect(SeriesData.parse(fixture("series.json")).x).toHaveLength(3);
     expect(TableData.parse(fixture("table.json")).rows).toHaveLength(3);
   });
+  it("draws the cavity's reference data over its result", () => {
+    // Written by `cavity.py` in the cfd image.
+    const m = ResultsManifest.parse(JSON.parse(readFileSync(new URL("./fixtures/cavity/manifest.json", import.meta.url), "utf8")));
+    expect(m.series.map((s) => [s.name, s.overlay])).toEqual([["centreline_u", undefined], ["ghia_1982", "centreline_u"]]);
+  });
   it("reads a newer manifest's unknown keys without failing", () => {
     const m = ResultsManifest.parse({ ...manifest, animations: [], quantities: [{ ...manifest.quantities[0], confidence: 0.9 }] });
     expect(m.quantities).toHaveLength(1);
@@ -61,6 +66,16 @@ describe("what it rejects", () => {
     expect(bad({ tables: [{ ...manifest.tables[0], data: manifest.series[0].data }] })).toBe(false);
     expect(bad({ views: [{ name: "x", field: "beam", color: "temperature" }] })).toBe(false);
     expect(bad({ views: [{ name: "x", plot: "nothing" }] })).toBe(false);
+  });
+  it("rejects overlays of missing plots, of overlays, and across different axes", () => {
+    const base = manifest.series[0], over = (change: object) => ({ ...base, name: "reference", data: "series/reference.json", overlay: base.name, ...change });
+    expect(bad({ series: [base, over({})] })).toBe(true);
+    expect(bad({ series: [base, over({ overlay: "nothing" })] })).toBe(false);
+    expect(bad({ series: [base, over({ overlay: "reference" })] })).toBe(false);
+    expect(bad({ series: [base, over({}), over({ name: "third", data: "series/third.json", overlay: "reference" })] })).toBe(false);
+    expect(bad({ series: [base, over({ y: { ...base.y, unit: "mm" } })] })).toBe(false);
+    expect(bad({ series: [base, over({ y: { ...base.y, scale: "log" } })] })).toBe(false);
+    expect(bad({ series: [base, over({ x: { ...base.x, label: "nodes" } })] })).toBe(false);
   });
   it("rejects plots and tables whose shapes disagree", () => {
     expect(SeriesData.safeParse({ x: [1, 2], lines: [{ name: "a", values: [1] }] }).success).toBe(false);

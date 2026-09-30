@@ -169,7 +169,8 @@ def main():
 
     out.series("centreline_u", fine["y"], {f"OpenFOAM {fine['n']}x{fine['n']}": fine["profile"]},
                x_label="height y", x_unit="m", y_unit="m/s", label="u along the vertical centreline")
-    out.series("ghia_1982", GHIA_Y, {"Ghia, Ghia & Shin 1982": GHIA_U}, x_label="height y", x_unit="m", y_unit="m/s", label="Ghia et al. 1982, Re 100")
+    out.series("ghia_1982", GHIA_Y, {"Ghia, Ghia & Shin 1982": GHIA_U}, x_label="height y", x_unit="m", y_unit="m/s",
+               label="Ghia et al. 1982, Re 100", overlay="centreline_u")
     out.table("meshes", [{"name": "cells across"}, {"name": "cells"}, {"name": "u min", "unit": "m/s"}, {"name": "max |u - Ghia|", "unit": "m/s"}, {"name": "solve", "unit": "s"}],
               [[r["n"], r["cells"], r["u_min"], r["deviation"], r["seconds"]] for r in runs])
     # The finest mesh's flow: the walls (see-through, since they enclose it), the mid-plane and streamlines.

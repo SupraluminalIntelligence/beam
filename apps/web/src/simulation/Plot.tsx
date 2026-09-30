@@ -57,7 +57,7 @@ export function Plot({ lines: raw, xLabel, xUnit: xBase = "", yUnit: yBase = "",
       <line x1={L} x2={L} y1={T} y2={H - B} className="axis" /><line x1={L} x2={W - R} y1={H - B} y2={H - B} className="axis" />
       {lines.map((l, i) => {
         const pts = l.x.map((x, j) => [x, l.y[j]!] as const).filter(([, y]) => Number.isFinite(y) && (yScale === "linear" || y > 0));
-        return <g key={l.name}>
+        return <g key={`${i}:${l.name}`}>
           <polyline className={`series line m${i % 4}`} strokeDasharray={DASH[i % DASH.length]} points={pts.map(([x, y]) => `${view.px(x).toFixed(1)},${view.py(y).toFixed(1)}`).join(" ")} />
           {l.points && <g className="series">{pts.map(([x, y], j) => <circle key={j} cx={view.px(x)} cy={view.py(y)} r={3} className={`mark m${i % 4}`} />)}</g>}
         </g>;
@@ -66,7 +66,7 @@ export function Plot({ lines: raw, xLabel, xUnit: xBase = "", yUnit: yBase = "",
       <text x={(L + W - R) / 2} y={H - 4} textAnchor="middle" className="axis-label">{xLabel}{xUnit ? ` (${xUnit})` : ""}</text>
     </svg>
     <figcaption>
-      {lines.map((l, i) => <span key={l.name} className="legend"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" className={`series line m${i % 4}`} strokeDasharray={DASH[i % DASH.length]} />{l.points && <circle cx="11" cy="4" r="3" className={`mark m${i % 4}`} />}</svg>{l.name}</span>)}
+      {lines.map((l, i) => <span key={`${i}:${l.name}`} className="legend"><svg width="22" height="8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" className={`series line m${i % 4}`} strokeDasharray={DASH[i % DASH.length]} />{l.points && <circle cx="11" cy="4" r="3" className={`mark m${i % 4}`} />}</svg>{l.name}</span>)}
       <span className="readout">{hover ? `${hover.line} · ${label(hover.x)}${xUnit ? ` ${xUnit}` : ""} → ${label(hover.y)}${yUnit ? ` ${yUnit}` : ""}` : yUnit ? `y in ${yUnit}${yScale === "log" ? " · log scale" : ""}` : ""}</span>
     </figcaption>
   </figure>;
