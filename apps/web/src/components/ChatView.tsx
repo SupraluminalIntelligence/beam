@@ -25,6 +25,7 @@ import { useLocalRunner } from "../lib/localRunner";
 import { ComposerAgent } from "./Connections";
 import { useAutoSizeTextarea } from "../lib/autoSizeTextarea";
 import { RowBoundary } from "./Boundary";
+import { loadDraft, onDraftRestored, restoreDraft, saveDraft } from "../lib/drafts";
 
 /** An agent's message: revealed smoothly while its turn is live, with a cursor at the end. */
 function StreamText({ text, live, handles, logins }: { text: string; live: boolean; handles: Set<string>; logins: Set<string> }) {
@@ -93,7 +94,9 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   const liveRuns = runs?.filter(r => isLive(r.state)) ?? [];
   const [steerRunId, setSteerRunId] = useState<Id<"runs"> | null>(null);
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => loadDraft(me.id, chat._id));
+  useEffect(() => { saveDraft(me.id, chat._id, text); }, [me.id, chat._id, text]);
+  useEffect(() => onDraftRestored((userId, chatId, restored) => { if (userId === me.id && chatId === chat._id) setText(restored); }), [me.id, chat._id]);
   const [pop, setPop] = useState<{ q: string; sel: number } | null>(null);
   const [repoOpen, setRepoOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
@@ -117,7 +120,13 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
   useEffect(() => { if (steerRunId && runs && !runs.some(r => r._id === steerRunId && isLive(r.state))) setSteerRunId(null); }, [runs, steerRunId]);
   const connectionPreview = useQuery(api.connections.preview, composerAgent && !liveRun ? { chatId: chat._id, harness: composerAgent.harness, ...(localRunnerId ? { localRunnerId } : {}) } : "skip");
 
-  useEffect(() => { inputRef.current?.focus({ preventScroll: true }); }, [chat._id]);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // A restored draft picks up where you left off, at its end.
+    el.selectionStart = el.selectionEnd = el.value.length;
+  }, [chat._id]);
   useEffect(() => {
     const close = () => { setRepoOpen(false); setScopeOpen(false); setMore(null); };
     document.addEventListener("click", close);
@@ -169,7 +178,11 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
       followSentMessage();
       attachments.clear();
       if (r.kind !== "text") toast(r.kind === "steer" ? "Steer queued for the next turn" : `Dispatched to ${r.runner ?? "your runner"}`);
-    } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); setText(body); } finally { setSending(false); }
+    } catch (e) {
+      toast(String((e as Error).message).replace(/^.*Uncaught Error: /, ""));
+      // Put the message back, ahead of anything typed since, in whichever composer shows this chat now.
+      restoreDraft(me.id, chat._id, body);
+    } finally { setSending(false); }
   }
 
   const rows = useMemo(() => timeline(messages ?? [], runs ?? [], views), [messages, runs, views]);
@@ -306,7 +319,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
             {popItems.filter((x) => x.kind === "person").map((x) => { const i = popItems.indexOf(x); return <button key={x.v} className={`po${pop.sel === i ? " sel" : ""}`} onClick={() => pick(x.v)}><PersonAvatar login={x.v} name={x.label} image={people?.[x.v]?.image ?? null} hue={hueClass(x.v)} /><span>{x.label}</span><span className="d">{x.d}</span></button>; })}
           </div>
         )}
-        <textarea ref={inputRef} rows={1} value={text} placeholder={chat.private && pinned ? `Message ${HARNESS_NAME[pinned.harness]}, or @mention another agent` : `Message ${chat.title}, or @mention an agent`}
+        <textarea ref={inputRef} data-focus-home rows={1} value={text} placeholder={chat.private && pinned ? `Message ${HARNESS_NAME[pinned.harness]}, or @mention another agent` : `Message ${chat.title}, or @mention an agent`}
           onBlur={typing.stop}
           onPaste={e=>void attachments.paste(e, pasted=>{const el=inputRef.current!;const start=el.selectionStart;const next=text.slice(0,start)+pasted+text.slice(el.selectionEnd);setText(next);typing.change(next);requestAnimationFrame(()=>{el.selectionStart=el.selectionEnd=start+pasted.length;});})}
           onChange={(e) => { typing.change(e.target.value); setText(e.target.value); updatePop(e.target.value, e.target.selectionStart); }}
@@ -330,7 +343,7 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
         </div>
       </div>
 
-      <Modal open={shareOpen} onClose={() => setShareOpen(false)}>
+      <Modal open={shareOpen} onClose={() => setShareOpen(false)} label="Share this chat">
         <div className="m-h">{ICO.team} Share this chat</div>
         <div className="row"><span>With</span><Seg value={shareWith.length === 0 ? "ws" : shareWith[0]!} options={[["ws", `everyone in ${detail.name}`] as const, ...detail.members.filter((m) => m !== me.githubLogin).map((m) => [m, nameOf(m)] as const)]} onChange={(v) => setShareWith(v === "ws" ? [] : [v])} /></div>
         <div className="row"><span>History</span><span className="hint">all {messages?.length ?? 0} messages become visible from the first one. This cannot be undone.</span></div>

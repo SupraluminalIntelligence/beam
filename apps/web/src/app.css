@@ -206,6 +206,9 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .workspace-bar>.workspace-expand{width:32px;height:32px;display:grid;place-items:center;padding:5px;border-radius:var(--r-2)}
 .workspace-expand:hover,.workspace-expand[aria-pressed="true"]{background:var(--surface-3);color:var(--ink)}
 .workspace-tabs{display:flex;align-self:stretch;flex:1;min-width:0;overflow:auto;scrollbar-width:thin}
+.workspace-tabs.more-end{mask-image:linear-gradient(to right,#000 calc(100% - 28px),transparent)}
+.workspace-tabs.more-start{mask-image:linear-gradient(to left,#000 calc(100% - 28px),transparent)}
+.workspace-tabs.more-start.more-end{mask-image:linear-gradient(to right,transparent,#000 28px,#000 calc(100% - 28px),transparent)}
 .workspace-tab{display:flex;align-items:center;flex:none;border-right:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap;font-size:12px}
 .workspace-tab.selected{color:var(--ink);background:rgba(128,128,128,.08);box-shadow:inset 0 2px var(--ink)}
 .workspace-tab button{padding:9px}
@@ -417,6 +420,7 @@ table.tbl{width:100%;border-collapse:collapse;background:var(--surface);border:1
 .scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:20}
 .scrim.open{display:flex}
 .modal{width:600px;max-width:calc(100vw - 40px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--surface);border:1px solid var(--line-2);box-shadow:8px 8px 0 var(--shadow);font-size:13px}
+.modal:focus-visible{outline:none}
 .m-h{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-weight:600;background:var(--surface-2)}
 .m-h .k{margin-left:auto;font-weight:400}
 .m-h .tabs2{display:flex;gap:2px}

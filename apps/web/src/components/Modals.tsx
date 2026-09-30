@@ -59,7 +59,7 @@ export function SettingsModal({ open, onClose, me, detail, pairCode, tab: initia
   useEffect(() => { if (open && page === "whatsnew") markChangelogSeen(); }, [open, page]);
   const navButton = (v: SettingsTab, label: string, icon: ReactNode) => <button key={v} role="tab" aria-selected={page === v} className={page === v ? "on" : ""} onClick={() => setTab(v)}>{icon}<span className="set-nav-l">{label}</span></button>;
   return (
-    <Modal open={open} onClose={onClose} className="settings-modal">
+    <Modal open={open} onClose={onClose} label="Settings" className="settings-modal">
       <nav className="set-nav">
         <div className="set-nav-h">Settings<span className="hint">⌘,</span></div>
         <div className="set-nav-list" role="tablist" aria-orientation="vertical">
@@ -170,7 +170,7 @@ export function InviteModal({ open, onClose, wsId, wsName, chatId }: { open: boo
     } catch (e) { toast(String((e as Error).message).replace(/^.*Uncaught Error: /, "")); }
   };
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} label={`Invite to ${wsName}`}>
       <div className="m-h">Invite to {wsName}</div>
       <div className="row"><span>Who</span><input type="text" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="search people on Beam, or type a GitHub login" autoFocus
         onKeyDown={(e) => {
@@ -198,7 +198,7 @@ export function NewWorkspaceModal({ open, onClose }: { open: boolean; onClose: (
   const [name, setName] = useState(""); const [repo, setRepo] = useState("");
   useEffect(() => { if (open) { setName(""); setRepo(""); } }, [open]);
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} label="New workspace">
       <div className="m-h">New workspace<span className="k hint">a team space · repos attach to chats</span></div>
       <div className="row"><span>Name</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="acme" autoFocus /></div>
       <div className="row"><span>First repo</span><input type="text" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="owner/name · optional" /></div>
@@ -243,7 +243,7 @@ export function AddRepoModal({ open, onClose, wsId, wsName, chatId }: { open: bo
   const rows = list !== "loading" && list.repos ? list.repos.filter((r) => !q || r.name.toLowerCase().includes(q)).slice(0, 12) : [];
   const ago = (t: number) => { const d = Math.max(0, Date.now() - t); const h = d / 3.6e6; return h < 1 ? "just now" : h < 24 ? `${Math.round(h)}h ago` : h < 24 * 30 ? `${Math.round(h / 24)}d ago` : `${Math.round(h / 24 / 30)}mo ago`; };
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} label={`Connect a repo to ${wsName}`}>
       <div className="m-h">Connect a repo to {wsName}</div>
       <div className="row"><span>Repo</span><input type="text" value={repo} onChange={(e) => setRepoV(e.target.value)} placeholder={list !== "loading" && list.repos ? "filter your repos, or paste owner/name" : "owner/name or GitHub URL"} autoFocus onKeyDown={(e) => { if (e.key === "Enter") void connect(rows.length && !/\//.test(repo) ? rows[0]!.name : repo); }} /></div>
       <div className="repolist">
@@ -267,7 +267,7 @@ export function Palette({ open, onClose, workspaces }: { open: boolean; onClose:
   useEffect(() => { if (open) setQ(""); }, [open]);
   const rows = (chats ?? []).filter((c) => !q || c.title.toLowerCase().includes(q.toLowerCase()));
   return (
-    <Modal open={open} onClose={onClose} className="pal">
+    <Modal open={open} onClose={onClose} label="Jump to a chat" className="pal">
       <input placeholder="Jump to a chat…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === "Enter" && rows[0] && wsId) { ui.openChat(wsId, rows[0]._id); onClose(); } }} />
       <div className="list">{rows.map((c) => <button key={c._id} onClick={() => { if (wsId) ui.openChat(wsId, c._id); onClose(); }}><span className={`sq ${chatStatus(c, activity)}`} /><span className="nm">{c.title}<small>{c.private ? "private" : `${c.members.length} member${c.members.length === 1 ? "" : "s"}`}{c.repo ? ` · ${c.repo}` : ""}</small></span><span className="d">{c.activeBranch ?? ""}</span></button>)}{rows.length === 0 && <div className="empty" style={{ padding: "16px 14px" }}>Nothing matches.</div>}</div>
     </Modal>

@@ -21,7 +21,7 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   const current = options.find((o) => o.value === value);
   const enabled = (i: number) => !!options[i] && !options[i]!.disabled;
 
-  const close = (refocus = true) => { setOpen(false); if (refocus) trigger.current?.focus(); };
+  const close = (refocus = true) => { setOpen(false); if (refocus) trigger.current?.focus({ preventScroll: true }); };
   const show = () => {
     if (disabled || !options.length) return;
     const i = options.findIndex((o) => o.value === value);
@@ -42,20 +42,25 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   }, [open]);
   useEffect(() => {
     if (!open) return;
-    list.current?.focus();
-    const outside = (e: PointerEvent) => { const t = e.target as Node; if (!list.current?.contains(t) && !trigger.current?.contains(t)) close(false); };
-    const moved = (e: Event) => { if (!list.current?.contains(e.target as Node)) close(false); };
+    // A resize's target is the window, which is not a Node.
+    const inList = (t: EventTarget | null) => t instanceof Node && !!list.current?.contains(t);
+    const outside = (e: PointerEvent) => { if (!inList(e.target) && !(e.target instanceof Node && trigger.current?.contains(e.target))) close(false); };
+    // Scrolling the page or dialog behind closes the list; hand focus back to the trigger, or it drops to the body, outside any dialog.
+    const moved = (e: Event) => { if (!inList(e.target)) close(inList(document.activeElement)); };
     document.addEventListener("pointerdown", outside);
     window.addEventListener("resize", moved); window.addEventListener("scroll", moved, true);
     return () => { document.removeEventListener("pointerdown", outside); window.removeEventListener("resize", moved); window.removeEventListener("scroll", moved, true); };
   }, [open]);
+  // The list mounts only once it has a position, a render after `open`; focus it then, so its keys (Escape above all) stay its own.
+  useEffect(() => { if (open && pos) list.current?.focus(); }, [open, pos]);
   useEffect(() => { if (open) list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" }); }, [open, active]);
 
   const step = (from: number, dir: 1 | -1) => { for (let i = from + dir; i >= 0 && i < options.length; i += dir) if (enabled(i)) return i; return from; };
   const onListKey = (e: ReactKeyboardEvent) => {
     const k = e.key;
     if (k === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return; }
-    if (k === "Tab") { close(false); return; }
+    // Back to the trigger, so focus never falls out of a dialog with the list; the next Tab moves on from there.
+    if (k === "Tab") { e.preventDefault(); close(); return; }
     e.preventDefault();
     if (k === "ArrowDown") setActive((a) => step(a, 1));
     else if (k === "ArrowUp") setActive((a) => step(a, -1));
@@ -73,12 +78,15 @@ export function Select<T extends string>({ value, options, onChange, label, disa
   return <>
     <button ref={trigger} type="button" className={`bsel ${className}`} aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} disabled={disabled}
       onClick={() => (open ? close() : show())}
-      onKeyDown={(e) => { if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); show(); } }}>
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); close(); }
+        else if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); show(); }
+      }}>
       <span className={`bsel-v${current ? "" : " missing"}`}>{current?.label ?? placeholder ?? value}</span>
       <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
     </button>
     {open && pos && createPortal(
-      <div ref={list} id={id} className="bsel-list" role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={`${id}-${active}`} onKeyDown={onListKey}
+      <div ref={list} id={id} className="bsel-list" data-popover role="listbox" aria-label={label} tabIndex={-1} aria-activedescendant={`${id}-${active}`} onKeyDown={onListKey}
         style={{ left: pos.left, minWidth: pos.minWidth, maxWidth: pos.maxWidth, ...(pos.up ? { bottom: window.innerHeight - pos.top } : { top: pos.top }) }}>
         {options.map((o, i) => <div key={o.value} id={`${id}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
           className={i === active ? "active" : ""} onPointerEnter={() => enabled(i) && setActive(i)} onClick={() => pick(i)}>
