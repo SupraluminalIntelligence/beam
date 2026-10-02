@@ -34,7 +34,9 @@ const close = () => {
   host.windows[0].emit("close", event);
   return event;
 };
+let outputListeners: Map<NodeJS.WriteStream, ReturnType<NodeJS.WriteStream["listeners"]>>;
 beforeEach(async () => {
+  outputListeners = new Map([process.stdout, process.stderr].map(stream => [stream, stream.listeners("error")]));
   vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   vi.resetModules(); vi.useFakeTimers(); vi.clearAllMocks();
   app.removeAllListeners(); autoUpdater.removeAllListeners();
@@ -43,7 +45,21 @@ beforeEach(async () => {
   await import("./main");
   await Promise.resolve(); await Promise.resolve();
 });
-afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); });
+afterEach(() => {
+  for (const [stream, listeners] of outputListeners) {
+    for (const listener of stream.listeners("error")) if (!listeners.includes(listener)) stream.off("error", listener as (error: Error) => void);
+  }
+  vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks();
+});
+
+it("still delivers runner logs after desktop output reports a broken pipe", () => {
+  const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+  expect(() => process.stdout.emit("error", error)).not.toThrow();
+  expect(() => process.stderr.emit("error", error)).not.toThrow();
+  host.children[0].stdout.write("runner remains online\n");
+  expect(host.windows[0].webContents.send).toHaveBeenCalledWith("beam:runnerLog", "runner remains online");
+  expect(host.handlers.get("beam:runnerStatus")!()).toMatchObject({ running: true, log: ["runner remains online"] });
+});
 
 /** The runner has landed its runs and exits. */
 const runnerExits = (i = 0) => host.children[i].emit("exit", 0, "SIGTERM");
