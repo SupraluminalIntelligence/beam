@@ -2,11 +2,12 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { PassThrough } from "node:stream";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 import { ignoreBrokenPipeErrors } from "./stdio";
 
 it.each(["stdout", "stderr"] as const)("continues logging after the %s reader closes", async (output) => {
-  const module = resolve("src/stdio.ts");
+  const module = pathToFileURL(resolve("src/stdio.ts")).href;
   const code = `
     import { Console } from 'node:console';
     import { ignoreBrokenPipeErrors } from ${JSON.stringify(module)};
@@ -26,11 +27,17 @@ it.each(["stdout", "stderr"] as const)("continues logging after the %s reader cl
   const child = spawn(process.execPath, ["--experimental-strip-types", "--no-warnings", "--input-type=module", "-e", code], { stdio: ["ignore", "pipe", "pipe", "ipc"] });
   const messages: unknown[] = [];
   let healthyOutput = "";
+  let stderr = "";
   child.on("message", message => messages.push(message));
+  child.stderr!.on("data", data => stderr += data);
   child[output === "stdout" ? "stderr" : "stdout"]!.on("data", data => healthyOutput += data);
   const exited = once(child, "exit");
   try {
-    await once(child, "message");
+    const [message] = await Promise.race([
+      once(child, "message"),
+      exited.then(([code, signal]) => { throw new Error(`Worker exited before ready (${code ?? signal}): ${stderr}`); }),
+    ]);
+    expect(message).toBe("ready");
     child[output]!.destroy();
     child.send("log");
     const [exitCode] = await exited;
