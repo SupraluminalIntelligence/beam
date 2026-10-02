@@ -1,0 +1,23 @@
+Window: "Codex can you create a tesla · Beam", App: Beam.
+1 Beam, Secondary Actions: Cancel, Pick
+	2 menu Secondary Actions: Cancel
+		3 About @beam/desktop, ID: orderFrontStandardAboutPanel:
+		4 Services
+			5 menu Secondary Actions: Cancel
+				6 Activity Monitor
+				7 Allocations & Leaks
+				8 File Activity
+				9 System Trace
+				10 Time Profile Active Application
+				11 Time Profile App Under Mouse
+				12 Time Profile Entire System
+				13 Toggle Instruments Recording
+				14 Ask Claude
+				15 New Claude Code Session Here
+				16 Send to Claude
+				17 Services Settings…
+		18 Hide @beam/desktop, ID: hide:
+		19 Hide Others, ID: hideOtherApplications:
+		20 Show All, ID: unhideAllApplications:
+		21 Quit @beam/desktop, ID: terminate:
+		22 Quit and Keep Windows

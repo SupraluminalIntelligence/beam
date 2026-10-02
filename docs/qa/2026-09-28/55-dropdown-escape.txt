@@ -1,0 +1,262 @@
+Window: "Untitled · Beam", App: Beam.
+0 standard window Untitled · Beam, Secondary Actions: Raise
+	1 container Untitled · Beam
+		2 container
+			3 HTML content Untitled · Beam, URL: file:///Applications/Beam.app/Contents/Resources/app.asar/dist/web/index.html
+				4 container
+					5 container Navigation
+						6 button Description: Toggle sidebar, Help: Hide sidebar
+						7 button Back
+						8 button (disabled) Forward
+					9 text BEAM
+					10 button Description: Search chats, Help: Search chats (⌘K)
+					11 button Notifications
+					12 container
+						13 button + New chat ⌘T
+							14 text + New chat
+							15 text ⌘T
+						16 button Team chat starts with just you · invite from the header
+							17 text Team chat
+							18 text starts with just you · invite from the header
+						19 button Private chat just you · @mention an agent
+							20 text Private chat
+							21 text just you · @mention an agent
+					22 text Workspaces
+					23 button +, Help: New workspace
+					24 container
+						25 button Collapse lydakis
+						26 button lydakis, Help: Double-click to rename
+						27 button +, Help: New chat in lydakis
+						28 button Team chat starts with just you · invite from the header
+							29 text Team chat
+							30 text starts with just you · invite from the header
+						31 button Private chat just you · @mention an agent
+							32 text Private chat
+							33 text just you · @mention an agent
+					34 container
+						35 button Collapse testbed
+						36 button testbed, Help: Double-click to rename
+						37 button +, Help: New chat in testbed
+						38 button Team chat starts with just you · invite from the header
+							39 text Team chat
+							40 text starts with just you · invite from the header
+						41 button Private chat just you · @mention an agent
+							42 text Private chat
+							43 text just you · @mention an agent
+					44 container
+						45 button Untitled lydakis, Help: Double-click to rename · Right-click for options
+							46 text Untitled
+							47 image lydakis
+						48 button just another test page, Help: Double-click to rename · Right-click for options
+						49 button ooh what do you see in, Help: Double-click to rename · Right-click for options
+						50 button Heyya this is the first message, Help: Double-click to rename · Right-click for options
+						51 button Untitled, Help: Double-click to rename · Right-click for options
+							52 text Untitled
+					53 container
+						54 button Collapse supraluminal
+						55 button supraluminal, Help: Double-click to rename
+						56 button +, Help: New chat in supraluminal
+						57 button Team chat starts with just you · invite from the header
+							58 text Team chat
+							59 text starts with just you · invite from the header
+						60 button Private chat just you · @mention an agent
+							61 text Private chat
+							62 text just you · @mention an agent
+					63 container
+						64 button Start from the wind-tunnel Ahmed body, Help: Double-click to rename · Right-click for options
+						65 button Set up a 3D study: water, Help: Double-click to rename · Right-click for options
+						66 button So, something interesting: I want to, Help: Double-click to rename · Right-click for options
+						67 button Codex can you create a tesla, Help: Double-click to rename · Right-click for options
+						68 button Create a new study named “Nine-cylinder, Help: Double-click to rename · Right-click for options
+						69 button Create a new study called “Backward-facing, Help: Double-click to rename · Right-click for options
+						70 button can we run a cfd simulation, Help: Double-click to rename · Right-click for options
+					71 text AGENTS
+					72 button +, Help: Add an agent: omp, Gemini CLI, or any harness with a JSON stream
+					73 container
+						74 button C Claude Code, Help: Agent settings
+							75 text C
+							76 text Claude Code
+						77 button Description: Model for @claude: Opus 5.5, Help: Model
+						78 button Description: Reasoning effort for @claude: high; change to max, Help: Next: max
+						79 container Allow commands and edits without prompts.
+							80 text Full access
+							81 text ▾
+							82 text HOW IT WORKS
+							83 button Supervised Ask before risky commands and file changes.
+								84 text Supervised
+								85 text Ask before risky commands and file changes.
+							86 button Plan Read-only until the plan is approved.
+								87 text Plan
+								88 text Read-only until the plan is approved.
+							89 button Full access Allow commands and edits without prompts.
+								90 text Full access
+								91 text Allow commands and edits without prompts.
+					92 container
+						93 button C Codex, Help: Agent settings
+							94 text C
+							95 text Codex
+						96 button Description: Model for @codex: GPT-6-Sol, Help: Model
+						97 button Description: Reasoning effort for @codex: medium; change to high, Help: Next: high
+						98 container Allow commands and edits without prompts.
+							99 text Full access
+							100 text ▾
+							101 text HOW IT WORKS
+							102 button Supervised Ask before risky commands and file changes.
+								103 text Supervised
+								104 text Ask before risky commands and file changes.
+							105 button Plan Read-only until the plan is approved.
+								106 text Plan
+								107 text Read-only until the plan is approved.
+							108 button Full access Allow commands and edits without prompts.
+								109 text Full access
+								110 text Allow commands and edits without prompts.
+					111 container
+						112 menu Secondary Actions: Cancel
+							113 image lydakis
+							114 text lydakis
+							115 text lydakis
+							116 George’s MacBook Pro · ready for agents
+							117 Machines Claude ✓ · Codex ✓
+							118 Usage & limits Claude 60% · Codex 29%
+							119 Models & accounts
+							120 text Pause alerts
+							121 button 1H, Help: Pause for 1 hour
+							122 button TOMORROW, Help: Pause until 9am tomorrow
+							123 Invite people testbed
+							124 Workspace settings
+							125 What's new new
+							126 Settings ⌘,
+							127 Log out
+						128 pop up button lydakis lydakis What's new ⚙
+							129 image lydakis
+							130 text lydakis
+							131 container What's new
+							132 text ⚙
+					133 container
+						134 text testbed 2  REPO S
+					135 button lydakis apek +, Help: 2 people · 1 online
+						136 image lydakis
+						137 image apek
+						138 text +
+					139 button Heyya this is the first message ×
+						140 text Heyya this is the first message
+						141 button ×, Help: Close tab (⌘W)
+					142 button ooh what do you see in ×
+						143 text ooh what do you see in
+						144 button ×, Help: Close tab (⌘W)
+					145 button just another test page ×
+						146 text just another test page
+						147 button ×, Help: Close tab (⌘W)
+					148 button Untitled ×
+						149 text Untitled
+						150 button ×, Help: Close tab (⌘W)
+					151 button +, Help: New chat (⌘T) · ⌘⇧T private
+					152 text ⌘T NEW CHAT · ⌘K JUMP · ⌘W CLOSE
+					153 button Description: Toggle tools pane, Help: Close tools pane
+					154 container
+						155 text Untitled
+						156 text + repo
+						157 text ADD A REPO FROM  TESTBED
+						158 button SupraluminalAI/supraluminal
+						159 button apekshik/bouje
+						160 button + connect another repo
+						161 button Study, Help: Pick or start a simulation study
+						162 button Context, Help: Files, links, and sources for this chat
+						163 button SETTLE, Help: Settle this thread when you are done with it. A new message reopens it.
+						164 button private lydakis C C +, Help: Private · just you
+							165 text private
+							166 image lydakis
+							167 text C
+							168 text C
+							169 text +
+						170 container
+							171 text Private · just you PEOPLE
+							172 button apek apek
+								173 image apek
+								174 text apek
+							175 button (disabled) lydakis lydakis you ✓
+								176 image lydakis
+								177 text lydakis you ✓
+							178 button + Invite someone new
+								179 text +
+								180 text Invite someone new
+							181 text AGENTS
+							182 button C Claude Code @claude ✓
+								183 text C
+								184 text Claude Code
+								185 text @
+								186 text claude
+								187 text ✓
+							188 button C Codex @codex ✓
+								189 text C
+								190 text Codex
+								191 text @
+								192 text codex
+								193 text ✓
+							194 text Adding a person shares the whole history. That cannot be undone.
+						195 container Chat messages
+							196 text STARTED 
+							197 text TODAY
+							198 text  · 
+							199 text 22:33
+							200 text  · PRIVATE
+							201 container
+								202 image lydakis
+								203 text LYDAKIS 22:37 Compute job: QA local smoke test
+								204 button QA local smoke test succeeded Open ↗
+									205 text QA local smoke test
+									206 text succeeded
+									207 text Open ↗
+								208 button 👍
+								209 button 🔥
+								210 button 👀
+								211 button ✅
+								212 button +, Help: More
+						213 text entry area (settable) Message Claude Code, or @mention another agent
+						214 button Description: Agent permissions: Full access, Help: Agent permissions
+						215 button C Opus 5.5 · high, Help: Claude Code · Opus 5.5 · high · Default account on George’s MacBook Pro
+							216 text C
+							217 text Opus 5.5
+							218 text  · 
+							219 text high
+						220 button Attach, Help: Attach files
+						221 button Mention, Help: Mention an agent or person
+						222 button (disabled) Description: Send message, Help: Send message (Enter)
+					223 container Tools pane
+						224 splitter Description: Resize tools pane, Value: 520
+						225 tab group Open tools
+							226 tab (settable, integer) Context, Value: 0
+							227 button Close Context
+							228 tab (settable, integer) CAD Viewer, Value: 0
+							229 button Close CAD Viewer
+							230 tab (settable, integer) Compute Jobs, Value: 0
+							231 button Close Compute Jobs
+							232 tab (selected) Job · 8f9vqj, Value: 1
+							233 button Close Job · 8f9vqj
+						234 button Open a tool
+						235 toggle button Description: Expand tool to full workspace, Value: 0
+						236 container
+							237 text COMPUTE JOB
+							238 heading QA LOCAL SMOKE TEST, Value: 2
+								239 text QA LOCAL SMOKE TEST
+							240 text succeeded  ·  George’s MacBook Pro Submitted by  lydakis Runtime limit  3600 s Input snapshot  0  files python3  "-c" "print('Beam QA: local smoke test')"
+							241 disclosure triangle Input snapshot and requested results
+								242 text Input snapshot and requested results
+							243 heading Logs, Value: 3
+								244 text Logs
+							245 text Latest 16,000 characters
+							246 container Job log
+								247 text Beam QA: local smoke test
+
+	248 close button
+	249 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	250 minimize button
+251 menu bar
+	252 Beam
+	253 File
+	254 Edit
+	255 View
+	256 Window
+	257 Help
+
+The focused UI element is 213 text entry area (settable) Message Claude Code, or @mention another agent
