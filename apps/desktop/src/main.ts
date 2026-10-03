@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 import { execFile, spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { basename, join } from "node:path";
+import { ignoreBrokenPipeErrors } from "./stdio";
+
+ignoreBrokenPipeErrors(process.stdout, process.stderr);
 
 /**
  * Beam desktop shell. Owns a window that shows apps/web and a runner child process.

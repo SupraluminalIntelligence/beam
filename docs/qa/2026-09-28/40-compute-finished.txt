@@ -1,0 +1,63 @@
+The following is a diff from the previous accessibility tree for Window: "Codex can you create a tesla · Beam" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 309, 311, 424, 437, 517, 583, 647, 792, 806, 849, 899-1055
++								1067 link Description: Tesla’s Model Y dimensions and side-view diagram, Value: tesla.com/ownersmanual/modely/en_us/GUID-1E76B638-7B12-4D9A-8767-94B7F1E92A0E.html
++								1068 link Description: detailed 2020 Model Y outline, Value: dimensions.com/element/tesla-model-y
++								1069 text checkMesh
++								1070 text checkMesh
++										1071 link Description: Tesla’s dimensions, Value: tesla.com/ownersmanual/modely/en_us/GUID-1E76B638-7B12-4D9A-8767-94B7F1E92A0E.html
++								1072 link Description: SUV spoiler experiment, Value: dergipark.org.tr/en/pub/ijeat/article/1223324?issue_id=75003
++								1073 link Description: SUV spoiler experiment, Value: dergipark.org.tr/en/pub/ijeat/article/1223324?issue_id=75003
++								1074 text checkMesh
++								1075 text checkMesh
++								1076 text checkMesh
+~						864 splitter Description: Resize tools pane, Value: 994.3047
+~						869 toggle button Description: Expand tool to full workspace, Value: 0
+~								893 toggle button ■ RAIL, Value: 1
+~							896 text Computed transient · interpolated field
+~							897 image Animated vorticity in the fluid domain at 0.258 seconds
++							1077 text -8.82 8.82 1/s · clipped Hover to inspect
++							1078 button Pause playback
++							1079 button Restart playback
++							1080 slider Description: Simulation time, Value: 7.6, Secondary Actions: Increment, Decrement
++							1081 text 0.26  s
++							1082 pop up button Description: Playback speed, Value: 1×
++								1083 (selected) 1×
+~							898 text Fig. 1 —  Solved velocity and vorticity 40 saved times · loops from start STUDY
++							1084 button ＋, Help: New simulation study
++							1085 pop up button Description: Saved study, Value: Latest Tesla Model Y — 2D Wind Tunnel
++								1086 (selected) Latest Tesla Model Y — 2D Wind Tunnel
++							1087 text NEW STUDY
++							1088 pop up button Description: New study type, Value: Choose a study…
++								1089 (selected) Choose a study…
++							1090 text RUNNER
++							1091 pop up button Description: Simulation runner, Value: George’s MacBook Pro
++								1092 (selected) George’s MacBook Pro
++							1093 text OpenCFD OpenFOAM 2512 · Docker · local
++							1094 text RUNS 2
++							1095 pop up button Description: Selected job, Value: r7 · succeeded · 5:15:24 PM
++								1096 (selected) r7 · succeeded · 5:15:24 PM
++							1097 text MOTION stationary REFINEMENT 3 VEHICLE_NEAR_FIELD
++							1098 text latest_model_y · surface distance 0.4 m
++							1099 container
++								1100 text Target  0.08  m · transition  0.25  m
++							1101 text WAKE_REFINEMENT
++							1102 text Box (4.3, 0.05) → (9.5, 2.3) m
++							1103 container
++								1104 text Target  0.12  m · transition  0.17  m
++							1105 text REAR_LIP_REFINEMENT
++							1106 text Box (4.25, 0.75) → (5.05, 1.3) m
++							1107 container
++								1108 text Target  0.035  m · transition  0.35  m
++							1109 text MEASUREMENTS physical time 1.2 s saved times 40 max Courant 1.6
++							1110 text Blue and amber show opposite rotation, not temperature. Playback interpolates between computed snapshots and restarts at the beginning.
++							1111 text Vorticity colour limits are ±2U/L (the displayed reference length) to reveal the wake; stronger near-wall values are clipped. Hover values remain unclipped.
++							1112 text CHECKS solver criteria end time reached mass balance not evaluated thermal balance not evaluated mesh sensitivity not studied
++							1113 container
++								1114 text No engineering validation is implied by a completed job.  Check conservation and mesh sensitivity before relying on results.
++							1115 text OUTPUTS
++							1116 link Description: report.json ↗, Value: cautious-fish-858.convex.cloud/api/storage/9ae1d0de-c1ed-4724-b14b-511ccca904a3
++							1117 link Description: fields.json ↗, Value: cautious-fish-858.convex.cloud/api/storage/ae456679-f69c-470e-b624-50e3cb12b5c8
++							1118 link Description: case.tar.gz ↗, Value: cautious-fish-858.convex.cloud/api/storage/64265c65-bfa0-4ed0-8f90-c764875c110a
++							1119 link Description: frames.bin ↗, Value: cautious-fish-858.convex.cloud/api/storage/d247812e-dcd7-452c-87dd-48c238f39ae3
++							1120 text The case archive opens in ParaView using case.foam.
+The focused UI element is 889 button ■ RESULTSfields
