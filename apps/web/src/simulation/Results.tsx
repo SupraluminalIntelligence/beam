@@ -3,7 +3,8 @@ import { useAction, useQuery } from "convex/react";
 import { formatQuantity, ResultsManifest, SeriesData, TableData, type ResultCheck, type ResultQuantity, type ResultSeries } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { Plot, type PlotLine } from "./Plot";
+import { Plot } from "./Plot";
+import { plotGroups, plotLines } from "./plotGroups";
 import { formatBytes, OutputLink, type JobOutput } from "../components/OutputLink";
 import "./results.css";
 
@@ -49,12 +50,6 @@ export function Checks({ checks }: { checks: ResultCheck[] }) {
   </li>)}</ul>;
 }
 
-/** Plots with the same axes are drawn together, so a result shows over its reference data. */
-function plotGroups(series: ResultSeries[]) {
-  const groups = new Map<string, ResultSeries[]>();
-  for (const s of series) { const key = `${s.x.label}|${s.x.unit}|${s.y.unit}|${s.y.scale}|${s.kind}`; groups.set(key, [...(groups.get(key) ?? []), s]); }
-  return [...groups.values()];
-}
 function PlotGroup({ series, outputs }: { series: ResultSeries[]; outputs: Output[] }) {
   const data = series.map(s => { const o = outputs.find(x => x.path === `beam/out/${s.data}`); return { s, o }; });
   return <section className="results-block"><h4>{series.map(s => s.label).join(" · ")}</h4>
@@ -80,7 +75,7 @@ function PlotData({ items }: { items: { s: ResultSeries; o: Output | undefined }
   if (error) return <p className="results-empty">{error}</p>;
   if (!data) return <p className="results-empty">Loading…</p>;
   const first = items[0]!.s;
-  const lines: PlotLine[] = data.flatMap(d => d.lines.map(line => ({ name: line.name, x: d.x, y: line.values, points: d.x.length < 30 })));
+  const lines = plotLines(items.map((i, n) => ({ s: i.s, d: data[n]! })));
   return <Plot lines={lines} xLabel={first.x.label} xUnit={first.x.unit} yUnit={first.y.unit} yScale={first.y.scale} ariaLabel={`${items.map(i => i.s.label).join(", ")} against ${first.x.label}`} />;
 }
 function Table({ label, output }: { label: string; output: Output | undefined }) {

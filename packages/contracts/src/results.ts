@@ -47,7 +47,11 @@ export const ResultCheck = z.object({
 });
 export type ResultCheck = z.infer<typeof ResultCheck>;
 
-/** A plot: x against one or more lines. The values live in a SeriesData file. */
+/**
+ * A plot: x against one or more lines. The values live in a SeriesData file. `overlay` draws it on the
+ * plot of another series with the same axes (a result over its reference data); that series is not
+ * itself an overlay. Without it, each series is a plot of its own.
+ */
 export const ResultSeries = z.object({
   name: Name,
   label: Label,
@@ -56,8 +60,11 @@ export const ResultSeries = z.object({
   kind: z.enum(["line", "polar"]).default("line"),
   x: z.object({ label: Label, unit: Unit.default("") }),
   y: z.object({ unit: Unit.default(""), scale: z.enum(["linear", "log"]).default("linear"), lines: z.array(LineName).min(1).max(32) }),
+  overlay: Name.optional(),
 });
 export type ResultSeries = z.infer<typeof ResultSeries>;
+/** What two series must share to be drawn on one plot. */
+export const seriesAxes = (s: Pick<ResultSeries, "kind" | "x" | "y">) => [s.kind, s.x.label, s.x.unit, s.y.unit, s.y.scale].join("\u0000");
 export const SeriesData = z.object({
   x: z.array(Finite),
   lines: z.array(z.object({ name: LineName, values: z.array(Finite) })).min(1).max(32),
@@ -192,6 +199,12 @@ export const ResultsManifest = z.object({
     if (v.table && !kinds.tables.includes(v.table)) ctx.addIssue({ code: "custom", message: `View ${v.name} names a missing table ${v.table}` });
     const arrays = m.fields.find((f) => f.name === v.field)?.arrays.map((a) => a.name) ?? [];
     for (const a of [v.color, v.warp]) if (a && v.field && !arrays.includes(a)) ctx.addIssue({ code: "custom", message: `View ${v.name} names a missing array ${a}` });
+  }
+  for (const s of m.series) {
+    if (s.overlay === undefined) continue;
+    const base = m.series.find((b) => b.name === s.overlay);
+    if (!base || base === s || base.overlay !== undefined) ctx.addIssue({ code: "custom", message: `Series ${s.name} overlays ${s.overlay}, which is missing, itself or an overlay` });
+    else if (seriesAxes(base) !== seriesAxes(s)) ctx.addIssue({ code: "custom", message: `Series ${s.name} overlays ${s.overlay}, whose axes differ (kind, x label and unit, y unit and scale)` });
   }
 });
 export type ResultsManifest = z.infer<typeof ResultsManifest>;

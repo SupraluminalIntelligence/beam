@@ -15,7 +15,7 @@ A job's results are what its `beam/out/manifest.json` names, written by `beam_ou
 
 - `out.quantity`: a number with its unit, uncertainty (a grid convergence index from `gci`) and a reference value.
 - `out.check`: how far to trust it (pass, review, fail, not evaluated), such as mesh convergence or agreement with theory.
-- `out.series`, `out.table`: plots and tables.
+- `out.series`, `out.table`: plots and tables. A series is its own plot; `overlay="<series>"` draws it on another's plot with the same axes, such as reference data over a result.
 - `out.field`: a 3D field on a tetrahedral mesh, drawn in the app (colour by any array, deform by a displacement, step through saved frames) with the full data for ParaView.
 - `out.openfoam`, `out.scene`: a flow's walls, slices and streamlines, each of which can be shown, hidden or made see-through.
 - `out.file`: any other file; pictures show under Figures.

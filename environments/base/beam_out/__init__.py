@@ -4,6 +4,7 @@
     out.quantity("tip_deflection", 1.92e-4, "m", headline=True)
     out.check("mesh-convergence", "pass", value="GCI 0.4%", criterion="< 2%")
     out.series("tip_deflection_vs_mesh", x=[...], ys={"deflection": [...]}, x_label="cells", y_unit="m")
+    out.series("theory", x=[...], ys={"Euler-Bernoulli": [...]}, x_label="cells", y_unit="m", overlay="tip_deflection_vs_mesh")
     out.field("solid", points, tetrahedra, {"von_mises": (values, "Pa")})
     out.openfoam("flow", "case")   # walls, a slice and streamlines from an OpenFOAM case
     out.write()
@@ -100,7 +101,16 @@ class Results:
         return c
 
     # plots -----------------------------------------------------------------------------------
-    def series(self, name, x, ys: dict, *, x_label, x_unit="", y_unit="", y_scale="linear", label=None):
+    def series(self, name, x, ys: dict, *, x_label, x_unit="", y_unit="", y_scale="linear", label=None, overlay=None):
+        """overlay: the name of a series already written with the same axes, to draw this one on its
+        plot (a result over its reference data). Without it, the series is a plot of its own."""
+        axes = {"x": {"label": x_label, "unit": x_unit}, "y_unit": y_unit, "y_scale": y_scale}
+        if overlay is not None:
+            base = next((s for s in self.m["series"] if s["name"] == overlay), None)
+            if base is None or "overlay" in base:
+                raise ValueError(f"{name}: overlay {overlay!r} must name a series already written that is not itself an overlay")
+            if (base["x"], base["y"]["unit"], base["y"]["scale"]) != (axes["x"], y_unit, y_scale):
+                raise ValueError(f"{name}: overlay {overlay!r} has different axes (x label and unit, y unit and scale)")
         xs = _finite(f"{name}.x", x)
         lines = []
         for key, y in ys.items():
@@ -110,10 +120,13 @@ class Results:
             lines.append({"name": key, "values": ya.tolist()})
         rel = f"series/{_slug(name)}.json"
         self._json(rel, {"x": xs.tolist(), "lines": lines})
-        self.m["series"].append({
+        s = {
             "name": name, "label": label or name.replace("_", " "), "data": rel, "points": int(xs.size),
-            "x": {"label": x_label, "unit": x_unit}, "y": {"unit": y_unit, "scale": y_scale, "lines": [l["name"] for l in lines]},
-        })
+            "x": axes["x"], "y": {"unit": y_unit, "scale": y_scale, "lines": [l["name"] for l in lines]},
+        }
+        if overlay is not None:
+            s["overlay"] = overlay
+        self.m["series"].append(s)
 
     # tables ----------------------------------------------------------------------------------
     def table(self, name, columns: list[dict], rows: list[list], *, label=None):
