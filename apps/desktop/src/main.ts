@@ -1,12 +1,13 @@
-import { openTerminal, psQuote } from "./terminal";
+import { openTerminal, psQuote, shQuote, signInScript } from "./terminal";
 import { showNotification } from "./notifications";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, Notification, clipboard } from "electron";
 import { installPreviewHost } from "./preview";
 import { autoUpdater } from "electron-updater";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { execFile, spawnSync, spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import { ignoreBrokenPipeErrors } from "./stdio";
 
@@ -184,11 +185,12 @@ ipcMain.handle("beam:signInConnection", async (event, value: { harness: string; 
   const entry = app.isPackaged ? join(__dirname.replace("app.asar", "app.asar.unpacked"), "runner.mjs") : join(__dirname, "..", "..", "runner", "src", "cli.ts");
   // Separate validated values survive Windows PowerShell's legacy native argument quoting.
   const args = [process.execPath, ...(app.isPackaged ? [] : ["--experimental-strip-types", "--no-warnings"]), entry, "connection-login", value.harness, value.id];
-  const quote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
-  const command = process.platform === "win32"
-    ? `$env:ELECTRON_RUN_AS_NODE='1'; & ${args.map(psQuote).join(" ")}`
-    : `ELECTRON_RUN_AS_NODE=1 ${args.map(quote).join(" ")}`;
-  await openTerminal(command);
+  if (process.platform === "win32") { await openTerminal(`$env:ELECTRON_RUN_AS_NODE='1'; & ${args.map(psQuote).join(" ")}`); return; }
+  // A script file, so Terminal echoes one short line (which the script clears) rather than the whole command.
+  const provider = value.harness === "claude" ? "Claude" : "Codex";
+  const script = join(app.getPath("temp"), `beam-sign-in-${randomUUID()}.sh`);
+  await writeFile(script, signInScript(provider, value.id === "default" ? "Default account" : "Connected account", { ELECTRON_RUN_AS_NODE: "1" }, args), { mode: 0o700 });
+  await openTerminal(`clear; sh ${shQuote(script)}`);
 });
 
 const previewChildren = new Set<ChildProcess>();
