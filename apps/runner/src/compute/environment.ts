@@ -63,8 +63,12 @@ export async function openLocalMachine(key: string, image: string, directory: st
 }
 
 const MAX_OUTPUT = 16_000;
+/** The command each machine is running now, by machine key, for the live view. */
+const running = new Map<string, { text: string; startedAt: number }>();
+export const machineCommand = (key: string) => running.get(key) ?? null;
 export async function execOnLocalMachine(key: string, command: string, timeoutSeconds: number) {
   const name = machineContainer(key), started = Date.now();
+  running.set(key, { text: command.replace(/\s+/g, " ").trim().slice(0, 300), startedAt: started });
   try {
     const { stdout, stderr } = await exec("docker", ["exec", "-w", "/work", name, "/bin/bash", "-lc", `touch /tmp/.beam-used; ${command}`], { timeout: timeoutSeconds * 1000, maxBuffer: 64 << 20 });
     return { exitCode: 0, stdout: stdout.slice(-MAX_OUTPUT), stderr: stderr.slice(-MAX_OUTPUT), seconds: (Date.now() - started) / 1000 };
@@ -72,6 +76,8 @@ export async function execOnLocalMachine(key: string, command: string, timeoutSe
     const err = e as { code?: number | string; killed?: boolean; stdout?: string; stderr?: string; message: string };
     if (/No such container|is not running/.test(err.stderr ?? err.message)) throw new Error("This chat's machine is not running. Call machine_open first.");
     return { exitCode: typeof err.code === "number" ? err.code : null, timedOut: !!err.killed, stdout: (err.stdout ?? "").slice(-MAX_OUTPUT), stderr: (err.stderr ?? err.message).slice(-MAX_OUTPUT), seconds: (Date.now() - started) / 1000 };
+  } finally {
+    if (running.get(key)?.startedAt === started) running.delete(key);
   }
 }
 export async function closeLocalMachine(key: string) {

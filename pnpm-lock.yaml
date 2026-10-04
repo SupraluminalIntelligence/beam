@@ -209,6 +209,9 @@ importers:
       '@beam/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@beam/observe':
+        specifier: workspace:*
+        version: link:../../packages/observe
       convex:
         specifier: ^1.43.0
         version: 1.45.0(react@19.2.8)
@@ -345,6 +348,12 @@ importers:
       zod-to-json-schema:
         specifier: ^3.25.2
         version: 3.25.2(zod@3.25.76)
+
+  packages/observe:
+    dependencies:
+      '@beam/contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/reducer:
     dependencies:

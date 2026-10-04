@@ -64,11 +64,15 @@ boundaryField { movingWall { type zeroGradient; } fixedWalls { type zeroGradient
 
 
 def foam(case: Path, *args: str) -> str:
-    p = subprocess.run(["bash", "-lc", "source /usr/lib/openfoam/openfoam2512/etc/bashrc && " + " ".join(args)], cwd=case, capture_output=True, text=True)
-    (case / f"log.{args[0]}").write_text(p.stdout + p.stderr)
+    """Run an OpenFOAM command in the case, writing its output to log.<command> as it runs: Beam reads
+    the log while the solve is going, so the residuals show live on the simulation's page."""
+    log = case / f"log.{args[0]}"
+    with log.open("w") as out:
+        p = subprocess.run(["bash", "-lc", "source /usr/lib/openfoam/openfoam2512/etc/bashrc && " + " ".join(args)], cwd=case, stdout=out, stderr=subprocess.STDOUT, text=True)
+    text = log.read_text(errors="replace")
     if p.returncode != 0:
-        raise RuntimeError(f"{args[0]} failed:\n{(p.stdout + p.stderr)[-2000:]}")
-    return p.stdout
+        raise RuntimeError(f"{args[0]} failed:\n{text[-2000:]}")
+    return text
 
 
 def vectors(path: Path) -> np.ndarray:

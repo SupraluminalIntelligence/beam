@@ -18,6 +18,7 @@
     "@beam/contracts": "workspace:*",
     "@beam/git": "workspace:*",
     "@beam/harness": "workspace:*",
+    "@beam/observe": "workspace:*",
     "convex": "^1.43.0",
     "zod": "^3.25.76"
   }
