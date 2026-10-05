@@ -1,10 +1,10 @@
 # Tools pane and durable local compute
 
-Open **Tools** in a chat header. The pane has Browser and Context under General, with Compute Jobs, CAD Viewer, and CFD Editor under Engineering. [CAD Viewer](cad-viewer.md) opens STEP/IGES/STL/OBJ models, chat attachments, and compute results. CFD Editor remains marked Coming next; this does not install an OpenFOAM editor.
+Open **Tools** in a chat header. The pane has Browser and Context under General, and CAD Viewer under Engineering. Jobs are no longer a tool of their own: each belongs to a simulation and is on its Jobs tab, and the sidebar's This computer lists what your computer is running across chats ([simulations](simulation.md)). A job's log and files open from there in a job tab. [CAD Viewer](cad-viewer.md) opens STEP/IGES/STL/OBJ models, chat attachments, and compute results.
 
 The Context pane is described in [context and workspace sources](context-and-sources.md).
 
-The pane has independent per-chat tabs, resizing, maximization, and an inline job card that opens the same durable job record. Closing a pane never cancels a job. Pane state is personal local UI state; jobs, inputs, logs, and results belong to the shared chat.
+The pane has independent per-chat tabs, resizing and maximization. Closing a pane never cancels a job. Pane state is personal local UI state; jobs, inputs, logs, and results belong to the shared chat.
 
 ## Browser and T3 Code reuse
 
@@ -25,7 +25,7 @@ awaiting-approval → queued → preparing → running → publishing → succee
                                         ↘ failed / cancelled
 ```
 
-Both the form and agent tools call the same Convex compute service. Agent tools are `submit_job`, `list_jobs`, `get_job`, and `cancel_job`. Plan mode cannot submit; ask/allow-list submissions wait for the requesting person to approve the command and snapshot. Auto mode can submit directly. Manual form submission is explicit authorization. Chat membership, private-chat access, runner ownership/sharing, and runner token checks apply at service boundaries.
+Agent tools and the simulation page call the same Convex compute service. Agent tools are `submit_job`, `list_jobs`, `get_job`, and `cancel_job`. Plan mode cannot submit; ask/allow-list submissions wait for the requesting person to approve the command and snapshot. Auto mode can submit directly. Running a version from the simulation page is explicit authorization. Chat membership, private-chat access, runner ownership/sharing, and runner token checks apply at service boundaries.
 
 `watchCompute` reconciles jobs separately from agent runs. One local job executes at a time per runner. The local executor launches a detached supervisor into a private directory under `~/.beam/compute/<jobId>/work`. It runs the installed executable directly without an implicit shell, records bounded logs/heartbeat/result receipts, enforces timeouts, and stops the process group on cancellation. Commands have the runner user's privileges; the working directory is not an OS sandbox. No dependencies are installed automatically.
 

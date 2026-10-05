@@ -1,4 +1,5 @@
 import { SimulationList } from "../simulation/Simulations";
+import { ThisComputer } from "../simulation/Computer";
 import beamLogo from "../assets/beam-logo.png";
 import { Notifications } from "./Notifications";
 import { useMutation, useQuery } from "convex/react";
@@ -125,6 +126,7 @@ export function Sidebar(p: { me: Me; workspaces: WorkspaceRow[]; wsId: Id<"works
           );
         })}
         {p.wsId && <SimulationList workspaceId={p.wsId as Id<"workspaces">} />}
+        <ThisComputer />
       </div>
       <div className="sb-bottom">
         <div className="sb-sec">Agents <button onClick={() => p.setModal({ kind: "agent", id: "new" as unknown as Id<"agents"> })} title="Add an agent: omp, Gemini CLI, or any harness with a JSON stream">+</button></div>

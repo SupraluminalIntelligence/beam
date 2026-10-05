@@ -63,7 +63,7 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
     },
     {
       name: "job_submit",
-      description: "Run a command in an environment on a machine as a durable job, and return its job ID immediately. Input paths are snapshotted from the thread directory into the job's /work; the command runs with bash -lc in a fresh container with no network. Results are whatever the command writes under beam/out: use beam_out in Python (from beam_out import out; out.quantity/check/series/table/field; out.write()) so the chat shows numbers with units, checks, plots and 3D. Files the manifest names are published; files over 20 MB stay on the machine and are listed. Use $BEAM_CORES for the MPI process count: that is how a job uses the whole machine, since the local machine runs one job at a time. Reuse requestKey when retrying. Do not assume success: read job state with get_job and results with results_read. In non-auto modes the requester approves first; unavailable in plan mode. Machine: only local today.",
+      description: "Run a command in an environment on a machine as a durable job, and return its job ID immediately. Input paths are snapshotted from the thread directory into the job's /work; the command runs with bash -lc in a fresh container with no network. Results are whatever the command writes under beam/out: use beam_out in Python (from beam_out import out; out.quantity/check/series/table/field; out.write()) so the chat shows numbers with units, checks, plots and 3D. Files the manifest names are published; files over 20 MB stay on the machine and are listed. Use $BEAM_CORES for the MPI process count: that is how a job uses the whole machine, since the local machine runs one job at a time. The job belongs to the simulation you are working on (list_simulations' activeId; a draft if there is none yet) and shows on its page, live while it runs: keep each OpenFOAM application's log in log.<application>. For a saved version, use run_version instead. Reuse requestKey when retrying. Do not assume success: read job state with get_job and results with results_read. In non-auto modes the requester approves first; unavailable in plan mode. Machine: only local today.",
       schema: {
         requestKey: z.string().min(1).max(160), title: z.string().min(1).max(120), environment: z.string(),
         command: z.string().min(1).max(8000), inputPaths: z.array(JobPath).max(64),
@@ -82,7 +82,7 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
           return JSON.stringify({ id: prior._id, state: prior.state, reused: true });
         }
         const id = await client.mutation(api.compute.submitForRun, { token, runId, requestKey, spec: { ...spec, inputs: await stageInputs(client, token, runId, directory, paths) } });
-        return JSON.stringify({ id, submitted: true, note: "Use get_job for state and logs, results_read once it succeeds. Approval may be required in Jobs." });
+        return JSON.stringify({ id, submitted: true, note: "Use get_job for state and logs, results_read once it succeeds. Outside auto mode the requester approves it first, on the simulation's Jobs tab or card." });
       },
     },
     {

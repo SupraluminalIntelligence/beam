@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFile, cp, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findCases, observeMachine, readMachine, type Memory } from "./observe.ts";
+import { jobWatcher } from "./watch.ts";
 
 const FIXTURES = new URL("../../../../packages/observe/src/fixtures/", import.meta.url).pathname;
 let root = "";
@@ -86,4 +87,26 @@ it("publishes when the solver's output changes, and not otherwise, up to its las
     await watch.stop();
     expect(published).toHaveLength(2);
   } finally { vi.useRealTimers(); }
+});
+
+it("reports a running job's working directory as it changes, at most every few seconds, and lets an ended job go", async () => {
+  const coarse = await thread(), home = await mkdtemp(join(tmpdir(), "beam-jobs-"));
+  try {
+    await mkdir(join(home, "job1"));
+    await symlink(root, join(home, "job1", "work"));
+    const sent: { id: string; iteration: number | undefined; state: string }[] = [];
+    const client = { mutation: async (_: unknown, a: { id: string; view: { quantities: { name: string; value: number }[]; case: { state: string } } }) => { sent.push({ id: a.id, iteration: a.view.quantities.find(q => q.name === "iteration")?.value, state: a.view.case.state }); } };
+    const watch = jobWatcher(client as never, "valid", home, () => {});
+    const job = (state: string) => ({ _id: "job1", state, createdAt: 1, startedAt: 2, spec: { version: 1, kind: "environment", title: "Polar", environment: { name: "cfd", image: "ghcr.io/supraluminalintelligence/beam-env-cfd@sha256:" + "a".repeat(64) }, command: "./Allrun", inputs: [], machine: "local", timeoutSeconds: 600 } }) as never;
+    await watch(job("running"), 10_000);
+    await watch(job("running"), 11_000);
+    expect(sent).toEqual([{ id: "job1", iteration: 2100, state: "done" }]);
+    await appendFile(join(coarse, "log.simpleFoam"), "Exec   : simpleFoam\nTime = 2101\n\nGAMG:  Solving for p, Initial residual = 0.001, Final residual = 1e-5, No Iterations 3\n");
+    await watch(job("running"), 12_000);
+    expect(sent).toHaveLength(1);
+    await watch(job("running"), 14_500);
+    expect(sent.at(-1)).toEqual({ id: "job1", iteration: 2101, state: "running" });
+    await watch(job("succeeded"), 20_000);
+    expect(sent).toHaveLength(2);
+  } finally { await rm(home, { recursive: true, force: true }); }
 });

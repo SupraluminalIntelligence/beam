@@ -15,10 +15,17 @@ import { objectStore, signObject } from "./objectStore";
 import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, authorizedCents, cloudCentsPerHour, formatCents } from "../packages/contracts/src/machines";
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
 import { isCfdImage } from "../packages/contracts/src/environments";
+import { workingSimulation } from "./drafts";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
 export const summary = ({ spec, log, results, ...job }: Doc<"computeJobs">) => { const s = JobSpec.parse(spec); return { ...job, title: s.title, simulation: jobStudy(s) ?? null, environment: s.kind === "environment" ? s.environment.name : null, simulationVersion: s.kind === "environment" ? s.simulation ?? null : null }; };
+/** The simulation a job belongs to: the one it names, or the one it was attached to; none for a study's job. */
+export const jobSimulationId = (job: Doc<"computeJobs">): Id<"simulationCases"> | null => {
+  if (job.simulationId) return job.simulationId;
+  const s = JobSpec.parse(job.spec);
+  return s.kind === "environment" && s.simulation ? s.simulation.caseId as Id<"simulationCases"> : null;
+};
 /** Studies were the first simulations. Installed apps and runners understand only recipe simulations, so the study functions return only those. */
 export const isRecipe = (s: Doc<"simulationCases">) => (s.kind ?? "recipe") === "recipe";
 
@@ -34,7 +41,7 @@ export async function runAccess(ctx: Ctx, token: string, runId: Id<"runs">) {
   return result;
 }
 /** Local jobs belong to the runner they target; cloud jobs to the gateway. */
-async function workerAccess(ctx: Ctx, token: string, jobId: Id<"computeJobs">) {
+export async function workerAccess(ctx: Ctx, token: string, jobId: Id<"computeJobs">) {
   const job = await ctx.db.get(jobId);
   if (job && job.backend !== "local-process") {
     if (!(await isGatewayToken(token))) throw new Error("Not this runner's job");
@@ -100,16 +107,23 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
   }
   if (size > MAX_COMPUTE_INPUT_BYTES) throw new Error("Local jobs support up to 100 MB of input");
   const now = Date.now();
+  // Every job belongs to a simulation: a version's job to it, a one-off to the one the agent is working on, or a draft.
+  const run = input.sourceRunId ? await ctx.db.get(input.sourceRunId) : null;
+  const caseId = spec.kind === "environment" && spec.simulation ? ctx.db.normalizeId("simulationCases", spec.simulation.caseId) : null;
+  const named = caseId ? await ctx.db.get(caseId) : null;
+  if (spec.kind === "environment" && spec.simulation && named?.chatId !== input.chatId) throw new Error("Simulation unavailable in this chat");
+  const simulation = study ? null : named ?? await workingSimulation(ctx, chat, input.requestedBy, run, spec.title);
   const reserved = billing && !input.needsApproval ? await reserve(ctx, chat.workspaceId, billing) : billing;
   const id = await ctx.db.insert("computeJobs", {
     chatId: input.chatId, runnerId: input.runnerId, requestedBy: input.requestedBy,
     ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), requestKey: input.requestKey,
     backend: billing ? "modal-sandbox" : "local-process", spec, state: input.needsApproval ? "awaiting-approval" : "queued",
     createdAt: now, updatedAt: now, log: "", error: null, outputs: [], ...(reserved ? { billing: reserved } : {}),
+    ...(simulation ? { simulationId: simulation._id } : {}),
   });
+  // A study's card shows its jobs; a simulation's card shows its jobs, so a job needs no message of its own.
   if(study) await ensureStudyCard(ctx,study.caseId as Id<"simulationCases">,input.requestedBy);
-  else if(spec.kind==="environment"&&spec.simulation) { /* The simulation's card shows its jobs. */ }
-  else await ctx.db.insert("messages", { chatId: input.chatId, author: input.requestedBy, kind: "text", text: `Compute job: ${spec.title}`, runId: input.sourceRunId ?? null, computeJobId: id, reactions: [] });
+  else if(simulation) await ctx.db.patch(simulation._id, { updatedAt: now });
   await ctx.db.patch(input.chatId, { lastMessageAt: now });
   return id;
 }
@@ -245,7 +259,7 @@ export const cancel = mutation({ args: { id: v.id("computeJobs") }, handler: asy
 export const cancelForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), id: v.id("computeJobs") }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   const agent = await ctx.db.get(run.agentId);
-  if (agent?.permissionMode !== "auto") throw new Error("Cancel this job using the Jobs panel");
+  if (agent?.permissionMode !== "auto") throw new Error("Only auto mode can cancel jobs. Ask the requester to cancel it on the simulation's Jobs tab.");
   const job = await ctx.db.get(a.id);
   if (!job || job.chatId !== run.chatId || job.requestedBy !== run.dispatchedBy) throw new Error("Not your job in this chat");
   await cancelJob(ctx, a.id);

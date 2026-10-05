@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { compareQuantities, formatQuantity, type FilesSetup, type Parameter, type ResultsManifest } from "@beam/contracts";
+import { compareQuantities, formatQuantity, MACHINES, type FilesSetup, type LiveView, type MachineId, type Parameter, type ResultsManifest } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { ui } from "../lib/ui";
@@ -8,7 +8,8 @@ import { toast } from "../components/Toast";
 import { Checks, Numbers, quantityText, ResultsView } from "./Results";
 import { Plot } from "./Plot";
 import { LiveResults } from "./LiveResults";
-import { phase } from "./phase";
+import { isLive, jobName, phase } from "./phase";
+import { Sparkline } from "./Sparkline";
 import "./results.css";
 import "./study.css";
 
@@ -17,6 +18,7 @@ type Sim = NonNullable<ReturnType<typeof useSimulation>>;
 type Job = Sim["jobs"][number];
 const useSimulation = (id: SimId) => useQuery(api.simulations.get, { id });
 const useLive = (id: SimId) => useQuery(api.live.forSimulation, { id });
+const useJobLives = (id: SimId) => useQuery(api.live.jobsForSimulation, { id });
 const state = (s: string) => s.replaceAll("-", " ");
 const value = (p: Pick<Parameter, "value" | "unit">) => typeof p.value === "number" ? formatQuantity(p.value, p.unit || "1") : String(p.value);
 /** A number as an engineer reads it (210 GPa), beside the raw SI value being edited, when they differ. */
@@ -31,28 +33,46 @@ export const openSimulation = (chatId: string, id: string, tab?: Tab, jobId?: st
   ui.openSurface(chatId, `sim:${id}`);
 };
 
-/** The simulation's card in its chat: the latest job's state, headline numbers and checks. */
-export function SimulationCard({ id, chatId }: { id: SimId; chatId: Id<"chats"> }) {
-  const sim = useSimulation(id), live = useLive(id);
+/** A duration as people say it: 45 s, 9 min, 1 h 20 min. */
+export const duration = (ms: number) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h${Math.round((s % 3600) / 60) ? ` ${Math.round((s % 3600) / 60)} min` : ""}`; };
+const machineName = (id: string) => id === "local" ? "this computer" : MACHINES[id as MachineId]?.label ?? id;
+/** The latest numbers of a live view, in one line. */
+const latest = (view: LiveView, n = 4) => [...view.quantities.slice(0, n).map(q => `${q.label} ${formatQuantity(q.value, q.unit || "1")}`), ...(view.mesh?.ok === true ? ["checkMesh OK"] : view.mesh?.ok === false ? ["checkMesh failed"] : [])].join(" · ");
+const errorText = (e: unknown) => (e as Error).message.replace(/^.*Uncaught Error: /, "");
+
+/**
+ * The simulation's card in its chat, updated in place through its life: the agent's work on the
+ * machine, a running job, then checked results. Each live phase draws its history small with the
+ * latest numbers. A job waiting for approval is approved here or on the Jobs tab.
+ */
+export function SimulationCard({ id, chatId, login }: { id: SimId; chatId: Id<"chats">; login?: string }) {
+  const sim = useSimulation(id), live = useLive(id), jobLives = useJobLives(id);
+  const approve = useMutation(api.compute.approve), cancel = useMutation(api.compute.cancel);
+  const [busy, setBusy] = useState(false);
   if (sim === undefined) return <div className="study-card">Loading simulation…</div>;
   if (!sim) return <div className="study-card">Simulation unavailable</div>;
-  const latest = sim.jobs[0], done = sim.jobs.find(j => j.state === "succeeded" && j.results), now = phase(sim, live ?? null);
+  const act = async (f: () => Promise<unknown>) => { setBusy(true); try { await f(); } catch (e) { toast(errorText(e)); } finally { setBusy(false); } };
+  const done = sim.jobs.find(j => j.state === "succeeded" && j.results), now = phase(sim, live ?? null, Date.now(), jobLives ?? []);
+  const running = now.kind === "job" ? sim.jobs.find(j => j._id === now.jobId) : undefined;
+  const shown = now.kind === "machine" ? live : running ? jobLives?.find(l => l.jobId === running._id) : undefined;
+  const mine = sim.jobs.filter(j => j.state === "awaiting-approval" && j.requestedBy === login);
   return <section className="study-card sim-card" aria-label={`Simulation: ${sim.name}`}>
-    <div className="study-card-heading"><span className={`job-dot ${now.live ? "running" : latest?.state ?? "queued"}`} /><b>{sim.name}</b><small>{sim.draft ? "Draft simulation" : `Simulation · v${sim.version}`}</small></div>
+    <div className="study-card-heading"><span className={`job-dot ${now.live ? "running" : sim.jobs[0]?.state ?? "queued"}`} /><b>{sim.name}</b><small>{sim.draft ? "Draft simulation" : `Simulation · v${sim.version}`}</small></div>
     <div className={`study-card-state${now.live ? " live" : ""}`} role="status">{now.text}</div>
-    {now.kind === "machine" && live && live.view.quantities.length > 0 && <div className="sim-card-results">
-      {live.view.quantities.slice(0, 3).map(q => <div key={q.name} className="sim-card-q"><span>{q.label}</span><b>{formatQuantity(q.value, q.unit || "1")}</b></div>)}
-    </div>}
-    {now.kind !== "machine" && done?.results && <div className="sim-card-results">
+    {shown && <><Sparkline view={shown.view} />{latest(shown.view) && <div className="sim-card-line">{latest(shown.view)}</div>}</>}
+    {now.kind === "results" && done?.results && <div className="sim-card-results">
       {done.results.headline.map(q => <div key={q.name} className="sim-card-q"><span>{q.label}</span><b>{quantityText(q)}</b></div>)}
       <div className="sim-card-checks">✓ {done.results.checks.pass} pass{done.results.checks.review ? ` · ${done.results.checks.review} to review` : ""}{done.results.checks.fail ? ` · ${done.results.checks.fail} failed` : ""}</div>
       {done.results.flagged.map(c => <div key={c.id} className={`study-card-check ${c.status === "fail" ? "fail" : "review"}`}>{c.status === "fail" ? "✕" : "!"} {c.label}{c.value ? ` · ${c.value}` : ""}</div>)}
     </div>}
+    {now.waiting && <div className="sim-card-waiting"><span>! {now.waiting}</span>{mine.length > 0 && <button className="btn" disabled={busy} onClick={() => void act(() => Promise.all(mine.map(j => approve({ id: j._id }))))}>{mine.length > 1 ? `Approve all ${mine.length}` : "Approve"}</button>}</div>}
     <div className="study-card-actions">
-      <button onClick={() => openSimulation(chatId, id)}>Open simulation ↗</button>
-      {done && <button onClick={() => openSimulation(chatId, id, "results", done._id)}>Results ↗</button>}
-      {sim.jobs.filter(j => j.results).length > 1 && <button onClick={() => openSimulation(chatId, id, "compare")}>Compare</button>}
-      {latest && <button onClick={() => ui.openSurface(chatId, `job:${latest._id}`)}>{latest.state === "awaiting-approval" ? "Review job" : "Job details"}</button>}
+      <button onClick={() => openSimulation(chatId, id)}>Open ↗</button>
+      {now.waiting && <button onClick={() => openSimulation(chatId, id, "jobs")}>Jobs</button>}
+      {running && <button onClick={() => ui.openSurface(chatId, `job:${running._id}`)}>Job log</button>}
+      {running && !running.cancelRequestedAt && <button disabled={busy} onClick={() => void act(() => cancel({ id: running._id }))}>Cancel job</button>}
+      {now.kind === "results" && sim.jobs.filter(j => j.results).length > 1 && <button onClick={() => openSimulation(chatId, id, "compare")}>Compare</button>}
+      {sim.draft && now.kind === "machine" && <small>Not saved yet. Nothing here is checked.</small>}
     </div>
   </section>;
 }
@@ -60,11 +80,11 @@ export function SimulationCard({ id, chatId }: { id: SimId; chatId: Id<"chats"> 
 type Tab = "setup" | "jobs" | "results" | "compare";
 /** The simulation page: its versions, jobs, results and comparisons. */
 export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"chats">; login: string }) {
-  const sim = useSimulation(id), live = useLive(id);
+  const sim = useSimulation(id), live = useLive(id), jobLives = useJobLives(id) ?? [];
   const selection = ui.get().panels[chatId]?.simulationView;
   const [tab, setTab] = useState<Tab>((selection?.id === id ? selection.tab : null) ?? "results");
   const [jobId, setJobId] = useState<string | null>(selection?.id === id ? selection.jobId ?? null : null);
-  useEffect(() => { if (selection?.id === id) { setTab(selection.tab); if (selection.jobId) setJobId(selection.jobId); } }, [selection?.key]);
+  useEffect(() => { if (selection?.id === id) { setTab(selection.tab); setJobId(selection.jobId ?? null); } }, [selection?.key]);
   // Remembered in the panel, so switching to another tool and back keeps the page where it was.
   const show = (t: Tab, j: string | null = jobId) => {
     setTab(t); setJobId(j);
@@ -75,28 +95,36 @@ export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"c
   // A study from the retired Simulation pane keeps its jobs and results, but has no files setup to edit or run.
   const study = sim.kind === "recipe", tabs: Tab[] = study ? ["results", "jobs", "compare"] : ["results", "setup", "jobs", "compare"];
   const current = study && tab === "setup" ? "results" : tab;
-  // Results follows the latest: the machine's work while it is newer than any results, then a job's.
-  const now = phase(sim, live ?? null), withResults = sim.jobs.filter(j => j.results);
-  const pick = jobId === "machine" && live ? "machine" : jobId ? jobId : now.kind === "machine" ? "machine" : now.kind === "results" ? now.jobId : withResults[0]?._id ?? null;
+  // Results follows the latest: the machine's work, a running job, then a job's results.
+  const at = Date.now(), now = phase(sim, live ?? null, at, jobLives);
+  // Jobs Showing can offer: each with results, and each read live that has none (running, or ended without results).
+  const offered = sim.jobs.filter(j => j.results || jobLives.some(l => l.jobId === j._id));
+  const pick = jobId === "machine" && live ? "machine" : jobId && sim.jobs.some(j => j._id === jobId) ? jobId
+    : now.kind === "machine" ? "machine" : now.kind === "job" || now.kind === "results" ? now.jobId : offered[0]?._id ?? null;
   const shown = pick && pick !== "machine" ? sim.jobs.find(j => j._id === pick) : undefined;
+  const shownLive = shown && !shown.results ? jobLives.find(l => l.jobId === shown._id) : undefined;
+  const waiting = sim.jobs.filter(j => j.state === "awaiting-approval");
   return <div className="workspace-scroll sim-view">
     <div className="workspace-section-heading"><div><span className="workspace-eyebrow">{study ? "SIMULATION · STUDY" : sim.draft ? "SIMULATION · DRAFT" : "SIMULATION"}</span><h2>{sim.name}</h2>
-      {!study && <p className={`sim-phase${now.live ? " live" : ""}`} role="status">{now.live ? "● " : ""}{now.text}</p>}
+      {!study && <p className={`sim-phase${now.live ? " live" : ""}`} role="status">{now.live ? "● " : ""}{now.text}{now.waiting && <button className="sim-phase-waiting" onClick={() => show("jobs")}> · {now.waiting}</button>}</p>}
       <p>{study
         ? `r${sim.version} · a study from the Simulation pane, which Beam no longer has; its jobs and results are kept here · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"}`
         : sim.draft ? `Not saved yet · named after its folder until the agent saves v1 · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"}`
         : `v${sim.version} · ${sim.versions.at(-1)?.setup?.environment.name} environment · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"} · updated by ${sim.updatedBy}`}</p></div></div>
-    <div className="sim-tabs" role="tablist">{tabs.map(t => <button key={t} role="tab" aria-selected={current === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>{sim.draft ? "unsaved" : `v${sim.version}`}</small> : t === "results" && now.live ? <small className="live">live</small> : null}</button>)}</div>
+    <div className="sim-tabs" role="tablist">{tabs.map(t => <button key={t} role="tab" aria-selected={current === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small className={waiting.length ? "warn" : ""}>{waiting.length ? `${waiting.length} waiting` : sim.jobs.length}</small> : t === "setup" ? <small>{sim.draft ? "unsaved" : `v${sim.version}`}</small> : t === "results" && now.live ? <small className="live">live</small> : null}</button>)}</div>
     {current === "setup" && (sim.draft || !sim.versions.length ? <p className="results-empty">Not saved yet. The agent saves the setup as v1 when it works; until then, Results shows its work on the machine.</p> : <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />)}
-    {current === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => show("results", j)} />}
+    {current === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} jobLives={jobLives} onOpen={j => show("results", j)} />}
     {current === "results" && <>
-      {(live || withResults.length > 1) && <div className="sim-showing" role="group" aria-label="Showing">
+      {(live || offered.length > 1 || (offered.length === 1 && pick !== offered[0]!._id)) && <div className="sim-showing" role="group" aria-label="Showing">
         <span>Showing</span>
         {live && <button aria-pressed={pick === "machine"} onClick={() => show("results", "machine")}>{now.kind === "machine" && now.live ? "● " : ""}machine work</button>}
-        {withResults.map(j => <button key={j._id} aria-pressed={pick === j._id} onClick={() => show("results", j._id)}>v{j.version} results{j.endedAt ? ` · ${new Date(j.endedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</button>)}
+        {offered.map(j => { const l = jobLives.find(x => x.jobId === j._id), on = !j.results && isLive(l, at);
+          return <button key={j._id} aria-pressed={pick === j._id} onClick={() => show("results", j._id)}>{on ? "● " : ""}{jobName(j)} {j.results ? "results" : on ? "live" : state(j.state)}{j.results && j.endedAt ? ` · ${new Date(j.endedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</button>; })}
       </div>}
-      {pick === "machine" && live ? <LiveResults view={live.view} updatedAt={live.updatedAt} live={now.live} />
-        : shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></>
+      {pick === "machine" && live ? <LiveResults view={live.view} updatedAt={live.updatedAt} live={now.kind === "machine" && now.live} />
+        : shown?.results ? <><div className="sim-results-for">{jobName(shown)} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></>
+        : shown && shownLive ? <><div className="sim-results-for">{jobName(shown)} · {state(shown.state)} · read from its solver as it runs; its checked results replace this when it finishes <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job log</button></div><LiveResults view={shownLive.view} updatedAt={shownLive.updatedAt} live={isLive(shownLive, at)} /></>
+        : shown ? <p className="results-empty">{jobName(shown)} is {state(shown.state)}. {["queued", "awaiting-approval"].includes(shown.state) ? "Its results appear here once it runs." : shown.state === "failed" || shown.state === "cancelled" ? "It published no results." : "Nothing to read from its solver yet; its log is in Job log."} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job log</button></p>
         : <p className="results-empty">{study ? "No results: this study's runs predate standard results." : sim.draft ? "Nothing on the machine yet." : "No results yet. Run a version from Setup."}</p>}
     </>}
     {current === "compare" && <Compare sim={sim} />}
@@ -144,24 +172,56 @@ function Setup({ sim, chatId, onRun }: { sim: Sim; chatId: Id<"chats">; onRun: (
   </div>;
 }
 
-function Jobs({ sim, chatId, login, onOpen }: { sim: Sim; chatId: Id<"chats">; login: string; onOpen: (jobId: string) => void }) {
-  const approve = useMutation(api.compute.approve);
+type JobLive = NonNullable<ReturnType<typeof useJobLives>>[number];
+const ACTIVE = ["preparing", "running", "publishing"];
+/**
+ * The simulation's jobs, by what they need: approval, running (live), queued, and done. Only this
+ * simulation's: what this computer runs across chats is in the sidebar.
+ */
+function Jobs({ sim, chatId, login, jobLives, onOpen }: { sim: Sim; chatId: Id<"chats">; login: string; jobLives: JobLive[]; onOpen: (jobId: string) => void }) {
+  const approve = useMutation(api.compute.approve), cancel = useMutation(api.compute.cancel);
   const [busy, setBusy] = useState(false);
-  if (!sim.jobs.length) return <p className="results-empty">No jobs yet. Run a version from Setup.</p>;
+  if (!sim.jobs.length) return <p className="results-empty">{sim.draft ? "No jobs yet. Jobs the agent runs before saving belong here too." : "No jobs yet. Run a version from Setup."}</p>;
+  const act = async (f: () => Promise<unknown>) => { setBusy(true); try { await f(); } catch (e) { toast(errorText(e)); } finally { setBusy(false); } };
   const mine = sim.jobs.filter(j => j.state === "awaiting-approval" && j.requestedBy === login);
-  const go = async (jobs: Job[]) => { setBusy(true); try { await Promise.all(jobs.map(j => approve({ id: j._id }))); } catch (e) { toast((e as Error).message.replace(/^.*Uncaught Error: /, "")); } finally { setBusy(false); } };
-  const what = (j: Job) => { const v = sim.versions.find(x => x.version === j.version); return v?.changes.length ? v.changes.join(", ") : v?.note ?? null; };
+  const what = (j: Job) => { const v = sim.versions.find(x => x.version === j.version); return v?.changes.length ? v.changes.join(", ") : v?.note ?? j.title; };
+  const at = Date.now();
+  const row = (j: Job) => {
+    const l = jobLives.find(x => x.jobId === j._id), active = ACTIVE.includes(j.state);
+    const when = j.state === "awaiting-approval" || j.state === "queued" ? `up to ${duration(j.timeoutSeconds * 1000)}` : j.startedAt ? duration((j.endedAt ?? at) - j.startedAt) : "";
+    return <div key={j._id} className="sim-job-row">
+      <span className={`job-dot ${j.state}`} />
+      <b>{jobName(j)}</b>
+      <span className="sim-job-what">
+        {j.state === "awaiting-approval" ? <>{what(j)} · requested by {j.requestedBy} {new Date(j.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</>
+          : active && l ? <>{latest(l.view, 3) || what(j)}<Sparkline view={l.view} width={220} height={18} /></>
+          : j.results ? <>{j.results.headline.map(q => `${q.label} ${quantityText(q)}`).join(" · ")}{" · "}✓ {j.results.checks.pass}{j.results.checks.review ? ` · ! ${j.results.checks.review}` : ""}{j.results.checks.fail ? ` · ✕ ${j.results.checks.fail}` : ""}</>
+          : j.error ? <span className="bad">{j.error}</span> : <>{what(j)}{j.state === "cancelled" ? " · cancelled · no results" : j.state === "succeeded" ? " · no results written" : ""}</>}
+      </span>
+      <span className="sim-job-where">{machineName(j.machine)}{when ? ` · ${when}` : ""}</span>
+      <span className="sim-job-actions">
+        {mine.includes(j) && <><button className="btn" disabled={busy} onClick={() => void act(() => approve({ id: j._id }))}>Approve</button><button className="btn ghost" disabled={busy} onClick={() => void act(() => cancel({ id: j._id }))}>Deny</button></>}
+        {j.state === "awaiting-approval" && !mine.includes(j) && <small>waiting for {j.requestedBy}</small>}
+        {(j.results || (l && j.state !== "awaiting-approval")) && <button className="link" onClick={() => onOpen(j._id)}>Results ↗</button>}
+        {j.state !== "awaiting-approval" && <button className="link" onClick={() => ui.openSurface(chatId, `job:${j._id}`)}>Log</button>}
+        {(active || j.state === "queued") && !j.cancelRequestedAt && <button className="link" disabled={busy} onClick={() => void act(() => cancel({ id: j._id }))}>Cancel</button>}
+        {j.cancelRequestedAt && !["succeeded", "failed", "cancelled"].includes(j.state) && <small>cancelling…</small>}
+      </span>
+    </div>;
+  };
+  const groups: [string, string, Job[]][] = [
+    [mine.length ? "Needs you" : "Waiting for approval", "approve before it runs", sim.jobs.filter(j => j.state === "awaiting-approval")],
+    ["Running", "live", sim.jobs.filter(j => ACTIVE.includes(j.state))],
+    ["Queued", "this computer runs one job at a time", sim.jobs.filter(j => j.state === "queued")],
+    ["Done", "", sim.jobs.filter(j => ["succeeded", "failed", "cancelled"].includes(j.state))],
+  ];
   return <div className="sim-jobs">
-    {mine.length > 1 && <div className="sim-approve-all"><span>{mine.length} jobs are waiting for you to approve them.</span><button className="btn" disabled={busy} onClick={() => void go(mine)}>Approve all {mine.length}</button></div>}
-    {sim.jobs.map(j => <div key={j._id} className="compute-card sim-job">
-    <span className={`job-dot ${j.state}`} />
-    <span><b>v{j.version} · {state(j.state)}</b>
-      {what(j) && <small className="sim-job-what" title={what(j) ?? undefined}>{what(j)}</small>}
-      {j.results ? <small>{j.results.headline.map(q => `${q.label} ${quantityText(q)}`).join(" · ")}{" · "}✓ {j.results.checks.pass}{j.results.checks.review ? ` · ! ${j.results.checks.review}` : ""}{j.results.checks.fail ? ` · ✕ ${j.results.checks.fail}` : ""}</small> : <small>{j.error ?? new Date(j.createdAt).toLocaleString()}</small>}</span>
-    {j.results && <button className="btn ghost" onClick={() => onOpen(j._id)}>Results</button>}
-    {mine.includes(j) && <button className="btn" disabled={busy} onClick={() => void go([j])}>Approve</button>}
-    <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${j._id}`)}>Details</button>
-  </div>)}</div>;
+    {mine.length > 1 && <div className="sim-approve-all"><span>{mine.length} jobs are waiting for you to approve them.</span><button className="btn" disabled={busy} onClick={() => void act(() => Promise.all(mine.map(j => approve({ id: j._id }))))}>Approve all {mine.length}</button></div>}
+    {groups.filter(([, , jobs]) => jobs.length).map(([title, hint, jobs]) => <section key={title} className="sim-job-group">
+      <h4>{title}{hint && <small className={title === "Running" ? "live" : ""}>{hint}</small>}</h4>
+      {jobs.map(row)}
+    </section>)}
+  </div>;
 }
 
 /** A simulation tab's label: its name, so it is not confused with the Simulation tool. */

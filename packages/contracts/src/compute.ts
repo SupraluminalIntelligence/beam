@@ -85,6 +85,11 @@ export const JobState = z.enum(["awaiting-approval", "queued", "preparing", "run
 export type JobState = z.infer<typeof JobState>;
 export const jobFinished = (state: string) => ["succeeded", "failed", "cancelled"].includes(state);
 export const MAX_COMPUTE_FILE_BYTES = 20 * 1024 * 1024;
+/**
+ * A snapshot keeps a file's bytes, not its permissions. A file that starts with #! is a script meant to
+ * be run (./Allrun), so executors write it executable.
+ */
+export const isScript = (bytes: Uint8Array) => bytes[0] === 0x23 && bytes[1] === 0x21;
 export const MAX_COMPUTE_INPUT_BYTES = 100 * 1024 * 1024;
 
 /**

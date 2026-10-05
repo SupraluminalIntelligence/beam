@@ -283,8 +283,8 @@ export function ChatView({ me, chat, detail, logins, setModal }: { me: Me; chat:
                 {m.studyContext&&<div className="study-message-context">{m.studyContext.name} · v{m.studyContext.revision}</div>}
                 {!m.simulationStudyId && !m.simulationId && (m.kind === "report" ? <StreamText text={m.text} live={row.live} handles={handles} logins={mentionNames} /> : m.text && <div className="tx"><Markdown text={m.text} handles={handles} people={mentionNames} /></div>)}
                 {m.attachments?.length ? <MessageFiles ids={m.attachments} chatId={chat._id} /> : null}
-                {m.simulationStudyId && <SimulationCard id={m.simulationStudyId as Id<"simulationCases">} chatId={chat._id} />}
-                {m.simulationId && <SimulationCard id={m.simulationId} chatId={chat._id} />}
+                {m.simulationStudyId && <SimulationCard id={m.simulationStudyId as Id<"simulationCases">} chatId={chat._id} login={me.githubLogin} />}
+                {m.simulationId && <SimulationCard id={m.simulationId} chatId={chat._id} login={me.githubLogin} />}
                 {m.computeJobId && <JobCard id={m.computeJobId} chatId={chat._id} />}
                 {m.routed?.error && <div className="rcpt" role="status">{m.routed.error} <button className="btn ghost" onClick={() => setModal({ kind: "settings", tab: "machines" })}>Settings</button></div>}
                 {m.routed?.agent && (() => { const ra = detail.agents.find((a) => a.handle === m.routed!.agent); return <div className="rcpt" title={m.routed.why}><i>→</i> {ra ? HARNESS_NAME[ra.harness] : `@${m.routed.agent}`} · {m.kind === "steer" ? "steered" : "picked this up"}</div>; })()}

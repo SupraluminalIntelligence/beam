@@ -24,12 +24,16 @@ Files over 20 MB go to the deployment's R2 storage when it is configured (see co
 
 ## In the app
 
-The simulation's card in its chat shows the latest job, headline numbers and checks that need review. Its page has four tabs:
+Every job belongs to a simulation. A version's job (`run_version`, `sweep`) belongs to its simulation; a one-off `job_submit` or `submit_job` belongs to the simulation the agent is working on, or to a draft made for it. Jobs are numbered within their simulation (v2 · job 3).
 
+The simulation's card in its chat is one card updated in place: the agent's work on the machine, then a running job, then checked results. Live phases draw a history small (drag if the case reports it, else residuals) with the latest numbers. A job waiting for approval can be approved on the card. Its page has four tabs:
+
+- **Results**: the latest of the machine's work, a running job, or a job's checked results: checks, numbers against references, plots over reference data, tables, figures and 3D views. While a local job runs, Beam reads its working directory the way it reads the machine, so its residuals and coefficients show live until its checked results replace them. **Showing** picks any of them.
 - **Setup**: each version and what changed, its parameters (edit and save the next version), command, environment and files, and Run.
-- **Jobs**: every job, with approval for waiting ones.
-- **Results**: a job's checks, numbers against references, plots over reference data, tables, figures and 3D views.
+- **Jobs**: the simulation's jobs by what they need (needs you, running, queued, done), with approve, deny, cancel, the log, and results.
 - **Compare**: versions' numbers side by side, and a sweep's results plotted against the swept parameter.
+
+**This computer**, at the foot of the sidebar, is the one view across chats: what your computer is running, what is queued behind it, what is waiting for approval, and agents working on a chat's machine. Each line opens its simulation. Jobs from chats you can't see are counted, not shown.
 
 ## Studies (retired)
 

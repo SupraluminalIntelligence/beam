@@ -6,7 +6,7 @@ import { mkdir, readFile, realpath, stat, writeFile, rename } from "node:fs/prom
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, RECIPE_PATH, parametersFile } from "@beam/contracts";
+import { JobPath, JobSpec, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, PARAMETERS_PATH, RECIPE_PATH, isScript, parametersFile } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 
 /** The real path of a job file, refusing one that resolves (through a link) outside the job directory. */
@@ -73,7 +73,7 @@ export class LocalExecutor implements ComputeExecutor {
         const base64 = Buffer.from(digest, "hex").toString("base64");
         if (total !== input.size || (digest !== input.sha256 && base64 !== input.sha256)) throw new Error("Input snapshot checksum mismatch");
         const dest = join(root, "work", input.path);
-        await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, bytes, { flag: "wx" });
+        await mkdir(dirname(dest), { recursive: true }); await writeFile(dest, bytes, { flag: "wx", mode: isScript(bytes) ? 0o755 : 0o644 });
       }
       if (spec.kind === "environment" && spec.parameters) {
         const dest = join(root, "work", PARAMETERS_PATH);

@@ -49,6 +49,14 @@ describe("ModalExecutor", () => {
     expect(dec(sandbox.files.get(`${WORK}/case/mesh.msh`)!)).toBe("mesh bytes");
     expect(sandbox.dirs).toContain(`${WORK}/case`);
     expect(sandbox.files.has(`${JOB_DIR}/go`)).toBe(true);
+    expect(sandbox.executable.size).toBe(0);
+  });
+
+  it("makes a staged script executable, since a snapshot keeps bytes, not permissions", async () => {
+    const modal = new FakeModal(), executor = new ModalExecutor(modal), script = enc("#!/bin/bash\nblockMesh\n");
+    served({ "https://store/allrun": script });
+    await executor.submit("job1", job({ inputs: [{ assetId: "a1", path: "case/Allrun" }] }), [input("case/Allrun", "https://store/allrun", script)]);
+    expect([...modal.byName.get(sandboxName("job1"))!.executable]).toEqual([`${WORK}/case/Allrun`]);
   });
 
   it("never stages a job twice: a repeated submit returns the existing launch", async () => {

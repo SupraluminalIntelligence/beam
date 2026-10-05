@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,15 @@ describe("local compute executor",()=>{
     expect(Buffer.from(await executor.readOutput(handle,"out.txt")).toString()).toBe("snapshot");
     const bad=await executor.submit("bad-hash",job,[{...input,sha256:"invalid"}]);
     expect(await finish(executor,bad)).toMatchObject({state:"failed",error:"Input snapshot checksum mismatch"});
+  });
+  it("writes a snapshotted script executable, since a snapshot keeps bytes, not permissions",async()=>{
+    const executor=await setup(),file=(path:string,text:string)=>{const bytes=Buffer.from(text);return {path,url:`data:application/octet-stream;base64,${bytes.toString('base64')}`,size:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};};
+    const job=spec("process.exit(0)",{inputs:[{assetId:"a",path:"Allrun"},{assetId:"b",path:"system/controlDict"}]});
+    const handle=await executor.submit("modes",job,[file("Allrun","#!/bin/bash\nblockMesh\n"),file("system/controlDict","application simpleFoam;\n")]);active.push({executor,handle});
+    await finish(executor,handle);
+    const mode=async(p:string)=>(await stat(await executor.localPath(handle,p))).mode&0o777;
+    expect(await mode("Allrun")&0o111).toBe(0o111);
+    expect(await mode("system/controlDict")&0o111).toBe(0);
   });
   it("cancels an independent process and enforces its runtime limit",async()=>{
     const executor=await setup();
