@@ -48,7 +48,7 @@ async function jobsOf(ctx: Ctx, sim: Doc<"simulationCases">) {
 }
 function brief(s: Doc<"simulationCases">, chat: Doc<"chats"> | null) {
   const config = kindOf(s) === "recipe" ? SimulationCase.safeParse(s.config) : null;
-  return { id: s._id, name: s.name, kind: kindOf(s), version: s.revision, chatId: s.chatId, chatTitle: chat?.title ?? "", updatedAt: s.updatedAt, updatedBy: s.updatedBy, geometry: config?.success ? config.data.geometry : null };
+  return { id: s._id, name: s.name, kind: kindOf(s), draft: !!s.draft, version: s.revision, chatId: s.chatId, chatTitle: chat?.title ?? "", updatedAt: s.updatedAt, updatedBy: s.updatedBy, geometry: config?.success ? config.data.geometry : null };
 }
 
 /** Every simulation a member can see in a workspace, newest first: for the sidebar. */
@@ -79,7 +79,7 @@ export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("ru
 } });
 
 /** The simulation's card in its chat. A recipe card is the study card installed apps already draw. */
-async function ensureCard(ctx: MutationCtx, sim: Doc<"simulationCases">, author: string, runId: Id<"runs"> | null) {
+export async function ensureCard(ctx: MutationCtx, sim: Doc<"simulationCases">, author: string, runId: Id<"runs"> | null) {
   if (sim.cardMessageId) return;
   const cardMessageId = await ctx.db.insert("messages", { chatId: sim.chatId, author, kind: "text", text: `Simulation: ${sim.name}`, runId, simulationId: sim._id, reactions: [] });
   await ctx.db.patch(sim._id, { cardMessageId });
@@ -109,8 +109,18 @@ async function saveFiles(ctx: MutationCtx, chatId: Id<"chats">, login: string, a
     if (a.from !== undefined && !(Number.isInteger(a.from) && a.from >= 1 && a.from <= prior.revision)) throw new Error(`No v${a.from} of this simulation`);
     const from = a.from !== undefined && a.from !== prior.revision ? { from: a.from } : {};
     await ctx.db.insert("simulationRevisions", { studyId: a.id, revision: version, name, config: null, setup, ...(note ? { note } : {}), ...from, createdAt: now, createdBy: login });
-    await ctx.db.patch(a.id, { name, revision: version, updatedAt: now, updatedBy: login });
+    await ctx.db.patch(a.id, { name, revision: version, updatedAt: now, updatedBy: login, ...(prior.draft ? { draft: false } : {}) });
     return { id: a.id, version, unchanged: false };
+  }
+  // The machine's work already made a draft for this simulation: saving v1 makes it the simulation, in the same tab and card.
+  const draft = await draftOf(ctx, chat);
+  if (draft) {
+    await ctx.db.insert("simulationRevisions", { studyId: draft._id, revision: 1, name, config: null, setup, ...(note ? { note } : {}), createdAt: now, createdBy: login });
+    await ctx.db.patch(draft._id, { name, revision: 1, draft: false, updatedAt: now, updatedBy: login });
+    await ensureCard(ctx, draft, author, run?._id ?? null);
+    await ctx.db.patch(chatId, { activeStudyId: draft._id });
+    if (run) await ctx.db.patch(run._id, { studyId: draft._id });
+    return { id: draft._id, version: 1, unchanged: false };
   }
   const id = await ctx.db.insert("simulationCases", { chatId, workspaceId: chat.workspaceId, kind: "files", name, config: null, revision: 1, updatedAt: now, updatedBy: login });
   await ctx.db.insert("simulationRevisions", { studyId: id, revision: 1, name, config: null, setup, ...(note ? { note } : {}), createdAt: now, createdBy: login });
@@ -118,6 +128,12 @@ async function saveFiles(ctx: MutationCtx, chatId: Id<"chats">, login: string, a
   await ctx.db.patch(chatId, { activeStudyId: id });
   if (run) await ctx.db.patch(run._id, { studyId: id });
   return { id, version: 1, unchanged: false };
+}
+
+/** The chat's draft, if its current simulation is one. */
+async function draftOf(ctx: MutationCtx, chat: Doc<"chats">) {
+  const current = chat.activeStudyId ? await ctx.db.get(chat.activeStudyId) : null;
+  return current?.draft && current.chatId === chat._id ? current : null;
 }
 
 type RunVersion = { id: Id<"simulationCases">; version: number; machine: string; requestKey: string };

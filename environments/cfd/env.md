@@ -6,7 +6,7 @@ Fluid flow. Read this before writing a case.
 
 OpenFOAM 2512 from OpenCFD (openfoam.com, not the Foundation's openfoam.org): blockMesh, snappyHexMesh, checkMesh, icoFoam, simpleFoam, pimpleFoam, buoyant solvers, postProcess and function objects. Open MPI for parallel runs. A separate Python in `/opt/conda` with numpy, scipy, matplotlib, meshio, gmsh and pyvista/VTK. Exact Python versions: `/beam/packages.json`.
 
-OpenFOAM's commands are on the PATH in login shells (`bash -l`), which is how machine_exec and jobs run. In a script that starts its own shell, run `source /usr/lib/openfoam/openfoam2512/etc/bashrc` first. Your working directory is `/work`; there is no network. `$BEAM_CORES` is the cores worth using: `decomposePar`, then `mpirun -n $BEAM_CORES <solver> -parallel`, then `reconstructPar`. `mpirun` runs as whatever user the container has, root included (Docker Desktop runs containers as root); `python /beam/benchmarks/cavity.py --processes 2` is a worked parallel case.
+OpenFOAM's commands are on the PATH in login shells (`bash -l`), which is how machine_exec and jobs run. In a script that starts its own shell, run `source /usr/lib/openfoam/openfoam2512/etc/bashrc` first, before `set -u` or `set -e`: the bashrc fails under either, so source it, then turn on strict mode. Your working directory is `/work`; there is no network. `$BEAM_CORES` is the cores worth using: `decomposePar`, then `mpirun -n $BEAM_CORES <solver> -parallel`, then `reconstructPar`. `mpirun` runs as whatever user the container has, root included (Docker Desktop runs containers as root); `python /beam/benchmarks/cavity.py --processes 2` is a worked parallel case.
 
 ## Writing results
 

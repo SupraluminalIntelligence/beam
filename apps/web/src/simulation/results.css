@@ -103,3 +103,19 @@
 .results-figure{margin:0;display:flex;flex-direction:column;gap:4px}
 .results-figure img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:var(--r-2);background:#fff}
 .results-figure figcaption{font:11px var(--font-mono);color:var(--ink-3)}
+
+/* The simulation's phase in one line, and what its Results is showing. */
+.sim-phase{font:11.5px var(--font-mono);color:var(--ink);margin:4px 0 2px}
+.sim-phase.live,.sim-tabs small.live,.study-card-state.live{color:var(--live)}
+.sim-showing{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;font:10.5px var(--font-mono);color:var(--ink-3)}
+.sim-showing button{font:10.5px var(--font-mono);color:var(--ink-2);background:transparent;border:1px solid var(--line-2);border-radius:var(--r-1);padding:3px 7px;cursor:pointer}
+.sim-showing button[aria-pressed=true]{color:var(--ink);border-color:var(--ink)}
+
+/* Work on the machine, read live from the solver's output. */
+.live-source{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font:11px var(--font-mono);color:var(--ink-2);padding:8px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.live-source b{font-weight:500;color:var(--ink)}
+.live-source .live-on,.live-source .live-command{color:var(--live)}
+.live-source .live-bad{color:var(--bad)}
+.live-source .live-ago,.live-source .live-others{color:var(--ink-3)}
+.live-source .live-command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.results-block h4 small{letter-spacing:0;text-transform:none;margin-left:8px;color:var(--ink-3)}

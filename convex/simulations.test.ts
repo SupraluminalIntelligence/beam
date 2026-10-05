@@ -5,6 +5,7 @@ vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!
 import { get, list, forRun, run, saveParameters, saveVersionForRun, runVersionForRun } from "./simulations";
 import { approve, claim, publishOutput, publishResults, report, saveSimulation, simulationCases, simulationForRun, study, studyContext, workspaceStudies } from "./compute";
 import { defaultChannel } from "../packages/contracts/src/simulation";
+import { draftName, forSimulation, reportMachine } from "./live";
 
 const call=(fn:any,ctx:any,args:any)=>fn._handler(ctx,args);
 const IMAGE="ghcr.io/supraluminalintelligence/beam-env-fea@sha256:"+"a".repeat(64);
@@ -14,7 +15,7 @@ function fixture(mode="auto"){
     users:[{_id:"user",githubLogin:"alice"}],chats:[{_id:"chat",workspaceId:"ws",title:"bracket",private:false,members:[]},{_id:"secret",workspaceId:"ws",title:"secret",private:true,members:["bob"]}],
     members:[{workspaceId:"ws",githubLogin:"alice"}],runners:[{_id:"runner",ownerLogin:"alice",online:true,lastSeen:Date.now(),computeBackend:"local-process"}],
     agents:[{_id:"agent",permissionMode:mode}],runs:[{_id:"run",chatId:"chat",runnerId:"runner",agentId:"agent",dispatchedBy:"alice",state:"working"}],
-    simulationCases:[],simulationRevisions:[],computeJobs:[],computeAssets:[{_id:"a1",chatId:"chat",path:"solve.py",size:10},{_id:"a2",chatId:"chat",path:"solve.py",size:12},{_id:"foreign",chatId:"secret",path:"x.py",size:1}],files:[],messages:[],
+    simulationCases:[],simulationRevisions:[],liveViews:[],computeJobs:[],computeAssets:[{_id:"a1",chatId:"chat",path:"solve.py",size:10},{_id:"a2",chatId:"chat",path:"solve.py",size:12},{_id:"foreign",chatId:"secret",path:"x.py",size:1}],files:[],messages:[],
   };
   const db:any={normalizeId:(_:string,id:string)=>id,get:async(id:string)=>Object.values(tables).flat().find(r=>r._id===id)??null,
     query:(table:string)=>{const filters:[string,unknown][]=[];let descending=false;const rows=()=>{const items=(tables[table]??[]).filter(r=>filters.every(([k,v])=>r[k]===v));return descending?items.slice().reverse():items;};const chain:any={withIndex:(_:string,fn:any)=>{const q={eq:(k:string,v:unknown)=>{filters.push([k,v]);return q;}};fn(q);return chain;},order:(dir:string)=>{descending=dir==="desc";return chain;},collect:async()=>rows(),take:async(n:number)=>rows().slice(0,n),first:async()=>rows()[0]??null};return chain;},
@@ -112,4 +113,49 @@ it("keeps private chats' simulations out of other members' lists",async()=>{
   const {ctx,tables}=fixture();tables.simulationCases!.push({_id:"hidden",chatId:"secret",name:"Hidden",kind:"files",config:null,revision:1,updatedAt:1,updatedBy:"bob"});
   expect((await call(list,ctx,{workspaceId:"ws"})).map((s:any)=>s.id)).not.toContain("hidden");
   await expect(call(get,ctx,{id:"hidden"})).rejects.toThrow("private chat");
+});
+
+// Live views: the machine's work shown before anything is saved.
+const liveCase=(path="naca0012/run/coarse")=>({path,solver:"simpleFoam",state:"running" as const,updatedAt:1});
+const liveView=(path?:string,cd=0.00904)=>({version:1,case:liveCase(path),cases:[liveCase(path)],quantities:[{name:"Cd",label:"Drag coefficient Cd",value:cd,unit:"1"}],mesh:null,series:[{name:"residuals",label:"Initial residuals",x:{label:"iteration",unit:""},y:{unit:"1",scale:"log"},xs:[1,2],lines:[{name:"Ux",values:[1,0.1]}]}],command:null});
+const reportLive=(ctx:any,view:any=liveView())=>call(reportMachine,ctx,{token:"valid",runId:"run",view});
+
+it("makes a draft with a card the first time the machine does real work, and reuses it after",async()=>{
+  const {ctx,tables}=fixture();
+  const first=await reportLive(ctx);
+  expect(first).toEqual({simulationId:"simulationCases-0",draft:true});
+  expect(tables.simulationCases![0]).toMatchObject({kind:"files",draft:true,name:"naca0012",revision:0});
+  expect(tables.messages![0]).toMatchObject({text:"Simulation: naca0012",simulationId:first.simulationId});
+  expect(tables.chats![0].activeStudyId).toBe(first.simulationId);
+  await reportLive(ctx,liveView(undefined,0.00871));
+  expect(tables.simulationCases).toHaveLength(1);
+  expect(tables.liveViews).toHaveLength(1);
+  const live=await call(forSimulation,ctx,{id:first.simulationId});
+  expect(live.view.quantities[0].value).toBe(0.00871);
+  const sim=await call(get,ctx,{id:first.simulationId});
+  expect(sim).toMatchObject({draft:true,version:0,versions:[],jobs:[]});
+});
+it("turns the draft into the simulation when the agent saves v1, in the same card",async()=>{
+  const {ctx,tables}=fixture();
+  const {simulationId}=await reportLive(ctx);
+  expect(await save(ctx,{name:"NACA 0012 airfoil"})).toEqual({id:simulationId,version:1,unchanged:false});
+  expect(tables.simulationCases).toHaveLength(1);
+  expect(tables.simulationCases![0]).toMatchObject({name:"NACA 0012 airfoil",revision:1,draft:false});
+  expect(tables.messages).toHaveLength(1);
+  // Later machine work belongs to the simulation, as the work before its next version.
+  expect(await reportLive(ctx)).toEqual({simulationId,draft:false});
+  expect(tables.simulationCases).toHaveLength(1);
+});
+it("shows machine work under the simulation the agent is already working on",async()=>{
+  const {ctx,tables}=fixture();const {id}=await save(ctx);
+  expect(await reportLive(ctx)).toEqual({simulationId:id,draft:false});
+  expect(tables.simulationCases).toHaveLength(1);
+});
+it("names a draft after its case's top folder, not a scratch folder, and refuses a malformed view",async()=>{
+  expect(draftName("naca0012/run/coarse","airfoil chat")).toBe("naca0012");
+  expect(draftName("scratch/t1/L-1","airfoil chat")).toBe("airfoil chat");
+  expect(draftName("./cavity","")).toBe("cavity");
+  const {ctx}=fixture();
+  await expect(reportLive(ctx,{...liveView(),version:2})).rejects.toThrow();
+  await expect(call(reportMachine,ctx,{token:"nope",runId:"run",view:liveView()})).rejects.toThrow("Invalid token");
 });

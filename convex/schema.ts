@@ -137,7 +137,9 @@ export default defineSchema({
   runEvents: defineTable({ runId: v.id("runs"), seq: v.number(), event: v.any() }).index("by_run", ["runId", "seq"]),
   /** Jobs are independent of agent runs. Never reap them when an agent or runner disconnects. */
   /** Simulations (packages/contracts/src/simulations.ts). kind absent = recipe: the studies that came first. A files simulation has config null. */
-  simulationCases: defineTable({chatId:v.id("chats"),name:v.string(),config:v.any(),revision:v.number(),updatedAt:v.number(),updatedBy:v.string(),cardMessageId:v.optional(v.id("messages")),kind:v.optional(v.union(v.literal("recipe"),v.literal("files"))),workspaceId:v.optional(v.id("workspaces"))}).index("by_chat",["chatId"]),
+  simulationCases: defineTable({chatId:v.id("chats"),name:v.string(),config:v.any(),revision:v.number(),updatedAt:v.number(),updatedBy:v.string(),cardMessageId:v.optional(v.id("messages")),kind:v.optional(v.union(v.literal("recipe"),v.literal("files"))),workspaceId:v.optional(v.id("workspaces")),draft:v.optional(v.boolean())}).index("by_chat",["chatId"]),
+  /** What Beam reads from a simulation's work on the chat's machine while the agent works: the latest LiveView (packages/contracts/src/live.ts). */
+  liveViews: defineTable({simulationId:v.id("simulationCases"),chatId:v.id("chats"),source:v.literal("machine"),view:v.any(),updatedAt:v.number()}).index("by_simulation",["simulationId"]),
   /** Versions. A files version has config null and its FilesSetup in setup. */
   simulationRevisions: defineTable({studyId:v.id("simulationCases"),revision:v.number(),name:v.string(),config:v.any(),createdAt:v.number(),createdBy:v.string(),setup:v.optional(v.any()),note:v.optional(v.string()),from:v.optional(v.number())}).index("by_study_revision",["studyId","revision"]),
   computeJobs: defineTable({

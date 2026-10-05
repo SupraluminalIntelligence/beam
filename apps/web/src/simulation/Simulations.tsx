@@ -7,6 +7,8 @@ import { ui } from "../lib/ui";
 import { toast } from "../components/Toast";
 import { Checks, Numbers, quantityText, ResultsView } from "./Results";
 import { Plot } from "./Plot";
+import { LiveResults } from "./LiveResults";
+import { phase } from "./phase";
 import "./results.css";
 import "./study.css";
 
@@ -14,6 +16,7 @@ type SimId = Id<"simulationCases">;
 type Sim = NonNullable<ReturnType<typeof useSimulation>>;
 type Job = Sim["jobs"][number];
 const useSimulation = (id: SimId) => useQuery(api.simulations.get, { id });
+const useLive = (id: SimId) => useQuery(api.live.forSimulation, { id });
 const state = (s: string) => s.replaceAll("-", " ");
 const value = (p: Pick<Parameter, "value" | "unit">) => typeof p.value === "number" ? formatQuantity(p.value, p.unit || "1") : String(p.value);
 /** A number as an engineer reads it (210 GPa), beside the raw SI value being edited, when they differ. */
@@ -24,21 +27,23 @@ const readable = (p: Parameter, raw: string | undefined) => {
   return shown === `${n} ${p.unit}` || shown === `${n.toLocaleString("en-US")} ${p.unit}` ? "" : ` · ${shown}`;
 };
 export const openSimulation = (chatId: string, id: string, tab?: Tab, jobId?: string) => {
-  ui.panel(chatId, { simulationView: { id, tab: tab ?? "setup", ...(jobId ? { jobId } : {}), key: Date.now() } });
+  ui.panel(chatId, { simulationView: { id, tab: tab ?? "results", ...(jobId ? { jobId } : {}), key: Date.now() } });
   ui.openSurface(chatId, `sim:${id}`);
 };
 
 /** The simulation's card in its chat: the latest job's state, headline numbers and checks. */
 export function SimulationCard({ id, chatId }: { id: SimId; chatId: Id<"chats"> }) {
-  const sim = useSimulation(id);
+  const sim = useSimulation(id), live = useLive(id);
   if (sim === undefined) return <div className="study-card">Loading simulation…</div>;
   if (!sim) return <div className="study-card">Simulation unavailable</div>;
-  const latest = sim.jobs[0], done = sim.jobs.find(j => j.state === "succeeded" && j.results);
-  const status = latest && !["succeeded", "failed", "cancelled"].includes(latest.state) ? `v${latest.version} · ${state(latest.state)}` : done ? `v${done.version} · results` : latest ? `v${latest.version} · ${state(latest.state)}` : `v${sim.version} saved · not run yet`;
+  const latest = sim.jobs[0], done = sim.jobs.find(j => j.state === "succeeded" && j.results), now = phase(sim, live ?? null);
   return <section className="study-card sim-card" aria-label={`Simulation: ${sim.name}`}>
-    <div className="study-card-heading"><span className={`job-dot ${latest?.state ?? "queued"}`} /><b>{sim.name}</b><small>Simulation · v{sim.version}</small></div>
-    <div className="study-card-state" role="status">{status}</div>
-    {done?.results && <div className="sim-card-results">
+    <div className="study-card-heading"><span className={`job-dot ${now.live ? "running" : latest?.state ?? "queued"}`} /><b>{sim.name}</b><small>{sim.draft ? "Draft simulation" : `Simulation · v${sim.version}`}</small></div>
+    <div className={`study-card-state${now.live ? " live" : ""}`} role="status">{now.text}</div>
+    {now.kind === "machine" && live && live.view.quantities.length > 0 && <div className="sim-card-results">
+      {live.view.quantities.slice(0, 3).map(q => <div key={q.name} className="sim-card-q"><span>{q.label}</span><b>{formatQuantity(q.value, q.unit || "1")}</b></div>)}
+    </div>}
+    {now.kind !== "machine" && done?.results && <div className="sim-card-results">
       {done.results.headline.map(q => <div key={q.name} className="sim-card-q"><span>{q.label}</span><b>{quantityText(q)}</b></div>)}
       <div className="sim-card-checks">✓ {done.results.checks.pass} pass{done.results.checks.review ? ` · ${done.results.checks.review} to review` : ""}{done.results.checks.fail ? ` · ${done.results.checks.fail} failed` : ""}</div>
       {done.results.flagged.map(c => <div key={c.id} className={`study-card-check ${c.status === "fail" ? "fail" : "review"}`}>{c.status === "fail" ? "✕" : "!"} {c.label}{c.value ? ` · ${c.value}` : ""}</div>)}
@@ -55,9 +60,9 @@ export function SimulationCard({ id, chatId }: { id: SimId; chatId: Id<"chats"> 
 type Tab = "setup" | "jobs" | "results" | "compare";
 /** The simulation page: its versions, jobs, results and comparisons. */
 export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"chats">; login: string }) {
-  const sim = useSimulation(id);
+  const sim = useSimulation(id), live = useLive(id);
   const selection = ui.get().panels[chatId]?.simulationView;
-  const [tab, setTab] = useState<Tab>((selection?.id === id ? selection.tab : null) ?? "setup");
+  const [tab, setTab] = useState<Tab>((selection?.id === id ? selection.tab : null) ?? "results");
   const [jobId, setJobId] = useState<string | null>(selection?.id === id ? selection.jobId ?? null : null);
   useEffect(() => { if (selection?.id === id) { setTab(selection.tab); if (selection.jobId) setJobId(selection.jobId); } }, [selection?.key]);
   // Remembered in the panel, so switching to another tool and back keeps the page where it was.
@@ -68,18 +73,32 @@ export function SimulationView({ id, chatId, login }: { id: SimId; chatId: Id<"c
   if (sim === undefined) return <div className="workspace-scroll">Loading simulation…</div>;
   if (!sim) return <div className="workspace-scroll">Simulation unavailable.</div>;
   // A study from the retired Simulation pane keeps its jobs and results, but has no files setup to edit or run.
-  const study = sim.kind === "recipe", tabs: Tab[] = study ? ["jobs", "results", "compare"] : ["setup", "jobs", "results", "compare"];
+  const study = sim.kind === "recipe", tabs: Tab[] = study ? ["results", "jobs", "compare"] : ["results", "setup", "jobs", "compare"];
   const current = study && tab === "setup" ? "results" : tab;
-  const shown = jobId ? sim.jobs.find(j => j._id === jobId) : sim.jobs.find(j => j.state === "succeeded" && j.results);
+  // Results follows the latest: the machine's work while it is newer than any results, then a job's.
+  const now = phase(sim, live ?? null), withResults = sim.jobs.filter(j => j.results);
+  const pick = jobId === "machine" && live ? "machine" : jobId ? jobId : now.kind === "machine" ? "machine" : now.kind === "results" ? now.jobId : withResults[0]?._id ?? null;
+  const shown = pick && pick !== "machine" ? sim.jobs.find(j => j._id === pick) : undefined;
   return <div className="workspace-scroll sim-view">
-    <div className="workspace-section-heading"><div><span className="workspace-eyebrow">{study ? "SIMULATION · STUDY" : "SIMULATION"}</span><h2>{sim.name}</h2>
+    <div className="workspace-section-heading"><div><span className="workspace-eyebrow">{study ? "SIMULATION · STUDY" : sim.draft ? "SIMULATION · DRAFT" : "SIMULATION"}</span><h2>{sim.name}</h2>
+      {!study && <p className={`sim-phase${now.live ? " live" : ""}`} role="status">{now.live ? "● " : ""}{now.text}</p>}
       <p>{study
         ? `r${sim.version} · a study from the Simulation pane, which Beam no longer has; its jobs and results are kept here · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"}`
+        : sim.draft ? `Not saved yet · named after its folder until the agent saves v1 · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"}`
         : `v${sim.version} · ${sim.versions.at(-1)?.setup?.environment.name} environment · ${sim.jobs.length} job${sim.jobs.length === 1 ? "" : "s"} · updated by ${sim.updatedBy}`}</p></div></div>
-    <div className="sim-tabs" role="tablist">{tabs.map(t => <button key={t} role="tab" aria-selected={current === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>v{sim.version}</small> : null}</button>)}</div>
-    {current === "setup" && <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />}
+    <div className="sim-tabs" role="tablist">{tabs.map(t => <button key={t} role="tab" aria-selected={current === t} onClick={() => show(t)}>{t}{t === "jobs" ? <small>{sim.jobs.length}</small> : t === "setup" ? <small>{sim.draft ? "unsaved" : `v${sim.version}`}</small> : t === "results" && now.live ? <small className="live">live</small> : null}</button>)}</div>
+    {current === "setup" && (sim.draft || !sim.versions.length ? <p className="results-empty">Not saved yet. The agent saves the setup as v1 when it works; until then, Results shows its work on the machine.</p> : <Setup sim={sim} chatId={chatId} onRun={j => show("jobs", j)} />)}
     {current === "jobs" && <Jobs sim={sim} chatId={chatId} login={login} onOpen={j => show("results", j)} />}
-    {current === "results" && (shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></> : <p className="results-empty">{study ? "No results: this study's runs predate standard results." : "No results yet. Run a version from Setup."}</p>)}
+    {current === "results" && <>
+      {(live || withResults.length > 1) && <div className="sim-showing" role="group" aria-label="Showing">
+        <span>Showing</span>
+        {live && <button aria-pressed={pick === "machine"} onClick={() => show("results", "machine")}>{now.kind === "machine" && now.live ? "● " : ""}machine work</button>}
+        {withResults.map(j => <button key={j._id} aria-pressed={pick === j._id} onClick={() => show("results", j._id)}>v{j.version} results{j.endedAt ? ` · ${new Date(j.endedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</button>)}
+      </div>}
+      {pick === "machine" && live ? <LiveResults view={live.view} updatedAt={live.updatedAt} live={now.live} />
+        : shown ? <><div className="sim-results-for">v{shown.version} · {shown.title} <button className="btn ghost" onClick={() => ui.openSurface(chatId, `job:${shown._id}`)}>Job details</button></div><ResultsView jobId={shown._id} /></>
+        : <p className="results-empty">{study ? "No results: this study's runs predate standard results." : sim.draft ? "Nothing on the machine yet." : "No results yet. Run a version from Setup."}</p>}
+    </>}
     {current === "compare" && <Compare sim={sim} />}
   </div>;
 }
@@ -148,7 +167,7 @@ function Jobs({ sim, chatId, login, onOpen }: { sim: Sim; chatId: Id<"chats">; l
 /** A simulation tab's label: its name, so it is not confused with the Simulation tool. */
 export function SimulationTabLabel({ id }: { id: SimId }) {
   const sim = useSimulation(id);
-  return <>{sim?.name ?? "Simulation"}</>;
+  return <>{sim?.name ?? "Simulation"}{sim?.draft ? " · draft" : ""}</>;
 }
 
 /** Numbers side by side, matched by name and unit; checks per job; and, for a sweep, each number against the swept parameter. */

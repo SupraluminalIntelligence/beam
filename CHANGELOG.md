@@ -4,6 +4,7 @@ What changed in Beam, newest first. The app shows this under Settings › What's
 
 ## Unreleased
 
+- Watch the agent's work as it happens: the moment an agent meshes or solves on the chat's machine, a draft simulation appears in the chat, and its page shows what the solver writes, live. Residuals, force coefficients, y+ and checkMesh refresh every few seconds, with the latest numbers, labelled as unchecked. Saving v1 turns the draft into the simulation in the same card and tab, and its page shows whichever is newest: the machine's work or a job's checked results. Plots keep a long run's whole history, and the page stops saying live the moment the solver finishes. OpenFOAM only for now.
 - Fixed: local desktop builds no longer show a JavaScript error when the terminal or dev launcher stops reading their logs.
 - The Simulation pane and its studies are retired: agents build every simulation from files in an environment, and opening a simulation now opens only its own page. Existing studies open as simulation pages with their jobs and results, read-only, and agents can read them but no longer create or run studies.
 - The built-in environments are updated: parallel OpenFOAM runs work in **cfd** (`mpirun` no longer refuses to start), and both environments can publish a flow's walls, slices and streamlines. Agents give the new `docker pull` commands.

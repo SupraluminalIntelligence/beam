@@ -1,0 +1,423 @@
+/*---------------------------------------------------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  2512                                  |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+Build  : _87ed40d2-20251219 OPENFOAM=2512 version=2512
+Arch   : "LSB;label=32;scalar=64"
+Exec   : simpleFoam -parallel
+Date   : Sep 29 2026
+Time   : 06:21:12
+Host   : 7b2a03501a48
+PID    : 1855
+I/O    : uncollated
+Case   : /work/run/coarse
+nProcs : 8
+Hosts  :
+(
+    (7b2a03501a48 8)
+)
+Pstream initialized with:
+    node communication : off [type=host] (8 ranks, 1 nodes)
+    topology controls  : none
+    consensus exchange : 0 (tuning: 0)
+    exchange algorithm : 0
+    commsType          : nonBlocking
+    polling iterations : 0
+trapFpe: Floating point exception trapping enabled (FOAM_SIGFPE).
+memory pool : not available
+fileModificationChecking : Monitoring run-time modified files using timeStampMaster (fileModificationSkew 5, maxFileModificationPolls 20)
+allowSystemOperations : Allowing user-supplied system call operations
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+Create time
+
+Create mesh for time = 0
+
+
+SIMPLE: no convergence criteria found. Calculations will run for 600 steps.
+
+Reading field p
+
+Reading field U
+
+Reading/calculating face flux field phi
+
+Selecting incompressible transport model Newtonian
+Selecting turbulence model type RAS
+Selecting RAS turbulence model SpalartAllmaras
+Selecting patchDistMethod meshWave
+ft2 term: inactive
+RAS
+{
+    RASModel        SpalartAllmaras;
+    turbulence      on;
+    printCoeffs     on;
+    sigmaNut        0.66666;
+    kappa           0.41;
+    Cb1             0.1355;
+    Cb2             0.622;
+    Cw2             0.3;
+    Cw3             2;
+    Cv1             7.1;
+    Cs              0.3;
+    ck              0.07;
+    ft2             false;
+    Ct3             1.2;
+    Ct4             0.5;
+}
+
+No MRF models present
+
+No finite volume options present
+
+Starting time loop
+
+forceCoeffs forceCoeffs:
+    rho: rhoInf
+    Freestream density (rhoInf) set to 1.225
+    Not including porosity effects
+    magUInf: 90
+    lRef   : 1
+    Aref   : 1
+    rhoInf : 1.225
+    Selecting all coefficients
+    - Drag force: Cd
+    - Drag force front: Cd(f)
+    - Drag force rear: Cd(r)
+    - Lift force: Cl
+    - Lift force front: Cl(f)
+    - Lift force rear: Cl(r)
+    - Pitch moment: CmPitch
+    - Roll moment: CmRoll
+    - Yaw moment: CmYaw
+    - Side force: Cs
+    - Side force front: Cs(f)
+    - Side force rear: Cs(r)
+
+
+forces forces:
+    rho: rhoInf
+    Freestream density (rhoInf) set to 1.225
+    Not including porosity effects
+
+wallShearStress wallShearStress:
+    processing (1) wall patches:
+        airfoil
+
+Time = 1
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0361629775064, Final residual = 0.000214364296599, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.105081613367, Final residual = 0.000771293646248, No Iterations 1
+GAMG:  Solving for p, Initial residual = 1, Final residual = 0.0185623642047, No Iterations 15
+time step continuity errors : sum local = 8.64352617523e-05, global = 7.36277683073e-06, cumulative = 7.36277683073e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 0.999999999436, Final residual = 0.0157740954177, No Iterations 1
+ExecutionTime = 0.12 s  ClockTime = 0 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.123600757794	0.0218370278273	0.101763729966	0
+    Cd(f):	0.0431414017599	-0.0106068658369	0.0537482675968	0
+    Cd(r):	0.0804593560337	0.0324438936642	0.0480154623695	0
+    Cl:	0.0373179542738	0.0430507595011	-0.00573280522731	0
+    Cl(f):	0.06715832182	0.0700075257221	-0.00284920390208	0
+    Cl(r):	-0.0298403675462	-0.0269567662209	-0.00288360132523	0
+    CmPitch:	0.0484993446831	0.0484821459715	1.71987115726e-05	0
+    CmRoll:	-0.0186589771369	-0.0215253797506	0.00286640261365	0
+    CmYaw:	0.0618003788968	0.0109185139137	0.0508818649831	0
+    Cs:	8.662926864e-22	-1.48476537026e-22	1.01476922343e-21	0
+    Cs(f):	0.0618003788968	0.0109185139137	0.0508818649831	0
+    Cs(r):	-0.0618003788968	-0.0109185139137	-0.0508818649831	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (598.805528794 227.468364291 -4.2978945904e-18)
+        Pressure : (93.1760691172 220.622640257 7.36629219322e-19)
+        Viscous  : (505.629459677 6.84572403391 -5.03452380973e-18)
+    Sum of moments
+        Total    : (-113.734182146 299.402764397 -240.617373809)
+        Pressure : (-110.311320129 46.5880345586 -240.532046701)
+        Viscous  : (-3.42286201696 252.814729839 -0.0853271077896)
+    writing force and moment files.
+
+Time = 2
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.026084597984, Final residual = 0.000101549503727, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.0890146253591, Final residual = 0.000558371510609, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.483766834653, Final residual = 0.00956442372069, No Iterations 21
+time step continuity errors : sum local = 4.56708608622e-05, global = 2.47199448554e-06, cumulative = 9.83477131627e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 0.00438339290513, Final residual = 8.63064499186e-05, No Iterations 1
+ExecutionTime = 0.15 s  ClockTime = 0 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.0913805847563	0.0332103967175	0.0581701880387	0
+    Cd(f):	0.00745353337482	-0.0233171041065	0.0307706374813	0
+    Cd(r):	0.0839270513815	0.056527500824	0.0273995505574	0
+    Cl:	0.0764735180066	0.0798446049305	-0.00337108692385	0
+    Cl(f):	0.14271848471	0.144392349498	-0.00167386478789	0
+    Cl(r):	-0.0662449667036	-0.0645477445677	-0.00169722213596	0
+    CmPitch:	0.104481725707	0.104470047033	1.16786740361e-05	0
+    CmRoll:	-0.0382367590033	-0.0399223024652	0.00168554346192	0
+    CmYaw:	0.0456902923781	0.0166051983588	0.0290850940194	0
+    Cs:	1.85882112497e-21	-4.80489745567e-23	1.90687009953e-21	0
+    Cs(f):	0.0456902923781	0.0166051983588	0.0290850940194	0
+    Cs(r):	-0.0456902923781	-0.0166051983588	-0.0290850940194	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (425.791657266 410.104960844 -9.22207630625e-18)
+        Pressure : (136.731155848 406.657526791 2.3838297502e-19)
+        Viscous  : (289.060501418 3.44743405273 -9.46045928127e-18)
+    Sum of moments
+        Total    : (-205.052480422 212.895828633 -518.359961664)
+        Pressure : (-203.328763396 68.365577924 -518.302020842)
+        Viscous  : (-1.72371702636 144.530250709 -0.0579408215615)
+    writing force and moment files.
+
+Time = 3
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0195067845743, Final residual = 7.48791449526e-05, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.0757002555613, Final residual = 0.000556681209684, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.470759970252, Final residual = 0.00904508339519, No Iterations 21
+time step continuity errors : sum local = 3.66460866476e-05, global = -4.05457360805e-08, cumulative = 9.79422558018e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 0.00257935456173, Final residual = 5.90615605822e-05, No Iterations 1
+ExecutionTime = 0.17 s  ClockTime = 0 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.0495911766654	0.0107992686496	0.0387919080158	0
+    Cd(f):	0.00481215472148	-0.0157919425828	0.0206040973043	0
+    Cd(r):	0.0447790219439	0.0265912112324	0.0181878107115	0
+    Cl:	0.0399668672224	0.0423831538152	-0.00241628659278	0
+    Cl(f):	0.136526951346	0.137705314998	-0.00117836365231	0
+    Cl(r):	-0.0965600841236	-0.0953221611832	-0.00123792294047	0
+    CmPitch:	0.116543517735	0.116513738091	2.97796440778e-05	0
+    CmRoll:	-0.0199834336112	-0.0211915769076	0.00120814329639	0
+    CmYaw:	0.0247955883327	0.00539963432479	0.0193959540079	0
+    Cs:	1.84095090441e-21	1.02191935079e-22	1.73875896933e-21	0
+    Cs(f):	0.0247955883327	0.00539963432479	0.0193959540079	0
+    Cs(r):	-0.0247955883327	-0.00539963432479	-0.0193959540079	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (231.603192578 214.965086175 -9.13341767452e-18)
+        Pressure : (38.7794261539 213.498609771 -5.06999737912e-19)
+        Viscous  : (192.823766424 1.46647640422 -8.62641793661e-18)
+    Sum of moments
+        Total    : (-107.482543088 115.801596289 -578.201527362)
+        Pressure : (-106.749304885 19.3897130769 -578.053783103)
+        Viscous  : (-0.73323820211 96.4118832122 -0.147744259181)
+    writing force and moment files.
+
+Time = 4
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0136166142516, Final residual = 5.78170423602e-05, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 0.060242655076, Final residual = 0.000474746614168, No Iterations 1
+GAMG:  Solving for p, Initial residual = 0.678778634634, Final residual = 0.01293942991, No Iterations 18
+time step continuity errors : sum local = 4.51486509763e-05, global = 3.38318478117e-07, cumulative = 1.01325440583e-05
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 0.00209439230584, Final residual = 5.43250695551e-05, No Iterations 1
+ExecutionTime = 0.19 s  ClockTime = 0 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.00589502289524	-0.0231612202637	0.029056243159	0
+    Cd(f):	0.0154960292954	8.38646028822e-05	0.0154121646925	0
+    Cd(r):	-0.00960100640011	-0.0232450848666	0.0136440784665	0
+    Cl:	-0.0250970356955	-0.0233289494695	-0.00176808622597	0
+    Cl(f):	0.0786725763417	0.0795514094165	-0.000878833074755	0
+    Cl(r):	-0.103769612037	-0.102880358886	-0.00088925315121	0
+    CmPitch:	0.0912210941894	0.0912158841512	5.21003822769e-06	0
+    CmRoll:	0.0125485178477	0.0116644747347	0.000884043112983	0
+    CmYaw:	0.00294751144762	-0.0115806101319	0.0145281215795	0
+    Cs:	1.1890413422e-21	1.75971631572e-22	1.01306971062e-21	0
+    Cs(f):	0.00294751144762	-0.0115806101319	0.0145281215795	0
+    Cs(r):	-0.00294751144762	0.0115806101319	-0.0145281215795	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (37.8610035709 -122.169216313 -5.89913135897e-18)
+        Pressure : (-106.555025822 -123.474430925 -8.73039257136e-19)
+        Viscous  : (144.416029393 1.3052146112 -5.02609210183e-18)
+    Sum of moments
+        Total    : (61.0846081567 18.9305017855 -452.570653547)
+        Pressure : (61.7372154623 -53.277512911 -452.544805245)
+        Viscous  : (-0.6526073056 72.2080146965 -0.0258483021571)
+    writing force and moment files.
+
+Time = 5
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 0.0115624286341, Final residual = 5.02777390754e-05, No Iterations 1
+
+[... iterations 7 to 2096 trimmed for the fixture ...]
+Time = 2097
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 7.33461021905e-09, Final residual = 3.18321004756e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 2.24009233302e-08, Final residual = 5.76876877201e-10, No Iterations 2
+GAMG:  Solving for p, Initial residual = 1.12336483586e-08, Final residual = 2.1135134112e-10, No Iterations 21
+time step continuity errors : sum local = 6.93750309568e-12, global = 4.24562011553e-14, cumulative = 9.75967614125e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 9.71226495529e-06, Final residual = 2.0458929875e-07, No Iterations 1
+bounding nuTilda, min: -5.82578348004e-05 max: 0.0114967348606 average: 0.000511811095317
+ExecutionTime = 11.71 s  ClockTime = 13 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.00889672960482	0.00201834061437	0.00687838899045	0
+    Cd(f):	-0.216668791113	-0.220134065307	0.00346527419371	0
+    Cd(r):	0.225565520718	0.222152405921	0.00341311479674	0
+    Cl:	0.442234311831	0.442286471228	-5.21593969762e-05	0
+    Cl(f):	0.222834437071	0.222748508304	8.59287664322e-05	0
+    Cl(r):	0.219399874761	0.219537962924	-0.000138088163408	0
+    CmPitch:	0.00171728115492	0.00160527269	0.00011200846492	0
+    CmRoll:	-0.221117155916	-0.221143235614	2.60796984881e-05	0
+    CmYaw:	0.00444836480241	0.00100917030718	0.00343919449522	0
+    Cs:	9.24737391446e-22	-9.06943051392e-22	1.83168044284e-21	0
+    Cs(f):	0.00444836480241	0.00100917030718	0.00343919449522	0
+    Cs(r):	-0.00444836480241	-0.00100917030718	-0.00343919449522	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (-109.016763836 2191.76939464 -4.58785338331e-18)
+        Pressure : (-143.077094725 2189.647072 4.49957121372e-18)
+        Viscous  : (34.0603308895 2.12232264045 -9.08742459703e-18)
+    Sum of moments
+        Total    : (-1095.88469732 -54.5083819178 -8.51986112987)
+        Pressure : (-1094.823536 -71.5385473626 -7.96415913328)
+        Viscous  : (-1.06116132022 17.0301654448 -0.555701996586)
+    writing force and moment files.
+
+Time = 2098
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 7.29422043245e-09, Final residual = 3.36315486611e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 2.27773035051e-08, Final residual = 6.90199245506e-10, No Iterations 2
+GAMG:  Solving for p, Initial residual = 1.32333456082e-08, Final residual = 2.62093880286e-10, No Iterations 14
+time step continuity errors : sum local = 8.60310917434e-12, global = 9.82619046133e-14, cumulative = 9.75967623951e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 1.26478793184e-05, Final residual = 2.76457517108e-07, No Iterations 1
+bounding nuTilda, min: -0.000108596286954 max: 0.0114970055314 average: 0.000511844681547
+ExecutionTime = 11.73 s  ClockTime = 13 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.00889672837764	0.00201833942562	0.00687838895202	0
+    Cd(f):	-0.216668796023	-0.220134070175	0.00346527415245	0
+    Cd(r):	0.2255655244	0.222152409601	0.00341311479958	0
+    Cl:	0.442234320423	0.442286479776	-5.21593528697e-05	0
+    Cl(f):	0.222834440134	0.222748511331	8.59288025187e-05	0
+    Cl(r):	0.219399880289	0.219537968445	-0.000138088155388	0
+    CmPitch:	0.00171727992241	0.00160527144345	0.000112008478954	0
+    CmRoll:	-0.221117160212	-0.221143239888	2.60796764349e-05	0
+    CmYaw:	0.00444836418882	0.00100916971281	0.00343919447601	0
+    Cs:	9.2473731541e-22	-9.06943074572e-22	1.83168038998e-21	0
+    Cs(f):	0.00444836418882	0.00100916971281	0.00343919447601	0
+    Cs(r):	-0.00444836418882	-0.00100916971281	-0.00343919447601	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (-109.016772883 2191.76943673 -4.58785300608e-18)
+        Pressure : (-143.077103567 2189.64711389 4.49957132872e-18)
+        Viscous  : (34.060330684 2.12232284544 -9.0874243348e-18)
+    Sum of moments
+        Total    : (-1095.88471837 -54.5083864413 -8.51985501504)
+        Pressure : (-1094.82355694 -71.5385517834 -7.96415294883)
+        Viscous  : (-1.06116142272 17.030165342 -0.555702066208)
+    writing force and moment files.
+
+Time = 2099
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 7.5144586436e-09, Final residual = 1.17061682061e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 2.31626418194e-08, Final residual = 6.24873142897e-10, No Iterations 2
+GAMG:  Solving for p, Initial residual = 1.33310578041e-08, Final residual = 2.6354559722e-10, No Iterations 13
+time step continuity errors : sum local = 8.65074020774e-12, global = 4.31840483146e-14, cumulative = 9.75967628269e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 1.24403667796e-05, Final residual = 2.53178319668e-07, No Iterations 1
+bounding nuTilda, min: -5.82212674334e-05 max: 0.0114973219608 average: 0.00051183926181
+ExecutionTime = 11.74 s  ClockTime = 13 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.0088967266795	0.00201833788242	0.00687838879708	0
+    Cd(f):	-0.216668802749	-0.220134076833	0.00346527408483	0
+    Cd(r):	0.225565529428	0.222152414716	0.00341311471225	0
+    Cl:	0.442234332177	0.442286491549	-5.21593725725e-05	0
+    Cl(f):	0.222834442664	0.222748513877	8.59287864569e-05	0
+    Cl(r):	0.219399889513	0.219537977672	-0.000138088159029	0
+    CmPitch:	0.00171727657546	0.00160526810271	0.000112008472743	0
+    CmRoll:	-0.221117166088	-0.221143245775	2.60796862862e-05	0
+    CmYaw:	0.00444836333975	0.00100916894121	0.00343919439854	0
+    Cs:	9.24737237901e-22	-9.06943099081e-22	1.83168033698e-21	0
+    Cs(f):	0.00444836333975	0.00100916894121	0.00343919439854	0
+    Cs(r):	-0.00444836333975	-0.00100916894121	-0.00343919439854	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (-109.016785355 2191.76949432 -4.58785262154e-18)
+        Pressure : (-143.077115279 2189.64717162 4.49957145031e-18)
+        Viscous  : (34.060329924 2.1223226943 -9.08742407185e-18)
+    Sum of moments
+        Total    : (-1095.88474716 -54.5083926774 -8.51983840999)
+        Pressure : (-1094.82358581 -71.5385576394 -7.96413637459)
+        Viscous  : (-1.06116134715 17.030164962 -0.555702035397)
+    writing force and moment files.
+
+Time = 2100
+
+DILUPBiCGStab:  Solving for Ux, Initial residual = 7.4638692768e-09, Final residual = 3.47803895224e-10, No Iterations 1
+DILUPBiCGStab:  Solving for Uy, Initial residual = 2.34160775895e-08, Final residual = 1.12981397057e-09, No Iterations 1
+GAMG:  Solving for p, Initial residual = 1.23096333756e-08, Final residual = 2.32270576347e-10, No Iterations 16
+time step continuity errors : sum local = 7.62416643357e-12, global = 9.6051955144e-14, cumulative = 9.75967637874e-06
+DILUPBiCGStab:  Solving for nuTilda, Initial residual = 1.15388868166e-05, Final residual = 2.2662756106e-07, No Iterations 1
+bounding nuTilda, min: -5.80632153343e-05 max: 0.0114976180575 average: 0.000511872520205
+ExecutionTime = 11.77 s  ClockTime = 13 s
+
+forceCoeffs forceCoeffs write:
+    Coefficient	Total	Pressure	Viscous	Internal
+    Cd:	0.00889672517891	0.0020183364196	0.00687838875931	0
+    Cd(f):	-0.216668809229	-0.220134083274	0.0034652740444	0
+    Cd(r):	0.225565534408	0.222152419693	0.00341311471491	0
+    Cl:	0.442234343638	0.442286502967	-5.2159329487e-05	0
+    Cl(f):	0.222834445023	0.222748516201	8.59288215269e-05	0
+    Cl(r):	0.219399898615	0.219537986766	-0.000138088151014	0
+    CmPitch:	0.00171727320396	0.00160526471769	0.00011200848627	0
+    CmRoll:	-0.221117171819	-0.221143251484	2.60796647435e-05	0
+    CmYaw:	0.00444836258946	0.0010091682098	0.00343919437965	0
+    Cs:	9.24737147081e-22	-9.06943125772e-22	1.83168027285e-21	0
+    Cs(f):	0.00444836258946	0.0010091682098	0.00343919437965	0
+    Cs(r):	-0.00444836258946	-0.0010091682098	-0.00343919437965	0
+
+    writing force and moment coefficient files.
+
+forces forces write:
+    Sum of forces
+        Total    : (-109.016796748 2191.76955052 -4.58785217096e-18)
+        Pressure : (-143.07712647 2189.64722763 4.49957158274e-18)
+        Viscous  : (34.0603297222 2.12232289447 -9.0874237537e-18)
+    Sum of moments
+        Total    : (-1095.88477526 -54.5083983739 -8.51982168315)
+        Pressure : (-1094.82361381 -71.538563235 -7.96411958064)
+        Viscous  : (-1.06116144723 17.0301648611 -0.555702102509)
+    writing force and moment files.
+
+yPlus yPlus write:
+    writing field yPlus
+    patch airfoil y+ : min = 0.0966572599526, max = 1.63191981481, average = 0.845529883025
+wallShearStress wallShearStress write:
+    writing field wallShearStress
+    min/max(airfoil) = (-37.1247015902 -43.3439696608 -2.45150046615e-16), (5.32933299235 5.45505908003 3.10818610148e-16)
+End
+
+Finalising parallel run
