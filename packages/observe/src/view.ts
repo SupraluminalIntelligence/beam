@@ -1,12 +1,12 @@
 import { LIVE_LIMITS, LiveView, thinIndices, type LiveCase, type LiveSeries } from "@beam/contracts";
-import { parseCheckMesh, parseFoamLog, type DatTable } from "./foam.ts";
+import { parseCheckMesh, parseFoamLog, type DatTable, type FoamLog } from "./foam.ts";
 
 /** What the runner read from one case. */
 export type CaseReading = {
   case: LiveCase;
   cases: LiveCase[];
-  /** The solver's log, or its last few megabytes. */
-  log: string | null;
+  /** The solver's log, as text or as read so far by a foamLogReader. */
+  log: string | FoamLog | null;
   /** Function-object output by object name (forceCoeffs, yPlus, …), each joined across restarts. */
   objects: Record<string, DatTable>;
   checkMesh: string | null;
@@ -30,7 +30,7 @@ const column = (t: DatTable, name: string) => { const i = t.columns.indexOf(name
 
 /** The live view of one case: residuals, force coefficients, y+, checkMesh and the latest numbers. */
 export function buildLiveView(r: CaseReading): LiveView {
-  const log = r.log ? parseFoamLog(r.log) : null;
+  const log = typeof r.log === "string" ? parseFoamLog(r.log) : r.log;
   // The log names its application (simpleFoam), where its file may be named for a launcher (log.mpirun).
   const solver = log?.solver ?? r.case.solver ?? null;
   const x = steady(solver) ? { label: "iteration", unit: "" } : { label: "time", unit: "s" };

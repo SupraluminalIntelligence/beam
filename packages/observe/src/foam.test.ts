@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildLiveView, joinRestarts, parseCheckMesh, parseDat, parseFoamLog } from "./index.ts";
+import { buildLiveView, datReader, foamLogReader, joinRestarts, parseCheckMesh, parseDat, parseFoamLog } from "./index.ts";
 
 // Trimmed from a real run: the NACA 0012 job's coarse mesh (simpleFoam with Spalart-Allmaras, 4 MPI
 // processes, restarted at 600, 1100 and 1600 iterations), on the dev deployment.
@@ -31,6 +31,17 @@ describe("a solver log", () => {
     const log2 = parseFoamLog("Time = 1\nGAMG:  Solving for p, Initial residual = 1, Final residual = 0.1, No Iterations 5\nGAMG:  Solving for p, Initial residual = 0.01, Final residual = 1e-4, No Iterations 5\n");
     expect(log2.residuals.get("p")).toEqual([1]);
   });
+  it("reads a growing log piece by piece to the same result, and carries on through a restart", () => {
+    const text = fixture("simpleFoam.txt"), cut = text.lastIndexOf("\n", text.length / 2) + 1;
+    const reader = foamLogReader();
+    reader.push(text.slice(0, cut));
+    expect(reader.log.ended).toBe(false);
+    expect(reader.push(text.slice(cut))).toEqual(log);
+    reader.push("Exec   : simpleFoam -parallel\nTime = 2101\n\nGAMG:  Solving for p, Initial residual = 0.001, Final residual = 1e-5, No Iterations 3\n");
+    expect(reader.log.ended).toBe(false);
+    expect(reader.log.times.at(-1)).toBe(2101);
+    expect(reader.log.times[0]).toBe(1);
+  });
 });
 
 describe("function-object output", () => {
@@ -47,6 +58,12 @@ describe("function-object output", () => {
     expect(times).toEqual([...times].sort((a, b) => a - b));
     expect(new Set(times).size).toBe(times.length);
     expect(times.filter(t => t >= 600)[0]).toBe(part(600).table.rows[0]![0]);
+  });
+  it("reads a growing .dat file piece by piece, keeping its columns", () => {
+    const text = fixture("forceCoeffs/0/coefficient.dat"), cut = text.lastIndexOf("\n", text.length / 2) + 1;
+    const reader = datReader();
+    reader.push(text.slice(0, cut));
+    expect(reader.push(text.slice(cut))).toEqual(parseDat(text));
   });
   it("keeps a patch column as text", () => {
     const t = parseDat(fixture("yPlus/0/yPlus.dat"));

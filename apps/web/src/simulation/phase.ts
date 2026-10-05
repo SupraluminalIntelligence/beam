@@ -12,7 +12,10 @@ export type Phase =
   | { kind: "idle"; live: false; text: string };
 
 const ACTIVE = ["queued", "preparing", "running", "publishing"];
-/** How long after its last change machine work still counts as what is happening now. */
+/**
+ * How long a running case stays live without a new reading. The runner reports at least once a minute
+ * while a command runs, so a view this old is no longer being watched (the run ended, the app closed).
+ */
 export const MACHINE_FRESH_MS = 3 * 60_000;
 
 export function phase(sim: { draft?: boolean; version: number; jobs: PhaseJob[] }, live: PhaseLive, now = Date.now()): Phase {
@@ -21,7 +24,8 @@ export function phase(sim: { draft?: boolean; version: number; jobs: PhaseJob[] 
   if (running) return { kind: "job", live: true, jobId: running._id, text: `v${running.version ?? sim.version} · job ${running.state === "queued" ? "queued" : running.state} · checked when it finishes` };
   const done = sim.jobs.find(j => j.state === "succeeded" && j.results);
   const machineAt = live ? Math.max(live.updatedAt, live.view.case.updatedAt) : 0;
-  const fresh = !!live && (live.view.case.state === "running" || now - machineAt < MACHINE_FRESH_MS);
+  // Live only while the solver is running: a finished, failed or stopped case is done changing.
+  const fresh = !!live && live.view.case.state === "running" && now - live.updatedAt < MACHINE_FRESH_MS;
   // Work on the machine is what the page shows when it is newer than the last results, or there are none.
   if (live && (!done || machineAt > (done.endedAt ?? done.updatedAt ?? 0)))
     return { kind: "machine", live: fresh, text: `${name} · work on the machine${fresh ? " · live" : ""} · nothing here is checked` };

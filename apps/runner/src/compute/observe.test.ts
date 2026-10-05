@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFile, cp, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findCases, observeMachine, readMachine } from "./observe.ts";
+import { findCases, observeMachine, readMachine, type Memory } from "./observe.ts";
 
 const FIXTURES = new URL("../../../../packages/observe/src/fixtures/", import.meta.url).pathname;
 let root = "";
@@ -48,6 +48,26 @@ describe("reading a thread directory", () => {
     await rm(join(root, "naca0012"), { recursive: true });
     expect(await readMachine(root, null)).toBeNull();
   });
+});
+
+it("keeps a long run's whole history, reading only what each log gained, and starts over when it is rewritten", async () => {
+  const coarse = await thread(), path = join(coarse, "log.simpleFoam");
+  // About 9 MB, like the 512 × 512 cavity's log after 13,546 iterations.
+  const step = (i: number) => `Time = ${i}\n\nsmoothSolver:  Solving for Ux, Initial residual = ${1 / i}, Final residual = 1e-9, No Iterations 4\n${"ExecutionTime = 1 s  ClockTime = 1 s\n".repeat(16)}\n`;
+  await writeFile(path, "Exec   : simpleFoam\n" + Array.from({ length: 13_000 }, (_, i) => step(i + 1)).join(""));
+  const memory: Memory = new Map(), iterations = (r: Awaited<ReturnType<typeof readMachine>>) => r!.view.series[0]!.xs;
+  const first = await readMachine(root, null, Date.now(), memory);
+  expect(iterations(first)[0]).toBe(1);
+  expect(iterations(first).at(-1)).toBe(13_000);
+  await appendFile(path, step(13_001) + "Time = 13002\n\nsmoothSolver:  Solving for Ux, Initial resid");
+  const grown = iterations(await readMachine(root, null, Date.now(), memory));
+  // Step 13002 has begun; its half-written line waits for the next pass.
+  expect([grown[0], grown.at(-1)]).toEqual([1, 13_002]);
+  expect(memory.get(path)!.offset).toBe((await stat(path)).size - "smoothSolver:  Solving for Ux, Initial resid".length);
+  await writeFile(path, "Exec   : pimpleFoam\nTime = 0.5\n\nsmoothSolver:  Solving for Ux, Initial residual = 0.1, Final residual = 1e-9, No Iterations 4\n");
+  const rewritten = (await readMachine(root, null, Date.now(), memory))!;
+  expect(rewritten.view.case.solver).toBe("pimpleFoam");
+  expect(rewritten.view.series[0]!.xs).toEqual([0.5]);
 });
 
 it("publishes when the solver's output changes, and not otherwise, up to its last reading on stop", async () => {

@@ -11,6 +11,12 @@ it("shows a draft's work on the machine, live while it changes", () => {
   expect(phase({ draft: true, version: 0, jobs: [] }, null, NOW)).toEqual({ kind: "idle", live: false, text: "Draft · not saved yet" });
 });
 
+it("stops being live as soon as the solver finishes or fails, or once nobody is reading the machine", () => {
+  for (const state of ["done", "failed", "stopped"])
+    expect(phase({ draft: true, version: 0, jobs: [] }, live(NOW - 2000, state), NOW)).toMatchObject({ kind: "machine", live: false, text: "Draft · work on the machine · nothing here is checked" });
+  expect(phase({ version: 1, jobs: [] }, live(NOW - MACHINE_FRESH_MS - 1), NOW)).toMatchObject({ kind: "machine", live: false });
+});
+
 it("moves to a running job, then to its results, until newer machine work starts", () => {
   expect(phase({ version: 1, jobs: [job({ state: "running", results: null })] }, live(NOW - 60 * 60_000, "done"), NOW)).toMatchObject({ kind: "job", live: true, jobId: "j1" });
   expect(phase({ version: 1, jobs: [job({})] }, live(NOW - 60 * 60_000, "done"), NOW)).toEqual({ kind: "results", live: false, jobId: "j1", text: "v1 results · ✓ 4 pass · ! 1 to review".replace("v1 results", "v1 · results") });

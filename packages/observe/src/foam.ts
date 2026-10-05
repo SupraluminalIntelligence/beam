@@ -26,70 +26,87 @@ const COURANT = /^Courant Number mean: [-+0-9.eE]+ max: ([-+0-9.eE]+)/;
 const CONTINUITY = /continuity errors : sum local = ([-+0-9.eE]+)/;
 const EXEC = /^Exec\s*:\s*(\S+)/;
 
-export function parseFoamLog(text: string): FoamLog {
+/**
+ * A solver log read as it grows: push whole lines as they arrive, and log holds everything read so far.
+ * A new run appended to the same log (a restart, with its own header) carries on from its first step.
+ */
+export function foamLogReader() {
   const log: FoamLog = { solver: null, times: [], residuals: new Map(), courant: [], continuity: null, ended: false, fatal: null };
   let step = -1, seen = new Set<string>();
-  const lines = text.split("\n");
-  // A log being written ends mid-line: leave its last line for the next read.
-  if (!text.endsWith("\n")) lines.pop();
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    if (log.solver === null) { const e = EXEC.exec(line); if (e) { log.solver = e[1]!.split("/").pop()!; continue; } }
-    const t = TIME.exec(line);
-    if (t) {
-      const time = Number(t[1]);
-      if (!Number.isFinite(time)) continue;
-      step = log.times.push(time) - 1;
-      log.courant.push(null);
-      for (const values of log.residuals.values()) values.push(null);
-      seen = new Set();
-      continue;
+  const push = (text: string) => {
+    for (const raw of text.split("\n")) {
+      const line = raw.trimEnd();
+      const e = EXEC.exec(line);
+      if (e) { log.solver = e[1]!.split("/").pop()!; log.ended = false; log.fatal = null; continue; }
+      const t = TIME.exec(line);
+      if (t) {
+        const time = Number(t[1]);
+        if (!Number.isFinite(time)) continue;
+        step = log.times.push(time) - 1;
+        log.courant.push(null);
+        for (const values of log.residuals.values()) values.push(null);
+        seen = new Set();
+        continue;
+      }
+      if (step < 0) continue;
+      const s = SOLVE.exec(line);
+      if (s) {
+        const field = s[1]!, value = Number(s[2]);
+        // Later correctors of the same field in one step start from a smaller residual; the first is the step's.
+        if (seen.has(field) || !Number.isFinite(value)) continue;
+        seen.add(field);
+        let values = log.residuals.get(field);
+        if (!values) { values = new Array<number | null>(step + 1).fill(null); log.residuals.set(field, values); }
+        values[step] = value;
+        continue;
+      }
+      const c = COURANT.exec(line);
+      if (c) { const v = Number(c[1]); if (Number.isFinite(v)) log.courant[step] = Math.max(log.courant[step] ?? 0, v); continue; }
+      const k = CONTINUITY.exec(line);
+      if (k) { const v = Number(k[1]); if (Number.isFinite(v)) log.continuity = v; continue; }
+      if (line.trim() === "End") log.ended = true;
+      if (line.includes("FOAM FATAL")) log.fatal = line.trim().slice(0, 200);
     }
-    if (step < 0) continue;
-    const s = SOLVE.exec(line);
-    if (s) {
-      const field = s[1]!, value = Number(s[2]);
-      // Later correctors of the same field in one step start from a smaller residual; the first is the step's.
-      if (seen.has(field) || !Number.isFinite(value)) continue;
-      seen.add(field);
-      let values = log.residuals.get(field);
-      if (!values) { values = new Array<number | null>(step + 1).fill(null); log.residuals.set(field, values); }
-      values[step] = value;
-      continue;
-    }
-    const c = COURANT.exec(line);
-    if (c) { const v = Number(c[1]); if (Number.isFinite(v)) log.courant[step] = Math.max(log.courant[step] ?? 0, v); continue; }
-    const k = CONTINUITY.exec(line);
-    if (k) { const v = Number(k[1]); if (Number.isFinite(v)) log.continuity = v; continue; }
-    if (line.trim() === "End") log.ended = true;
-    if (line.includes("FOAM FATAL")) log.fatal = line.trim().slice(0, 200);
-  }
-  return log;
+    return log;
+  };
+  return { log, push };
+}
+
+/** Whole lines of text being written: a file being written ends mid-line, and its last line is left for the next read. */
+const complete = (text: string) => (text.endsWith("\n") ? text : text.slice(0, text.lastIndexOf("\n") + 1));
+
+export function parseFoamLog(text: string): FoamLog {
+  return foamLogReader().push(complete(text));
 }
 
 export type DatTable = { columns: string[]; rows: (number | string)[][] };
 
 /**
- * A function object's .dat file: comment lines, the last of which names the columns, then whitespace-
- * separated rows. Numbers stay numbers; a column of names (a patch) stays text.
+ * A function object's .dat file read as it grows (push whole lines): comment lines, the last of which
+ * names the columns, then whitespace-separated rows. Numbers stay numbers; a column of names (a patch)
+ * stays text.
  */
-export function parseDat(text: string): DatTable {
-  let columns: string[] = [];
-  const rows: (number | string)[][] = [];
-  const lines = text.split("\n");
-  if (!text.endsWith("\n")) lines.pop();
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    if (line.startsWith("#")) {
-      const names = line.slice(1).trim().split(/\s+/).filter(Boolean);
-      if (names[0] === "Time") columns = names;
-      continue;
+export function datReader() {
+  const table: DatTable = { columns: [], rows: [] };
+  const push = (text: string) => {
+    for (const raw of text.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.startsWith("#")) {
+        const names = line.slice(1).trim().split(/\s+/).filter(Boolean);
+        if (names[0] === "Time") table.columns = names;
+        continue;
+      }
+      const cells = line.split(/\s+/).map(c => { const n = Number(c); return Number.isFinite(n) && c !== "" ? n : c; });
+      if (typeof cells[0] === "number") table.rows.push(cells);
     }
-    const cells = line.split(/\s+/).map(c => { const n = Number(c); return Number.isFinite(n) && c !== "" ? n : c; });
-    if (typeof cells[0] === "number") rows.push(cells);
-  }
-  return { columns, rows };
+    return table;
+  };
+  return { table, push };
+}
+
+export function parseDat(text: string): DatTable {
+  return datReader().push(complete(text));
 }
 
 /**
