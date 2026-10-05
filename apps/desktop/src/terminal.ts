@@ -1,6 +1,27 @@
 import { execFile, spawn } from "node:child_process";
 
 export const psQuote = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+export const shQuote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
+
+/**
+ * A provider sign-in as a short shell script, so Terminal shows a titled window with one line about
+ * what is happening instead of the long command that runs it. The script removes itself, runs the
+ * sign-in, and says how it went.
+ */
+export function signInScript(provider: string, account: string, env: Record<string, string>, argv: string[]): string {
+  const title = `Beam · Sign in to ${provider}`;
+  return [
+    "#!/bin/sh",
+    'rm -f "$0"',
+    `printf '\\033]0;%s\\007' ${shQuote(title)}`,
+    "clear",
+    `printf '\\n  %s\\n  %s\\n\\n' ${shQuote(title)} ${shQuote(account)}`,
+    `${Object.entries(env).map(([k, v]) => `${k}=${shQuote(v)}`).join(" ")} ${argv.map(shQuote).join(" ")}`,
+    "status=$?",
+    `if [ "$status" -eq 0 ]; then printf '\\n  Signed in. You can close this window and go back to Beam.\\n\\n'; else printf '\\n  Sign-in did not finish. Close this window and try again from Beam.\\n\\n'; fi`,
+    "",
+  ].join("\n");
+}
 export function windowsTerminalScript(command: string): string {
   // Explorer and Beam may predate a CLI installation. Refresh PATH in the new terminal.
   return `$env:Path = (@([Environment]::GetEnvironmentVariable('Path','Machine'), [Environment]::GetEnvironmentVariable('Path','User'), $env:Path, (Join-Path $env:USERPROFILE '.local\\bin'), (Join-Path $env:APPDATA 'npm')) | Where-Object { $_ }) -join ';'; ${command}`;
