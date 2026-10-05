@@ -139,7 +139,8 @@ export default defineSchema({
   /** Simulations (packages/contracts/src/simulations.ts). kind absent = recipe: the studies that came first. A files simulation has config null. */
   simulationCases: defineTable({chatId:v.id("chats"),name:v.string(),config:v.any(),revision:v.number(),updatedAt:v.number(),updatedBy:v.string(),cardMessageId:v.optional(v.id("messages")),kind:v.optional(v.union(v.literal("recipe"),v.literal("files"))),workspaceId:v.optional(v.id("workspaces")),draft:v.optional(v.boolean())}).index("by_chat",["chatId"]),
   /** What Beam reads from a simulation's work on the chat's machine while the agent works: the latest LiveView (packages/contracts/src/live.ts). */
-  liveViews: defineTable({simulationId:v.id("simulationCases"),chatId:v.id("chats"),source:v.literal("machine"),view:v.any(),updatedAt:v.number()}).index("by_simulation",["simulationId"]),
+  /** What the runner reads as work happens: an agent's work on the chat's machine (one per simulation), or a running job (one per job). */
+  liveViews: defineTable({simulationId:v.id("simulationCases"),chatId:v.id("chats"),source:v.union(v.literal("machine"),v.literal("job")),jobId:v.optional(v.id("computeJobs")),view:v.any(),updatedAt:v.number()}).index("by_simulation",["simulationId"]).index("by_job",["jobId"]).index("by_chat",["chatId"]),
   /** Versions. A files version has config null and its FilesSetup in setup. */
   simulationRevisions: defineTable({studyId:v.id("simulationCases"),revision:v.number(),name:v.string(),config:v.any(),createdAt:v.number(),createdBy:v.string(),setup:v.optional(v.any()),note:v.optional(v.string()),from:v.optional(v.number())}).index("by_study_revision",["studyId","revision"]),
   computeJobs: defineTable({
@@ -152,6 +153,8 @@ export default defineSchema({
     handle: v.optional(v.object({ backend: v.string(), id: v.string() })),
     log: v.string(), error: v.union(v.string(), v.null()), exitCode: v.optional(v.union(v.number(), v.null())),
     outputs: v.array(v.id("computeAssets")),
+    /** The simulation the job belongs to. Every job since live jobs has one; a study's job (the recipe in its spec) has none. */
+    simulationId: v.optional(v.id("simulationCases")),
     /** Environment jobs: the ResultsManifest (packages/contracts/src/results.ts), or null when the job wrote none. */
     results: v.optional(v.object({ manifest: v.any(), unpublished: v.array(v.object({ path: v.string(), reason: v.string() })) })),
     /** Cloud jobs: the machine's rate, the most approval authorized, and what was metered from when the machine was created. Reserved while the job may still spend. */

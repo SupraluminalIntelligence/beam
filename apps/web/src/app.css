@@ -242,7 +242,6 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .workspace-browser iframe{flex:1;width:100%;border:0;background:white}
 .workspace-browser>.compute-help{padding:0 12px}
 .workspace-search{color:var(--ink);background:var(--surface);padding:9px;width:100%;border:1px solid var(--line-2);border-radius:var(--r-1);margin-bottom:16px}
-.compute-list{display:flex;flex-direction:column;gap:7px;margin-top:15px}
 .compute-card{width:100%;display:flex;align-items:center;gap:12px;text-align:left;border:1px solid var(--line-2);border-radius:var(--r-2);padding:13px 15px;background:rgba(128,128,128,.05);margin:8px 0}
 .compute-card:hover{background:rgba(128,128,128,.1)}
 .compute-card>span:nth-child(2){flex:1;min-width:0}
@@ -252,14 +251,7 @@ body.resizing .app,body.resizing .app>.side{transition:none}
 .job-dot{display:inline-block;width:7px;height:7px;flex:none;border-radius:0;background:var(--line-2)}
 .job-dot.running,.job-dot.preparing,.job-dot.publishing{background:var(--live)}
 .job-dot.succeeded{background:var(--ok)}.job-dot.failed{background:var(--bad)}.job-dot.awaiting-approval{background:var(--warn)}
-.compute-form{border:1px solid var(--line-2);border-radius:var(--r-2);padding:18px;margin-bottom:25px}
-.compute-form fieldset{border:0;padding:0;margin:0;min-width:0}
-.compute-form label{display:flex;flex-direction:column;gap:7px;font-size:11px;color:var(--ink-2);margin-bottom:15px}
-.compute-form input,.compute-form textarea,.compute-form select,.compute-form .bsel{color:var(--ink);background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-1);padding:8px;font-size:12px;width:100%;min-width:0}
-.compute-form textarea{resize:vertical;font-family:var(--font-mono)}
 .compute-help{font-size:11px;line-height:1.6;color:var(--ink-2);margin:10px 0 16px}
-.compute-inputs{font-size:11px;margin:15px 0}.compute-inputs>b{font-weight:500}.compute-inputs>div{padding:7px 0}
-.compute-inputs>div>label{flex-direction:row;align-items:center;margin:0 0 5px}.compute-inputs input[type=checkbox]{width:auto}
 .compute-facts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--ink-2);margin-bottom:17px}.compute-facts b{font-weight:400;color:var(--ink)}
 .compute-command,.compute-log{font:11px/1.7 var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(128,128,128,.06);border:1px solid var(--line-2);border-radius:0;padding:14px;overflow:auto}
 .compute-log{min-height:150px;max-height:340px}

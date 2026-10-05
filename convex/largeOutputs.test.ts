@@ -19,7 +19,7 @@ async function fixture(){
   const tables:Record<string,any[]>={
     users:[{_id:"user",githubLogin:"alice"}],chats:[{_id:"chat",workspaceId:"ws",private:true,members:["alice"]}],
     members:[{workspaceId:"ws",githubLogin:"alice"}],runners:[{_id:"runner",ownerLogin:"alice",online:true,lastSeen:Date.now(),computeBackend:"local-process"}],
-    computeJobs:[],computeAssets:[],computeObjects:[],files:[],messages:[],
+    computeJobs:[],computeAssets:[],computeObjects:[],files:[],messages:[],simulationCases:[],
   };
   const db:any={normalizeId:(_:string,id:string)=>id,get:async(id:string)=>Object.values(tables).flat().find(r=>r._id===id)??null,
     query:(table:string)=>{const filters:[string,unknown][]=[];const rows=()=>(tables[table]??[]).filter(r=>filters.every(([k,v])=>r[k]===v));const chain:any={withIndex:(_:string,fn:any)=>{const q={eq:(k:string,v:unknown)=>{filters.push([k,v]);return q;}};fn(q);return chain;},order:()=>chain,collect:async()=>rows(),take:async(n:number)=>rows().slice(0,n),first:async()=>rows()[0]??null};return chain;},

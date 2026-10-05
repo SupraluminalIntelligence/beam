@@ -19,8 +19,12 @@ export interface UiState {
   panels: Record<string, PanelState>;
 }
 const KEY = "beam.ui.v1";
-/** The Simulation pane (tool "cfd") is retired: a saved panel drops its tab and the layout it forced. */
-const RETIRED_TOOLS = ["cfd"];
+/**
+ * Retired tools: a saved panel drops their tabs (and the layout the Simulation pane forced). The
+ * Simulation pane ("cfd") became simulations; Compute Jobs ("compute") became each simulation's Jobs
+ * tab and the sidebar's This computer.
+ */
+const RETIRED_TOOLS = ["cfd", "compute"];
 let state: UiState = load();
 const subs = new Set<() => void>();
 

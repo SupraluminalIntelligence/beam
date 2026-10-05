@@ -3,9 +3,10 @@ import { expect, it, vi } from "vitest";
 vi.mock("@convex-dev/auth/server",()=>({getAuthUserId:async()=>"user"}));
 vi.mock("./runners",()=>({runnerForToken:async(ctx:any,token:string)=>{if(token!=="valid")throw new Error("Invalid token");return ctx.db.get("runner");}}));
 import { get, list, forRun, run, saveParameters, saveVersionForRun, runVersionForRun } from "./simulations";
-import { approve, claim, publishOutput, publishResults, report, saveSimulation, simulationCases, simulationForRun, study, studyContext, workspaceStudies } from "./compute";
+import { approve, claim, publishOutput, publishResults, report, saveSimulation, simulationCases, simulationForRun, study, studyContext, submitForRun, workspaceStudies } from "./compute";
+import { thisComputer } from "./computer";
 import { defaultChannel } from "../packages/contracts/src/simulation";
-import { draftName, forSimulation, reportMachine } from "./live";
+import { draftName, forSimulation, jobsForSimulation, reportJob, reportMachine } from "./live";
 
 const call=(fn:any,ctx:any,args:any)=>fn._handler(ctx,args);
 const IMAGE="ghcr.io/supraluminalintelligence/beam-env-fea@sha256:"+"a".repeat(64);
@@ -158,4 +159,54 @@ it("names a draft after its case's top folder, not a scratch folder, and refuses
   const {ctx}=fixture();
   await expect(reportLive(ctx,{...liveView(),version:2})).rejects.toThrow();
   await expect(call(reportMachine,ctx,{token:"nope",runId:"run",view:liveView()})).rejects.toThrow("Invalid token");
+});
+
+// Jobs: every job belongs to a simulation, and a running job is watched like the machine.
+const oneOff={version:1,kind:"environment",title:"Coarse polar",environment:{name:"fea",image:IMAGE},command:"python polar.py",inputs:[],machine:"local",timeoutSeconds:600};
+const submitOneOff=(ctx:any,requestKey="polar")=>call(submitForRun,ctx,{token:"valid",runId:"run",requestKey,spec:oneOff});
+it("puts a one-off job under the draft the machine made, numbers a simulation's jobs, and shows a running job live",async()=>{
+  const {ctx,tables}=fixture();
+  const {simulationId}=await reportLive(ctx);
+  const first=await submitOneOff(ctx);
+  expect(tables.computeJobs![0].simulationId).toBe(simulationId);
+  expect(tables.messages).toHaveLength(1);
+  await save(ctx,{name:"NACA 0012 airfoil"});
+  const second=await call(runVersionForRun,ctx,{token:"valid",runId:"run",id:simulationId,version:1,machine:"local",requestKey:"v1"});
+  const sim=await call(get,ctx,{id:simulationId});
+  expect(sim.jobs.map((j:any)=>[j._id,j.number,j.version])).toEqual([[second,2,1],[first,1,null]]);
+  await call(claim,ctx,{token:"valid",id:second});
+  expect(await call(reportJob,ctx,{token:"valid",id:second,view:liveView("case",0.0087)})).toEqual({simulationId});
+  await call(reportJob,ctx,{token:"valid",id:second,view:liveView("case",0.0086)});
+  const jobs=await call(jobsForSimulation,ctx,{id:simulationId});
+  expect(jobs.map((j:any)=>[j.jobId,j.view.quantities[0].value])).toEqual([[second,0.0086]]);
+  // The machine's own view is still the machine's.
+  expect((await call(forSimulation,ctx,{id:simulationId})).view.case.path).toBe("naca0012/run/coarse");
+  await expect(call(reportJob,ctx,{token:"other",id:second,view:liveView()})).rejects.toThrow("Invalid token");
+  // A job that ended keeps its last view, and takes no more.
+  await call(report,ctx,{token:"valid",id:second,state:"failed",log:"",error:"diverged"});
+  expect(await call(reportJob,ctx,{token:"valid",id:second,view:liveView("case",1)})).toBeNull();
+  expect((await call(jobsForSimulation,ctx,{id:simulationId}))[0].view.quantities[0].value).toBe(0.0086);
+});
+it("puts a one-off job under the simulation the agent is working on",async()=>{
+  const {ctx,tables}=fixture();const {id}=await save(ctx);
+  await submitOneOff(ctx);
+  expect(tables.computeJobs![0].simulationId).toBe(id);
+  expect(tables.simulationCases).toHaveLength(1);
+});
+it("says what this computer is running, what is next and what needs you, across the chats you can see",async()=>{
+  const {ctx,tables}=fixture("ask");
+  const {simulationId}=await reportLive(ctx);
+  const running=await submitOneOff(ctx,"a");const waiting=await submitOneOff(ctx,"b");
+  await call(approve,ctx,{id:running});
+  await call(claim,ctx,{token:"valid",id:running});
+  await call(report,ctx,{token:"valid",id:running,state:"running",log:"",error:null});
+  await call(reportJob,ctx,{token:"valid",id:running,view:liveView("case",0.0087)});
+  // A job on this computer from a chat alice cannot see is counted, never shown.
+  tables.computeJobs!.push({_id:"theirs",chatId:"secret",runnerId:"runner",backend:"local-process",requestedBy:"bob",state:"queued",spec:oneOff,createdAt:1,updatedAt:1,log:"",error:null,outputs:[]});
+  const now=await call(thisComputer,ctx,{});
+  expect(now.machines).toEqual([expect.objectContaining({id:"runner",online:true})]);
+  expect(now.jobs.map((j:any)=>[j.id,j.state,j.needsYou,j.number,j.simulation?.id])).toEqual([[running,"running",false,1,simulationId],[waiting,"awaiting-approval",true,2,simulationId]]);
+  expect(now.jobs[0]).toMatchObject({chatTitle:"bracket",title:"Coarse polar",latest:[{name:"Cd",value:0.0087}]});
+  expect(now.hidden).toBe(1);
+  expect(now.machineWork).toEqual([expect.objectContaining({simulation:expect.objectContaining({id:simulationId,draft:true}),case:"naca0012/run/coarse"})]);
 });

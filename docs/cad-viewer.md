@@ -7,7 +7,7 @@ Open **Tools → Engineering → CAD Viewer** beside a chat. The viewer supports
 - **Open model** or drop one file into the CAD pane for a local preview. Nothing is uploaded. **Attach to chat** explicitly uses Beam's existing draft upload flow and opens Context; send the draft to share it with the chat.
 - Click a supported model attachment in chat or a model row in Context to open it in CAD Viewer.
 - **From Context** offers This chat and Workspace sources. Previewing a workspace model does not include it in the agent's context; use Context's explicit inclusion action for that.
-- Model outputs in Compute Jobs have **Open in CAD Viewer** next to the original download.
+- Model outputs in a job's tab have **Open in CAD Viewer** next to the original download.
 The tool opens directly into the viewport, drawn as a sheet: a flat ground, a quiet grid, the model's name and provenance in the bar above it, readouts in the corners (parts, triangles, section state), and a figure caption. There is no landing page or preloaded model; **sample** opens the built-in flanged reducer on demand. A rail on the right holds Parts (the square is visibility: click hides, ⌥click isolates), Section (off · x · y · z with a ruled slider and the cut position in model units), Bounds (the model, or the selected part with the model underneath), and Measure. The rail hides below 560 px of pane width and can be toggled from the toolbar. Loading and cancellation stay within the viewport.
 
 Drag the divider to use all available pane width while leaving 480 px for chat. The limit follows the actual workspace size, including sidebar resizing or hiding; there is no percentage or 1,000 px cap.

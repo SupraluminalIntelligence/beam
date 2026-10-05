@@ -254,7 +254,14 @@ it("runs environment jobs locally, and in the cloud only on machines Beam suppor
   await expect(enqueue("cloud",{...envSpec,machine:"32-core"} as any)).rejects.toThrow("not available yet");
   await enqueue("env",envSpec as any);
   expect(tables.computeJobs![0]).toMatchObject({state:"queued",spec:{kind:"environment",command:envSpec.command}});
-  expect(tables.messages![0].text).toBe("Compute job: Cantilever");
+  // A one-off job belongs to the chat's working simulation; with none yet, to a draft with its card.
+  expect(tables.simulationCases![0]).toMatchObject({draft:true,name:"Cantilever",revision:0,kind:"files"});
+  expect(tables.computeJobs![0].simulationId).toBe(tables.simulationCases![0]._id);
+  expect(tables.messages.map((m:any)=>m.text)).toEqual(["Simulation: Cantilever"]);
+  await enqueue("env-2",{...envSpec,title:"Cantilever, finer"} as any);
+  expect(tables.simulationCases).toHaveLength(1);
+  expect(tables.computeJobs![1].simulationId).toBe(tables.simulationCases![0]._id);
+  expect(tables.messages).toHaveLength(1);
 });
 it("publishes an environment job's beam/out files and a validated manifest before success",async()=>{
   const {ctx,tables,enqueue}=fixture();const id=await enqueue("env",envSpec as any);

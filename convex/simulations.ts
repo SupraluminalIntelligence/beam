@@ -3,8 +3,12 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { readableMutation, readableQuery, requireChat, requireMember } from "./lib";
-import { chatAccess, enqueue, runAccess, summary } from "./compute";
+import { chatAccess, enqueue, jobSimulationId, runAccess, summary } from "./compute";
+import { ensureCard } from "./drafts";
+
+export { ensureCard };
 import { MachineId } from "../packages/contracts/src/machines";
+import { JobSpec } from "../packages/contracts/src/compute";
 import { checkCounts, headlineQuantities, ResultsManifest } from "../packages/contracts/src/results";
 import { FilesSetup, Parameters, setupChanges } from "../packages/contracts/src/simulations";
 import { SimulationCase } from "../packages/contracts/src/simulation";
@@ -32,19 +36,18 @@ async function versionsOf(ctx: Ctx, id: Id<"simulationCases">) {
 /** A job as a simulation shows it: its version, state, and its results in brief. */
 function jobView(job: Doc<"computeJobs">) {
   const s = summary(job), manifest = job.results?.manifest ? ResultsManifest.safeParse(job.results.manifest) : null;
-  const version = s.simulationVersion?.version ?? s.simulation?.revision ?? null;
+  const version = s.simulationVersion?.version ?? s.simulation?.revision ?? null, spec = JobSpec.parse(job.spec);
   return {
-    ...s, version,
+    ...s, version, machine: spec.kind === "environment" ? spec.machine : "local", timeoutSeconds: spec.timeoutSeconds,
     results: manifest?.success ? { headline: headlineQuantities(manifest.data), checks: checkCounts(manifest.data), flagged: manifest.data.checks.filter(c => c.status === "review" || c.status === "fail") } : null,
     keptOnMachine: job.results?.unpublished.length ?? 0,
   };
 }
+/** A simulation's jobs, newest first, each numbered in the order they were asked for (job 1 is the first). */
 async function jobsOf(ctx: Ctx, sim: Doc<"simulationCases">) {
   const jobs = await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", sim.chatId)).order("desc").take(200);
-  return jobs.filter(j => {
-    const s = summary(j);
-    return s.simulation?.caseId === sim._id || s.simulationVersion?.caseId === sim._id;
-  }).map(jobView);
+  const own = jobs.filter(j => j.simulationId === sim._id || summary(j).simulation?.caseId === sim._id || jobSimulationId(j) === sim._id);
+  return own.map((j, i) => ({ ...jobView(j), number: own.length - i }));
 }
 function brief(s: Doc<"simulationCases">, chat: Doc<"chats"> | null) {
   const config = kindOf(s) === "recipe" ? SimulationCase.safeParse(s.config) : null;
@@ -78,13 +81,6 @@ export const forRun = readableQuery({ args: { token: v.string(), runId: v.id("ru
   };
 } });
 
-/** The simulation's card in its chat. A recipe card is the study card installed apps already draw. */
-export async function ensureCard(ctx: MutationCtx, sim: Doc<"simulationCases">, author: string, runId: Id<"runs"> | null) {
-  if (sim.cardMessageId) return;
-  const cardMessageId = await ctx.db.insert("messages", { chatId: sim.chatId, author, kind: "text", text: `Simulation: ${sim.name}`, runId, simulationId: sim._id, reactions: [] });
-  await ctx.db.patch(sim._id, { cardMessageId });
-  await ctx.db.patch(sim.chatId, { lastMessageAt: Date.now() });
-}
 
 /** version is the latest the caller read (a stale one is refused); from is the version this setup was derived from, when not the latest (a sweep). */
 type SaveFiles = { id?: Id<"simulationCases"> | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: unknown; note?: string | undefined };
@@ -201,7 +197,7 @@ export const results = query({ args: { id: v.id("simulationCases"), jobIds: v.ar
   return Promise.all(a.jobIds.map(async jobId => {
     const job = await ctx.db.get(jobId);
     const view = job && job.chatId === sim.chatId ? jobView(job) : null;
-    if (!job || !view || (view.simulationVersion?.caseId !== a.id && view.simulation?.caseId !== a.id)) throw new Error("Job is not part of this simulation");
+    if (!job || !view || (jobSimulationId(job) !== a.id && view.simulation?.caseId !== a.id)) throw new Error("Job is not part of this simulation");
     const manifest = job.results?.manifest ? ResultsManifest.safeParse(job.results.manifest) : null;
     return { jobId, version: view.version, state: job.state, manifest: manifest?.success ? manifest.data : null, setup: versions.find(x => x.version === view.version)?.setup ?? null };
   }));
