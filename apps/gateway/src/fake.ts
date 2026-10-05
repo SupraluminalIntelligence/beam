@@ -8,6 +8,7 @@ const dec = (b: Uint8Array) => new TextDecoder().decode(b);
 export class FakeSandbox implements SandboxPort {
   files = new Map<string, Uint8Array>();
   dirs = new Set<string>();
+  executable = new Set<string>();
   stopped: number | null = null;
   terminated = false;
   readonly id: string;
@@ -16,6 +17,7 @@ export class FakeSandbox implements SandboxPort {
   async poll() { return this.stopped; }
   async exec(command: string[]) {
     this.alive();
+    if (command[0] === "chmod") { this.executable.add(command[2]!); return { exitCode: 0, stdout: "" }; }
     if (command[0] !== "tail") throw new Error("unexpected exec");
     const log = this.files.get(command[3]!);
     return log ? { exitCode: 0, stdout: dec(log).slice(-Number(command[2])) } : { exitCode: 1, stdout: "" };

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path/posix";
-import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, JobPath, JobSpec, jobScript, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, PARAMETERS_PATH, parametersFile, usefulProcesses } from "@beam/contracts";
+import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, cloudMachineSeconds, ExecutorUnavailable, isScript, JobPath, JobSpec, jobScript, MACHINES, MAX_COMPUTE_FILE_BYTES, MAX_COMPUTE_INPUT_BYTES, MachineId, PARAMETERS_PATH, parametersFile, usefulProcesses } from "@beam/contracts";
 import type { ComputeExecutor, ComputeInput, ExecutionHandle, ExecutionStatus } from "@beam/contracts";
 import { FileMissing, SandboxRejected, type ModalPort, type SandboxPort } from "./port.ts";
 import { LAUNCH_ABANDONED, SUPERVISOR, TIMED_OUT } from "./supervisor.ts";
@@ -143,6 +143,7 @@ export class ModalExecutor implements ComputeExecutor {
         const bytes = await download(input, deadline);
         await unreachable(() => sandbox.makeDirectory(dirname(path)));
         await write(bytes, path);
+        if (isScript(bytes)) await unreachable(() => sandbox.exec(["chmod", "+x", path]));
       }
       if (spec.parameters) {
         await unreachable(() => sandbox.makeDirectory(dirname(`${WORK}/${PARAMETERS_PATH}`)));
