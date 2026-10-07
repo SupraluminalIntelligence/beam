@@ -75,13 +75,14 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
         const paths = z.array(JobPath).max(64).parse(a["inputPaths"]);
         const spec = EnvironmentJobSpec.parse({ version: 1, kind: "environment", title: a["title"], environment: { name: EnvironmentName.safeParse(env.name).success ? env.name : "custom", image: env.image }, command: a["command"], inputs: paths.map(path => ({ path, assetId: "staging" })), machine: a["machine"] ?? "local", timeoutSeconds: a["timeoutSeconds"] });
         const requestKey = z.string().min(1).max(160).parse(a["requestKey"]);
+        const then = continueWith.parse(a["continueWith"]);
         const prior = await client.query(api.compute.findRequest, { token, runId, requestKey });
         if (prior) {
           const canonical = (s: { inputs: { path: string }[] }) => JSON.stringify({ ...s, inputs: s.inputs.map(i => i.path) });
           if (canonical(prior.spec as EnvironmentJobSpec) !== canonical(spec)) throw new Error("Request key belongs to a different job");
+          if ((prior.resume?.note ?? null) !== (then?.trim().slice(0, 500) ?? null)) throw new Error("Request key already used with a different continueWith; use a new requestKey");
           return JSON.stringify({ id: prior._id, state: prior.state, reused: true });
         }
-        const then = continueWith.parse(a["continueWith"]);
         const id = await client.mutation(api.compute.submitForRun, { token, runId, requestKey, spec: { ...spec, inputs: await stageInputs(client, token, runId, directory, paths) }, ...(then ? { continueWith: then } : {}) });
         return JSON.stringify({ id, submitted: true, note: afterSubmit(permissionMode, !!then, "Use get_job for state and logs, results_read once it succeeds.") });
       },

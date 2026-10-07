@@ -16,7 +16,7 @@ import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, autho
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
 import { isCfdImage } from "../packages/contracts/src/environments";
 import { workingSimulation } from "./drafts";
-import { approvedResume, jobEnded, newResume, resumeNote, type ResumeRequest } from "./jobResume";
+import { approvedResume, closeGroup, jobEnded, newResume, resumeNote, type ResumeRequest } from "./jobResume";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
@@ -78,7 +78,7 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
   if (existing) {
     if (existing.runnerId !== input.runnerId || JSON.stringify(existing.spec) !== JSON.stringify(spec)) throw new Error("Request key already used for a different job");
     // What happens after the job is part of the request: a retry asking for something else is a different request.
-    if ((existing.resume?.note ?? null) !== resumeNote(input.resume)) throw new Error("Request key already used with a different continueWith; use a new requestKey");
+    if ((existing.resume?.note ?? null) !== resumeNote(input.resume) || existing.resume?.agentId !== input.resume?.agentId) throw new Error("Request key already used with a different continueWith; use a new requestKey");
     return existing._id;
   }
   // A cloud job runs on the gateway; the runner it came from only has to be the requester's to name.
@@ -232,7 +232,12 @@ export const submitSimulationForRun=readableMutation({args:{token:v.string(),run
 /** What an agent asks to continue with when the job ends, and which submission it belongs to (a sweep's jobs share one). */
 export const continueArgs = { continueWith: v.optional(v.string()), group: v.optional(v.string()), size: v.optional(v.number()) };
 export const resumeRequest = (agent: Doc<"agents">, a: { requestKey: string; continueWith?: string | undefined; group?: string | undefined; size?: number | undefined }): ResumeRequest | undefined =>
-  a.continueWith === undefined ? undefined : { agentId: agent._id, handle: agent.handle, note: a.continueWith, group: a.group ?? a.requestKey, size: Math.min(Math.max(Math.floor(a.size ?? 1), 1), 64) };
+  a.continueWith === undefined ? undefined : { agentId: agent._id, handle: agent.handle, note: a.continueWith, group: a.group ?? `job:${a.requestKey}`, size: Math.min(Math.max(Math.floor(a.size ?? 1), 1), 64) };
+/** A sweep that failed partway closes its group, so the jobs it did submit still continue the agent once they end. */
+export const closeContinuationForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), group: v.string() }, handler: async (ctx, a) => {
+  const { run } = await runAccess(ctx, a.token, a.runId);
+  return closeGroup(ctx, run.chatId, run.dispatchedBy, a.group);
+} });
 export const submitForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any(), ...continueArgs }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   if (!["working", "starting"].includes(run.state)) throw new Error("Agent run has ended");

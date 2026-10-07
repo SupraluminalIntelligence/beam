@@ -23,4 +23,22 @@ describe("sweep", () => {
     expect(saves.map(s => [s["version"], s["from"]])).toEqual([[5, 5], [6, 5]]);
     expect(runs).toEqual([6, 5, 7]);
   });
+
+  it("asks to continue once for the whole sweep, and closes the group if it stops partway", async () => {
+    let version = 5, n = 0;
+    const calls: Record<string, unknown>[] = [];
+    const client = {
+      query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }] })),
+      mutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+        if ("setup" in args) return { id: "sim", version: ++version, unchanged: false };
+        calls.push(args);
+        if ("continueWith" in args && ++n === 2) throw new Error("Another edit saved v7");
+        return `job-${n}`;
+      }),
+    } as unknown as ConvexClient;
+    const sweep = simulationTools(client, "token", "run" as never, "/tmp", "ask").find(t => t.name === "sweep")!;
+    await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "local", requestKey: "k", continueWith: "compute the GCI" })).rejects.toThrow("v7");
+    expect(calls[0]).toMatchObject({ continueWith: "compute the GCI", group: "sweep:k", size: 3 });
+    expect(calls.at(-1)).toEqual({ token: "token", runId: "run", group: "sweep:k" });
+  });
 });

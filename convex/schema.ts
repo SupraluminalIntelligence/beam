@@ -173,6 +173,7 @@ export default defineSchema({
       sentAt: v.optional(v.number()),
       error: v.optional(v.string()),         // why Beam couldn't mention the agent (yet), for the Jobs tab
       tries: v.optional(v.number()),
+      check: v.optional(v.number()),         // the one later check scheduled for the group, so siblings don't each retry
     })),
   }).index("by_chat", ["chatId"]).index("by_chat_state", ["chatId", "state"]).index("by_request", ["chatId", "requestedBy", "requestKey"]).index("by_runner_state", ["runnerId", "state"]).index("by_backend_state", ["backend", "state"]).index("by_backend_release", ["backend", "awaitingRelease"]),
   /** A workspace's cloud compute allowance. Reservations hold each approved job's authorized amount until it settles. */

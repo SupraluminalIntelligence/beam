@@ -5,7 +5,7 @@ vi.mock("./messages", () => ({ sendAs: vi.fn(async () => ({ id: "m1", kind: "dis
 vi.mock("./runs", async (orig) => ({ ...(await orig<typeof import("./runs")>()), chooseRunner: vi.fn(async () => ({ name: "mac" })) }));
 import { sendAs } from "./messages";
 import { chooseRunner } from "./runs";
-import { approve, cancel, claim, report, submitForRun } from "./compute";
+import { approve, cancel, claim, closeContinuationForRun, report, submitForRun } from "./compute";
 import { BUSY_RETRY_MS, RESUME_RETRIES_MS, fire } from "./jobResume";
 
 const call = (fn: any, ctx: any, args: any) => fn._handler(ctx, args);
@@ -41,7 +41,7 @@ beforeEach(() => { vi.mocked(sendAs).mockClear(); vi.mocked(chooseRunner).mockRe
 it("continues the agent as the person who approved the job, once, after it ends", async () => {
   const { ctx, tables, submit, finish, drain } = fixture();
   const id = await submit("mesh", { continueWith: "read the residuals and refine if they stalled" });
-  expect(tables.computeJobs![0].resume).toEqual({ agentId: "agent", handle: "claude", note: "read the residuals and refine if they stalled", group: "mesh", size: 1 });
+  expect(tables.computeJobs![0].resume).toEqual({ agentId: "agent", handle: "claude", note: "read the residuals and refine if they stalled", group: "job:mesh", size: 1 });
   await call(approve, ctx, { id });
   expect(tables.computeJobs![0].resume.by).toBe("alice");
   await finish(id); await drain();
@@ -123,10 +123,37 @@ it("waits for an agent at work in the chat to finish its turn before mentioning 
   expect(sendAs).toHaveBeenCalledOnce();
 });
 
-it("treats a retried submission asking to continue differently as a different request", async () => {
-  const { submit } = fixture("auto");
+it("treats a retried submission asking to continue differently, or by another agent, as a different request", async () => {
+  const { submit, tables } = fixture("auto");
   const id = await submit("k", { continueWith: "plot it" });
   expect(await submit("k", { continueWith: " plot it " })).toBe(id);
   await expect(submit("k", { continueWith: "tabulate it" })).rejects.toThrow("different continueWith");
   await expect(submit("k")).rejects.toThrow("different continueWith");
+  tables.agents!.push({ _id: "agent2", handle: "codex", harness: "codex", permissionMode: "auto" }); tables.runs![0].agentId = "agent2";
+  await expect(submit("k", { continueWith: "plot it" })).rejects.toThrow("different continueWith");
+});
+
+it("checks a finished group once, however many of its jobs scheduled a check", async () => {
+  const { ctx, submit, finish, scheduled, tables } = fixture("auto");
+  vi.mocked(chooseRunner).mockRejectedValue(new Error("No online machine can run Claude Code"));
+  const ids = [await submit("s-0", { continueWith: "go", group: "sweep:s", size: 2 }), await submit("s-1", { continueWith: "go", group: "sweep:s", size: 2 })];
+  await finish(ids[0]!); await finish(ids[1]!);
+  // Both ends scheduled a check before either ran: the second finds the first's retry scheduled and leaves it.
+  for (const s of scheduled.splice(0)) await call(fire, ctx, s.args);
+  expect(scheduled.map(s => s.delay)).toEqual([RESUME_RETRIES_MS[0]]);
+  expect(tables.computeJobs!.map(j => j.resume.tries)).toEqual([1, 1]);
+});
+
+it("keeps job groups apart from sweeps whose request key looks like one, and closes a sweep that stopped partway", async () => {
+  const { ctx, submit, finish, drain, tables } = fixture("auto");
+  const sweep = await submit("s-0", { continueWith: "compare", group: "sweep:s", size: 3 });
+  const lone = await submit("sweep:s", { continueWith: "plot" });
+  expect(tables.computeJobs![1].resume.group).toBe("job:sweep:s");
+  await finish(sweep); await finish(lone); await drain();
+  expect(sendAs).toHaveBeenCalledOnce(); // the lone job only; the sweep still waits for its other two
+  expect(vi.mocked(sendAs).mock.calls[0]![3].text).toContain("plot");
+  tables.runs![0].state = "working";
+  expect(await call(closeContinuationForRun, ctx, { token: "valid", runId: "run", group: "sweep:s" })).toBe(1);
+  tables.runs![0].state = "completed"; await drain();
+  expect(sendAs).toHaveBeenCalledTimes(2);
 });

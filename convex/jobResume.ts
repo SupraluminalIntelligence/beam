@@ -37,13 +37,24 @@ export function resumeText(handle: string, jobs: { title: string; state: string;
   return `@${handle} ${what}:\n${lines.join("\n")}\n\nYou said you'd continue with: ${note}\n\n(Sent by Beam: ${by} approved continuing when these jobs finished.)`;
 }
 
-export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, handler: async (ctx, { jobId }) => {
+export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check: v.optional(v.number()) }, handler: async (ctx, { jobId, check }) => {
   const job = await ctx.db.get(jobId);
   if (!job?.resume || job.resume.sentAt) return;
+  // One check per group at a time: while a later one is scheduled, a sibling's end leaves it to that one.
+  if (job.resume.check !== undefined && job.resume.check !== check) return;
   const group = await groupOf(ctx, job);
   // The last job to end sends it, once every job submitted together exists; one already sent never sends again.
   if (group.length < (job.resume.size ?? 1) || group.some(j => !jobFinished(j.state) || j.resume?.sentAt)) return;
-  const mark = (patch: Partial<JobResume>) => Promise.all(group.map(j => ctx.db.patch(j._id, { resume: { ...j.resume!, ...patch } })));
+  const mark = (patch: { [K in keyof JobResume]?: JobResume[K] | undefined }) => Promise.all(group.map(j => {
+    const next: Record<string, unknown> = { ...j.resume!, ...patch };
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    return ctx.db.patch(j._id, { resume: next as JobResume });
+  }));
+  const later = async (wait: number, patch: Partial<JobResume> = {}) => {
+    const next = (job.resume!.check ?? 0) + 1;
+    await ctx.scheduler.runAfter(wait, internal.jobResume.fire, { jobId, check: next });
+    await mark({ ...patch, check: next });
+  };
   const by = group.find(j => j.resume?.by)?.resume?.by;
   if (!by) return mark({ error: "Not sent: nobody approved these jobs." });
   if (group.every(j => j.state === "cancelled")) return mark({ error: "Not sent: every job was cancelled." });
@@ -52,7 +63,7 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
   if (!agent || (chat.agents && !chat.agents.includes(agent._id))) return mark({ error: `Not sent: @${job.resume.handle} is no longer in this chat.` });
   // Like auto-fix, never while an agent is at work here: a turn that is ending would swallow the mention.
   const runs = await ctx.db.query("runs").withIndex("by_chat", q => q.eq("chatId", chat._id)).collect();
-  if (runs.some(r => isLive(r.state))) { await ctx.scheduler.runAfter(BUSY_RETRY_MS, internal.jobResume.fire, { jobId }); return; }
+  if (runs.some(r => isLive(r.state))) return later(BUSY_RETRY_MS);
   // The machine the job was submitted from runs the agent again when nothing else is chosen, as it did the first time.
   const source = await ctx.db.get(job.runnerId), localRunnerId = source?.ownerLogin === by ? source._id : undefined;
   try {
@@ -60,15 +71,25 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
     await chooseRunner(ctx, chat, by, agent.harness, localRunnerId);
   } catch (e) {
     const tries = (job.resume.tries ?? 0) + 1, wait = RESUME_RETRIES_MS[tries - 1];
-    if (wait !== undefined) await ctx.scheduler.runAfter(wait, internal.jobResume.fire, { jobId });
-    return mark({ tries, error: `Couldn't start @${agent.handle} for ${by}: ${(e as Error).message}${wait === undefined ? "" : ". Trying again later."}` });
+    const error = `Couldn't start @${agent.handle} for ${by}: ${(e as Error).message}`;
+    return wait === undefined ? mark({ tries, error, check: undefined }) : later(wait, { tries, error: `${error}. Trying again later.` });
   }
   const ordered = group.slice().sort((a, b) => a.createdAt - b.createdAt);
   const titles = ordered.map(j => ({ title: (j.spec as { title?: string }).title ?? "Job", state: j.state, error: j.error }));
   await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId });
-  const sentAt = Date.now();
-  await Promise.all(group.map(j => { const { error: _, ...kept } = j.resume!; return ctx.db.patch(j._id, { resume: { ...kept, sentAt } }); }));
+  await mark({ sentAt: Date.now(), error: undefined, check: undefined });
 } });
+
+/**
+ * A sweep that stopped partway: the jobs it did submit are the whole group, so the continuation still
+ * comes once they end. Access is the caller's to check.
+ */
+export async function closeGroup(ctx: MutationCtx, chatId: Id<"chats">, requestedBy: string, group: string) {
+  const members = (await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", chatId)).collect()).filter(j => j.requestedBy === requestedBy && j.resume?.group === group);
+  for (const j of members) await ctx.db.patch(j._id, { resume: { ...j.resume!, size: members.length } });
+  if (members[0] && members.every(j => jobFinished(j.state))) await jobEnded(ctx, members[0]);
+  return members.length;
+}
 
 /** On approval: the approver authorizes continuing too. */
 export const approvedResume = (job: Doc<"computeJobs">, login: string) => job.resume ? { resume: { ...job.resume, by: login } } : {};
