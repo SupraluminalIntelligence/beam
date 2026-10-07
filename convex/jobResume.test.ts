@@ -36,7 +36,8 @@ function fixture(permissionMode = "ask") {
   const drain = async () => { for (let i = scheduled.findIndex(s => s.delay === 0); i >= 0; i = scheduled.findIndex(s => s.delay === 0)) await call(fire, ctx, scheduled.splice(i, 1)[0]!.args); };
   return { ctx, tables, scheduled, submit, finish, drain };
 }
-beforeEach(() => { vi.mocked(sendAs).mockClear(); vi.mocked(chooseRunner).mockReset().mockResolvedValue({ name: "mac" } as any); });
+const mac = { name: "mac", ownerLogin: "alice", harnesses: [{ harness: "claude", auth: "authenticated" }, { harness: "codex", auth: "authenticated", models: [{ model: "gpt-5", name: "GPT-5", efforts: ["high"] }] }] };
+beforeEach(() => { vi.mocked(sendAs).mockClear(); vi.mocked(chooseRunner).mockReset().mockResolvedValue(mac as any); });
 
 it("continues the agent as the person who approved the job, once, after it ends", async () => {
   const { ctx, tables, submit, finish, drain } = fixture();
@@ -129,6 +130,7 @@ it("treats a retried submission asking to continue differently, or by another ag
   expect(await submit("k", { continueWith: " plot it " })).toBe(id);
   await expect(submit("k", { continueWith: "tabulate it" })).rejects.toThrow("different continueWith");
   await expect(submit("k")).rejects.toThrow("different continueWith");
+  await expect(submit("k", { continueWith: "plot it", group: "sweep:k", size: 3 })).rejects.toThrow("different continueWith"); // a sweep whose key collides
   tables.agents!.push({ _id: "agent2", handle: "codex", harness: "codex", permissionMode: "auto" }); tables.runs![0].agentId = "agent2";
   await expect(submit("k", { continueWith: "plot it" })).rejects.toThrow("different continueWith");
 });
@@ -156,4 +158,26 @@ it("keeps job groups apart from sweeps whose request key looks like one, and clo
   expect(await call(closeContinuationForRun, ctx, { token: "valid", runId: "run", group: "sweep:s" })).toBe(1);
   tables.runs![0].state = "completed"; await drain();
   expect(sendAs).toHaveBeenCalledTimes(2);
+});
+
+it("sends a retried sweep's new jobs as their own round once a closed group has already sent", async () => {
+  const { ctx, submit, finish, drain, tables } = fixture("auto");
+  await finish(await submit("s-0", { continueWith: "compare", group: "sweep:s", size: 2 }));
+  tables.runs![0].state = "working";
+  await call(closeContinuationForRun, ctx, { token: "valid", runId: "run", group: "sweep:s" });
+  tables.runs![0].state = "completed"; await drain();
+  expect(sendAs).toHaveBeenCalledOnce();
+  tables.runs![0].state = "working"; // the agent retries the sweep: s-0 is reused, s-1 is new
+  await finish(await submit("s-1", { continueWith: "compare", group: "sweep:s", size: 2 })); await drain();
+  expect(sendAs).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(sendAs).mock.calls[1]![3].text).toContain("- s-0: succeeded\n- s-1: succeeded");
+});
+
+it("retries, rather than loses, a continuation the agent's settings can't start", async () => {
+  const { submit, finish, drain, scheduled, tables } = fixture("auto");
+  Object.assign(tables.agents![0], { harness: "codex", model: "gpt-4", effort: "high" });
+  await finish(await submit("j", { continueWith: "go" })); await drain();
+  expect(sendAs).not.toHaveBeenCalled();
+  expect(scheduled.map(s => s.delay)).toEqual([RESUME_RETRIES_MS[0]]);
+  expect(tables.computeJobs![0].resume.error).toMatch(/gpt-4 is unavailable on the selected Codex connection/);
 });

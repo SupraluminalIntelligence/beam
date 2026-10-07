@@ -7,6 +7,7 @@ import { requireChatLogin } from "./lib";
 import { chooseRunner, isLive } from "./runs";
 import { sendAs } from "./messages";
 import { jobFinished } from "../packages/contracts/src/compute";
+import { resolveExecution } from "../packages/contracts/src/execution";
 
 /**
  * Continue when a job finishes. An agent can ask, when it submits a job or a sweep, to be mentioned once
@@ -43,9 +44,11 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
   // One check per group at a time: while a later one is scheduled, a sibling's end leaves it to that one.
   if (job.resume.check !== undefined && job.resume.check !== check) return;
   const group = await groupOf(ctx, job);
-  // The last job to end sends it, once every job submitted together exists; one already sent never sends again.
-  if (group.length < (job.resume.size ?? 1) || group.some(j => !jobFinished(j.state) || j.resume?.sentAt)) return;
-  const mark = (patch: { [K in keyof JobResume]?: JobResume[K] | undefined }) => Promise.all(group.map(j => {
+  // The last job to end sends it, once every job submitted together exists. Jobs a retried sweep adds to a group
+  // that already sent are a new round: they send once they have ended, and the message lists the whole group.
+  const pending = group.filter(j => !j.resume?.sentAt);
+  if (group.length < Math.max(...pending.map(j => j.resume!.size ?? 1)) || pending.some(j => !jobFinished(j.state))) return;
+  const mark = (patch: { [K in keyof JobResume]?: JobResume[K] | undefined }) => Promise.all(pending.map(j => {
     const next: Record<string, unknown> = { ...j.resume!, ...patch };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     return ctx.db.patch(j._id, { resume: next as JobResume });
@@ -55,9 +58,9 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
     await ctx.scheduler.runAfter(wait, internal.jobResume.fire, { jobId, check: next });
     await mark({ ...patch, check: next });
   };
-  const by = group.find(j => j.resume?.by)?.resume?.by;
+  const by = pending.find(j => j.resume?.by)?.resume?.by;
   if (!by) return mark({ error: "Not sent: nobody approved these jobs." });
-  if (group.every(j => j.state === "cancelled")) return mark({ error: "Not sent: every job was cancelled." });
+  if (pending.every(j => j.state === "cancelled")) return mark({ error: "Not sent: every job was cancelled." });
   const chat = await ctx.db.get(job.chatId), agent = await ctx.db.get(job.resume.agentId);
   if (!chat || chat.state === "deleted") return;
   if (!agent || (chat.agents && !chat.agents.includes(agent._id))) return mark({ error: `Not sent: @${job.resume.handle} is no longer in this chat.` });
@@ -68,7 +71,10 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
   const source = await ctx.db.get(job.runnerId), localRunnerId = source?.ownerLogin === by ? source._id : undefined;
   try {
     await requireChatLogin(ctx, chat._id, by);
-    await chooseRunner(ctx, chat, by, agent.harness, localRunnerId);
+    // Everything starting the run checks, so a failure is retried here rather than lost with the mutation.
+    const runner = await chooseRunner(ctx, chat, by, agent.harness, localRunnerId);
+    const user = await ctx.db.query("users").withIndex("by_login", q => q.eq("githubLogin", by)).first();
+    resolveExecution(agent, user?.agentPreferences ?? [], runner);
   } catch (e) {
     const tries = (job.resume.tries ?? 0) + 1, wait = RESUME_RETRIES_MS[tries - 1];
     const error = `Couldn't start @${agent.handle} for ${by}: ${(e as Error).message}`;

@@ -78,7 +78,7 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
   if (existing) {
     if (existing.runnerId !== input.runnerId || JSON.stringify(existing.spec) !== JSON.stringify(spec)) throw new Error("Request key already used for a different job");
     // What happens after the job is part of the request: a retry asking for something else is a different request.
-    if ((existing.resume?.note ?? null) !== resumeNote(input.resume) || existing.resume?.agentId !== input.resume?.agentId) throw new Error("Request key already used with a different continueWith; use a new requestKey");
+    if ((existing.resume?.note ?? null) !== resumeNote(input.resume) || existing.resume?.agentId !== input.resume?.agentId || existing.resume?.group !== input.resume?.group) throw new Error("Request key already used with a different continueWith; use a new requestKey");
     return existing._id;
   }
   // A cloud job runs on the gateway; the runner it came from only has to be the requester's to name.
