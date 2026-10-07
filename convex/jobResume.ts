@@ -4,7 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireChatLogin } from "./lib";
-import { chooseRunner, isLive } from "./runs";
+import { chooseRunner, LIVE } from "./runs";
 import { sendAs } from "./messages";
 import { jobFinished, JobSpec } from "../packages/contracts/src/compute";
 import { resolveExecution } from "../packages/contracts/src/execution";
@@ -67,8 +67,7 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
   const named = (await ctx.db.query("agents").withIndex("by_workspace", q => q.eq("workspaceId", chat.workspaceId)).collect()).find(a => a.handle === agent.handle);
   if (named?._id !== agent._id) return mark({ error: `Not sent: another agent in this workspace is also called @${agent.handle}.` });
   // Like auto-fix, never while an agent is at work here: a turn that is ending would swallow the mention.
-  const runs = await ctx.db.query("runs").withIndex("by_chat", q => q.eq("chatId", chat._id)).collect();
-  if (runs.some(r => isLive(r.state))) return later(BUSY_RETRY_MS);
+  for (const state of LIVE) if (await ctx.db.query("runs").withIndex("by_chat_state", q => q.eq("chatId", chat._id).eq("state", state)).first()) return later(BUSY_RETRY_MS);
   // The machine the job was submitted from runs the agent again when nothing else is chosen, as it did the first time.
   const source = await ctx.db.get(job.runnerId), localRunnerId = source?.ownerLogin === by ? source._id : undefined;
   try {

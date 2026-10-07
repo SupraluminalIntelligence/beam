@@ -68,7 +68,7 @@ describe("sweep", () => {
     expect(calls.at(-1)).toEqual({ token: "token", runId: "run", group: "sweep:k" });
   });
 
-  it("tells the agent to retry the sweep when it can't close a partial one", async () => {
+  it("tells the agent no mention is coming when it can't close a partial sweep", async () => {
     let version = 5, n = 0;
     const client = {
       query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }] })),
@@ -80,6 +80,6 @@ describe("sweep", () => {
       }),
     } as unknown as ConvexClient;
     const sweep = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
-    await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "local", requestKey: "k", continueWith: "compute the GCI" })).rejects.toThrow(/retry the sweep with the same requestKey/);
+    await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "local", requestKey: "k", continueWith: "compute the GCI" })).rejects.toThrow(/will not mention you.*follow them with get_job/);
   });
 });

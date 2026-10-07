@@ -97,7 +97,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
         } catch (e) {
           // Stopped partway: the jobs already submitted still continue the agent once they end.
           if (group && rows.length) await client.mutation(api.compute.closeContinuationForRun, { token, runId, group: group.group }).catch((c: unknown) => {
-            throw new Error(`${(e as Error).message}. The jobs already submitted will not continue you until the sweep is complete (${(c as Error).message}): retry the sweep with the same requestKey.`);
+            throw new Error(`${(e as Error).message}. Beam will not mention you when the jobs already submitted end (${(c as Error).message}): follow them with get_job.`);
           });
           throw e;
         }
