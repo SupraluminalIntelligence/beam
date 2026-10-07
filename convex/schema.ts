@@ -168,6 +168,7 @@ export default defineSchema({
     resume: v.optional(v.object({
       agentId: v.id("agents"), handle: v.string(), note: v.string(),
       group: v.string(),                     // jobs submitted together (a sweep) share one: the submission's request key
+      size: v.optional(v.number()),          // how many jobs share the group; it ends only once all of them exist and have ended
       by: v.optional(v.string()),            // who authorized continuing: set at submission in auto mode, else on approval
       sentAt: v.optional(v.number()),
       error: v.optional(v.string()),         // why Beam couldn't mention the agent (yet), for the Jobs tab

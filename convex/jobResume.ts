@@ -4,7 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireChatLogin } from "./lib";
-import { chooseRunner } from "./runs";
+import { chooseRunner, isLive } from "./runs";
 import { sendAs } from "./messages";
 import { jobFinished } from "../packages/contracts/src/compute";
 
@@ -17,6 +17,8 @@ import { jobFinished } from "../packages/contracts/src/compute";
 export type JobResume = NonNullable<Doc<"computeJobs">["resume"]>;
 /** Waits before trying again when no machine can run the agent: a laptop asleep overnight wakes within these. */
 export const RESUME_RETRIES_MS = [60_000, 10 * 60_000, 60 * 60_000, 6 * 60 * 60_000];
+/** How often to look again while an agent is at work in the chat: a mention then could land in a turn that is ending. */
+export const BUSY_RETRY_MS = 60_000;
 
 /** A job just ended: if it asked to continue, check its group in a transaction of its own. */
 export async function jobEnded(ctx: MutationCtx, job: Doc<"computeJobs">) {
@@ -39,8 +41,8 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
   const job = await ctx.db.get(jobId);
   if (!job?.resume || job.resume.sentAt) return;
   const group = await groupOf(ctx, job);
-  // The last job to end sends it; one already sent for the group never sends again.
-  if (group.some(j => !jobFinished(j.state) || j.resume?.sentAt)) return;
+  // The last job to end sends it, once every job submitted together exists; one already sent never sends again.
+  if (group.length < (job.resume.size ?? 1) || group.some(j => !jobFinished(j.state) || j.resume?.sentAt)) return;
   const mark = (patch: Partial<JobResume>) => Promise.all(group.map(j => ctx.db.patch(j._id, { resume: { ...j.resume!, ...patch } })));
   const by = group.find(j => j.resume?.by)?.resume?.by;
   if (!by) return mark({ error: "Not sent: nobody approved these jobs." });
@@ -48,9 +50,14 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
   const chat = await ctx.db.get(job.chatId), agent = await ctx.db.get(job.resume.agentId);
   if (!chat || chat.state === "deleted") return;
   if (!agent || (chat.agents && !chat.agents.includes(agent._id))) return mark({ error: `Not sent: @${job.resume.handle} is no longer in this chat.` });
+  // Like auto-fix, never while an agent is at work here: a turn that is ending would swallow the mention.
+  const runs = await ctx.db.query("runs").withIndex("by_chat", q => q.eq("chatId", chat._id)).collect();
+  if (runs.some(r => isLive(r.state))) { await ctx.scheduler.runAfter(BUSY_RETRY_MS, internal.jobResume.fire, { jobId }); return; }
+  // The machine the job was submitted from runs the agent again when nothing else is chosen, as it did the first time.
+  const source = await ctx.db.get(job.runnerId), localRunnerId = source?.ownerLogin === by ? source._id : undefined;
   try {
     await requireChatLogin(ctx, chat._id, by);
-    await chooseRunner(ctx, chat, by, agent.harness);
+    await chooseRunner(ctx, chat, by, agent.harness, localRunnerId);
   } catch (e) {
     const tries = (job.resume.tries ?? 0) + 1, wait = RESUME_RETRIES_MS[tries - 1];
     if (wait !== undefined) await ctx.scheduler.runAfter(wait, internal.jobResume.fire, { jobId });
@@ -58,7 +65,7 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
   }
   const ordered = group.slice().sort((a, b) => a.createdAt - b.createdAt);
   const titles = ordered.map(j => ({ title: (j.spec as { title?: string }).title ?? "Job", state: j.state, error: j.error }));
-  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle });
+  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId });
   const sentAt = Date.now();
   await Promise.all(group.map(j => { const { error: _, ...kept } = j.resume!; return ctx.db.patch(j._id, { resume: { ...kept, sentAt } }); }));
 } });
@@ -66,10 +73,12 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs") }, han
 /** On approval: the approver authorizes continuing too. */
 export const approvedResume = (job: Doc<"computeJobs">, login: string) => job.resume ? { resume: { ...job.resume, by: login } } : {};
 /** At submission: what the agent asked for, already authorized when no approval step follows. */
-export type ResumeRequest = { agentId: Id<"agents">; handle: string; note: string; group: string };
+export type ResumeRequest = { agentId: Id<"agents">; handle: string; note: string; group: string; size: number };
+/** The note as stored, so a retried submission can be compared with the one it repeats. */
+export const resumeNote = (input: { note: string } | undefined) => input ? input.note.trim().slice(0, 500) : null;
 export function newResume(input: ResumeRequest | undefined, requestedBy: string, needsApproval: boolean) {
   if (!input) return {};
-  const note = input.note.trim().slice(0, 500);
+  const note = resumeNote(input)!;
   if (!note) throw new Error("Say what you'll do when the job finishes");
   return { resume: { ...input, note, ...(needsApproval ? {} : { by: requestedBy }) } };
 }

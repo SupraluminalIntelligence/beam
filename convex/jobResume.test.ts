@@ -6,7 +6,7 @@ vi.mock("./runs", async (orig) => ({ ...(await orig<typeof import("./runs")>()),
 import { sendAs } from "./messages";
 import { chooseRunner } from "./runs";
 import { approve, cancel, claim, report, submitForRun } from "./compute";
-import { RESUME_RETRIES_MS, fire } from "./jobResume";
+import { BUSY_RETRY_MS, RESUME_RETRIES_MS, fire } from "./jobResume";
 
 const call = (fn: any, ctx: any, args: any) => fn._handler(ctx, args);
 const spec = (title: string) => ({ version: 1, kind: "process", title, executable: "python3", args: ["run.py"], inputs: [], outputs: [], timeoutSeconds: 60 });
@@ -27,7 +27,11 @@ function fixture(permissionMode = "ask") {
   };
   const ctx: any = { db, scheduler: { runAfter: vi.fn(async (delay: number, _fn: unknown, args: any) => { scheduled.push({ delay, args }); }) } };
   const submit = (key: string, extra: any = {}) => call(submitForRun, ctx, { token: "valid", runId: "run", requestKey: key, spec: spec(key), ...extra });
-  const finish = async (id: string, state = "succeeded") => { await call(claim, ctx, { token: "valid", id }); await call(report, ctx, { token: "valid", id, state, log: "", error: state === "failed" ? "solver diverged" : null }); };
+  /** The job runs and ends; by then the agent's turn has usually ended too. */
+  const finish = async (id: string, state = "succeeded", turnEnded = true) => {
+    if (turnEnded) tables.runs![0].state = "completed";
+    await call(claim, ctx, { token: "valid", id }); await call(report, ctx, { token: "valid", id, state, log: "", error: state === "failed" ? "solver diverged" : null });
+  };
   /** Runs what the job ends scheduled, as Convex would. */
   const drain = async () => { for (let i = scheduled.findIndex(s => s.delay === 0); i >= 0; i = scheduled.findIndex(s => s.delay === 0)) await call(fire, ctx, scheduled.splice(i, 1)[0]!.args); };
   return { ctx, tables, scheduled, submit, finish, drain };
@@ -37,14 +41,15 @@ beforeEach(() => { vi.mocked(sendAs).mockClear(); vi.mocked(chooseRunner).mockRe
 it("continues the agent as the person who approved the job, once, after it ends", async () => {
   const { ctx, tables, submit, finish, drain } = fixture();
   const id = await submit("mesh", { continueWith: "read the residuals and refine if they stalled" });
-  expect(tables.computeJobs![0].resume).toEqual({ agentId: "agent", handle: "claude", note: "read the residuals and refine if they stalled", group: "mesh" });
+  expect(tables.computeJobs![0].resume).toEqual({ agentId: "agent", handle: "claude", note: "read the residuals and refine if they stalled", group: "mesh", size: 1 });
   await call(approve, ctx, { id });
   expect(tables.computeJobs![0].resume.by).toBe("alice");
   await finish(id); await drain();
   expect(sendAs).toHaveBeenCalledOnce();
   const [, , login, message] = vi.mocked(sendAs).mock.calls[0]!;
   expect(login).toBe("alice");
-  expect(message).toMatchObject({ chatId: "chat", mentionHandle: "claude" });
+  expect(message).toMatchObject({ chatId: "chat", mentionHandle: "claude", localRunnerId: "runner" });
+  expect(vi.mocked(chooseRunner).mock.calls[0]![4]).toBe("runner"); // the machine it was submitted from, as when the run began
   expect(message.text).toMatch(/^@claude The job you submitted has ended:\n- mesh: succeeded\n\nYou said you'd continue with: read the residuals/);
   expect(tables.computeJobs![0].resume.sentAt).toBeTypeOf("number");
   await call(fire, ctx, { jobId: id });
@@ -53,8 +58,8 @@ it("continues the agent as the person who approved the job, once, after it ends"
 
 it("waits for every job submitted together, then sends one message with each outcome", async () => {
   const { submit, finish, drain, tables } = fixture("auto");
-  const a = await submit("sweep-0", { continueWith: "compare the meshes", group: "sweep:s" });
-  const b = await submit("sweep-1", { continueWith: "compare the meshes", group: "sweep:s" });
+  const a = await submit("sweep-0", { continueWith: "compare the meshes", group: "sweep:s", size: 2 });
+  const b = await submit("sweep-1", { continueWith: "compare the meshes", group: "sweep:s", size: 2 });
   expect(tables.computeJobs![0].resume.by).toBe("alice"); // auto mode: the person who started the run authorized it
   await finish(a); await drain();
   expect(sendAs).not.toHaveBeenCalled();
@@ -91,7 +96,37 @@ it("tries again later when no machine can run the agent, then gives up and says 
 
 it("leaves jobs that didn't ask to continue alone", async () => {
   const { ctx, submit, finish } = fixture("auto");
+  await expect(submit("blank", { continueWith: "  " })).rejects.toThrow("Say what you'll do");
   await finish(await submit("plain"));
   expect(ctx.scheduler.runAfter).not.toHaveBeenCalled();
-  await expect(submit("blank", { continueWith: "  " })).rejects.toThrow("Say what you'll do");
+});
+
+it("waits for a sweep's later jobs even when its first ends before they are submitted", async () => {
+  const { submit, finish, drain, tables } = fixture("auto");
+  const a = await submit("sweep-0", { continueWith: "compare", group: "sweep:s", size: 2 });
+  await finish(a); await drain();
+  expect(sendAs).not.toHaveBeenCalled();
+  tables.runs![0].state = "working";
+  await finish(await submit("sweep-1", { continueWith: "compare", group: "sweep:s", size: 2 })); await drain();
+  expect(sendAs).toHaveBeenCalledOnce();
+});
+
+it("waits for an agent at work in the chat to finish its turn before mentioning it", async () => {
+  const { ctx, submit, finish, drain, scheduled, tables } = fixture("auto");
+  const id = await submit("quick", { continueWith: "report it" });
+  await finish(id, "succeeded", false); await drain();
+  expect(sendAs).not.toHaveBeenCalled();
+  expect(scheduled.map(s => s.delay)).toEqual([BUSY_RETRY_MS]);
+  expect(tables.computeJobs![0].resume.tries).toBeUndefined();
+  tables.runs![0].state = "completed";
+  await call(fire, ctx, scheduled.shift()!.args);
+  expect(sendAs).toHaveBeenCalledOnce();
+});
+
+it("treats a retried submission asking to continue differently as a different request", async () => {
+  const { submit } = fixture("auto");
+  const id = await submit("k", { continueWith: "plot it" });
+  expect(await submit("k", { continueWith: " plot it " })).toBe(id);
+  await expect(submit("k", { continueWith: "tabulate it" })).rejects.toThrow("different continueWith");
+  await expect(submit("k")).rejects.toThrow("different continueWith");
 });

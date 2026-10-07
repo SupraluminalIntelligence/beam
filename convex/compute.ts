@@ -16,7 +16,7 @@ import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, autho
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
 import { isCfdImage } from "../packages/contracts/src/environments";
 import { workingSimulation } from "./drafts";
-import { approvedResume, jobEnded, newResume, type ResumeRequest } from "./jobResume";
+import { approvedResume, jobEnded, newResume, resumeNote, type ResumeRequest } from "./jobResume";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
@@ -77,6 +77,8 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
   const existing = await ctx.db.query("computeJobs").withIndex("by_request", q => q.eq("chatId", input.chatId).eq("requestedBy", input.requestedBy).eq("requestKey", input.requestKey)).first();
   if (existing) {
     if (existing.runnerId !== input.runnerId || JSON.stringify(existing.spec) !== JSON.stringify(spec)) throw new Error("Request key already used for a different job");
+    // What happens after the job is part of the request: a retry asking for something else is a different request.
+    if ((existing.resume?.note ?? null) !== resumeNote(input.resume)) throw new Error("Request key already used with a different continueWith; use a new requestKey");
     return existing._id;
   }
   // A cloud job runs on the gateway; the runner it came from only has to be the requester's to name.
@@ -228,9 +230,9 @@ export const saveSimulationForRun=readableMutation({args:{token:v.string(),runId
 export const selectSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),caseId:v.id("simulationCases")},handler:async(ctx,a)=>{const {run}=await simulationRunAccess(ctx,a.token,a.runId);await selectStudy(ctx,run.chatId,a.caseId,run.dispatchedBy,run._id);return{activeStudyId:a.caseId};}});
 export const submitSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),...simulationArgs},handler:async(ctx,a)=>{const{run,agent}=await simulationRunAccess(ctx,a.token,a.runId);if(a.caseId!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before running it");return enqueueSimulation(ctx,run.chatId,run.runnerId,run.dispatchedBy,a,agent.permissionMode!=="auto",run._id);}});
 /** What an agent asks to continue with when the job ends, and which submission it belongs to (a sweep's jobs share one). */
-export const continueArgs = { continueWith: v.optional(v.string()), group: v.optional(v.string()) };
-export const resumeRequest = (agent: Doc<"agents">, a: { requestKey: string; continueWith?: string | undefined; group?: string | undefined }): ResumeRequest | undefined =>
-  a.continueWith === undefined ? undefined : { agentId: agent._id, handle: agent.handle, note: a.continueWith, group: a.group ?? a.requestKey };
+export const continueArgs = { continueWith: v.optional(v.string()), group: v.optional(v.string()), size: v.optional(v.number()) };
+export const resumeRequest = (agent: Doc<"agents">, a: { requestKey: string; continueWith?: string | undefined; group?: string | undefined; size?: number | undefined }): ResumeRequest | undefined =>
+  a.continueWith === undefined ? undefined : { agentId: agent._id, handle: agent.handle, note: a.continueWith, group: a.group ?? a.requestKey, size: Math.min(Math.max(Math.floor(a.size ?? 1), 1), 64) };
 export const submitForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any(), ...continueArgs }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   if (!["working", "starting"].includes(run.state)) throw new Error("Agent run has ended");

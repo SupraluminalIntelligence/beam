@@ -35,7 +35,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
   };
   const save = (a: { id?: string | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
-  const run = (id: string, version: number, machine: string, requestKey: string, then?: { continueWith: string; group: string }) =>
+  const run = (id: string, version: number, machine: string, requestKey: string, then?: { continueWith: string; group: string; size: number }) =>
     client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey, ...(then ?? {}) });
 
   return [
@@ -63,7 +63,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
       run: async a => {
         writable();
         const requestKey = String(a["requestKey"]), then = continueWith.parse(a["continueWith"]);
-        const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), requestKey, then ? { continueWith: then, group: requestKey } : undefined);
+        const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), requestKey, then ? { continueWith: then, group: requestKey, size: 1 } : undefined);
         return JSON.stringify({ jobId: id, submitted: true, next: next("Follow it with get_job, then results_read once it succeeds.", !!then) });
       },
     },
@@ -74,9 +74,10 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
       run: async a => {
         writable();
         // One mention when the whole sweep has ended: its jobs share the sweep's request key as their group.
-        const then = continueWith.parse(a["continueWith"]), group = then ? { continueWith: then, group: `sweep:${String(a["requestKey"])}` } : undefined;
         const id = String(a["id"]), sim = await find(id), from = Number(a["version"]), base = await versionOf(id, from);
         const setups = sweepSetups(base, String(a["parameter"]), a["values"] as (number | string | boolean)[]);
+        // A job can end before the last is submitted: size makes Beam wait for all of them.
+        const then = continueWith.parse(a["continueWith"]), group = then ? { continueWith: then, group: `sweep:${String(a["requestKey"])}`, size: setups.length } : undefined;
         let current = sim.version;
         const rows = [];
         for (const [i, setup] of setups.entries()) {
