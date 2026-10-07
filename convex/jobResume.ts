@@ -63,6 +63,9 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
   const chat = await ctx.db.get(job.chatId), agent = await ctx.db.get(job.resume.agentId);
   if (!chat || chat.state === "deleted") return;
   if (!agent || (chat.agents && !chat.agents.includes(agent._id))) return mark({ error: `Not sent: @${job.resume.handle} is no longer in this chat.` });
+  // The mention goes by handle, as anyone's would: never let it start a different agent that shares it.
+  const named = (await ctx.db.query("agents").withIndex("by_workspace", q => q.eq("workspaceId", chat.workspaceId)).collect()).find(a => a.handle === agent.handle);
+  if (named?._id !== agent._id) return mark({ error: `Not sent: another agent in this workspace is also called @${agent.handle}.` });
   // Like auto-fix, never while an agent is at work here: a turn that is ending would swallow the mention.
   const runs = await ctx.db.query("runs").withIndex("by_chat", q => q.eq("chatId", chat._id)).collect();
   if (runs.some(r => isLive(r.state))) return later(BUSY_RETRY_MS);

@@ -15,7 +15,7 @@ function fixture(permissionMode = "ask") {
   const tables: Record<string, any[]> = {
     users: [{ _id: "user", githubLogin: "alice" }], chats: [{ _id: "chat", workspaceId: "ws", private: true, members: ["alice"], agents: null }],
     members: [{ workspaceId: "ws", githubLogin: "alice" }], runners: [{ _id: "runner", ownerLogin: "alice", online: true, lastSeen: Date.now(), computeBackend: "local-process" }],
-    agents: [{ _id: "agent", handle: "claude", harness: "claude", permissionMode }], runs: [{ _id: "run", chatId: "chat", runnerId: "runner", agentId: "agent", dispatchedBy: "alice", state: "working" }],
+    agents: [{ _id: "agent", workspaceId: "ws", handle: "claude", harness: "claude", permissionMode }], runs: [{ _id: "run", chatId: "chat", runnerId: "runner", agentId: "agent", dispatchedBy: "alice", state: "working" }],
     simulationCases: [], simulationRevisions: [], computeJobs: [], computeAssets: [], files: [], messages: [],
   };
   const scheduled: { delay: number; args: any }[] = [];
@@ -76,6 +76,15 @@ it("continues on the simulation the jobs belong to, even after the chat moved to
   tables.computeJobs![0].simulationId = "sim-a";
   await finish(id); await drain();
   expect(vi.mocked(sendAs).mock.calls[0]![3].studyId).toBe("sim-a");
+});
+
+it("never starts a different agent that shares the handle", async () => {
+  const { submit, finish, drain, tables } = fixture("auto");
+  const id = await submit("mesh", { continueWith: "refine" });
+  tables.agents!.unshift({ _id: "other", workspaceId: "ws", handle: "claude", harness: "codex" });
+  await finish(id); await drain();
+  expect(sendAs).not.toHaveBeenCalled();
+  expect(tables.computeJobs![0].resume.error).toBe("Not sent: another agent in this workspace is also called @claude.");
 });
 
 it("sends nothing for jobs nobody approved or everyone cancelled, and says why", async () => {
