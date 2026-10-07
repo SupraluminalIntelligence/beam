@@ -173,6 +173,23 @@ it("sends a retried sweep's new jobs as their own round once a closed group has 
   expect(vi.mocked(sendAs).mock.calls[1]![3].text).toContain("- s-0: succeeded\n- s-1: succeeded");
 });
 
+it("closes a retried sweep from its unsent jobs when the retry also stops partway", async () => {
+  const { ctx, submit, finish, drain, tables } = fixture("auto");
+  await finish(await submit("s-0", { continueWith: "compare", group: "sweep:s", size: 3 }));
+  tables.runs![0].state = "working";
+  await call(closeContinuationForRun, ctx, { token: "valid", runId: "run", group: "sweep:s" });
+  tables.runs![0].state = "completed"; await drain();
+  expect(sendAs).toHaveBeenCalledOnce();
+  // The retry adds s-1, which ends while the sweep still expects s-2, and then the sweep stops again.
+  tables.runs![0].state = "working";
+  await finish(await submit("s-1", { continueWith: "compare", group: "sweep:s", size: 3 })); await drain();
+  expect(sendAs).toHaveBeenCalledOnce();
+  tables.runs![0].state = "working";
+  expect(await call(closeContinuationForRun, ctx, { token: "valid", runId: "run", group: "sweep:s" })).toBe(2);
+  tables.runs![0].state = "completed"; await drain();
+  expect(sendAs).toHaveBeenCalledTimes(2);
+});
+
 it("retries, rather than loses, a continuation the agent's settings can't start", async () => {
   const { submit, finish, drain, scheduled, tables } = fixture("auto");
   Object.assign(tables.agents![0], { harness: "codex", model: "gpt-4", effort: "high" });

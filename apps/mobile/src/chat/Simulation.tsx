@@ -34,6 +34,7 @@ export function SimulationCard({ id, me }: { id: Id<"simulationCases">; me: stri
         <T mono size={11} tone="ink3">v{sim.version}</T>
       </View>
       <T mono size={11} tone={latest && SQ[latest.state] === "work" ? "live" : "ink2"}>{status}</T>
+      {latest?.resume && !waiting ? <T size={12} tone={latest.resume.error ? "warn" : "ink3"}>{latest.resume.error ?? `${latest.resume.sentAt ? "Asked" : "Then"} @${latest.resume.handle} ${latest.resume.sentAt ? "to continue" : "continues"}: ${latest.resume.note}`}</T> : null}
       {done?.results ? <View style={{ gap: 2, marginTop: 4 }}>
         {done.results.headline.map((q) => <View key={q.name} style={[styles.q, { borderBottomColor: t.line }]}><T mono size={11.5} tone="ink3" lines={1} style={{ flexShrink: 1 }}>{q.label}</T><T mono size={11.5}>{text(q)}</T></View>)}
         <T mono size={11} tone="ink2" style={{ marginTop: 4 }}>✓ {done.results.checks.pass} pass{done.results.checks.review ? ` · ${done.results.checks.review} to review` : ""}{done.results.checks.fail ? ` · ${done.results.checks.fail} failed` : ""}{done.version !== latest?.version ? ` · from v${done.version}` : ""}</T>

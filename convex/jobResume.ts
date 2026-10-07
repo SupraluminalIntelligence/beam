@@ -93,7 +93,9 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
 export async function closeGroup(ctx: MutationCtx, chatId: Id<"chats">, requestedBy: string, group: string) {
   const members = (await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", chatId)).collect()).filter(j => j.requestedBy === requestedBy && j.resume?.group === group);
   for (const j of members) await ctx.db.patch(j._id, { resume: { ...j.resume!, size: members.length } });
-  if (members[0] && members.every(j => jobFinished(j.state))) await jobEnded(ctx, members[0]);
+  // From a job still waiting to send: in a retried sweep, the oldest member has usually sent already.
+  const unsent = members.find(j => !j.resume?.sentAt);
+  if (unsent && members.every(j => jobFinished(j.state))) await jobEnded(ctx, unsent);
   return members.length;
 }
 
