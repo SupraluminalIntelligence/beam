@@ -101,5 +101,5 @@ Spike results (27 Sep 2026, [environments/spike/REPORT.md](../../environments/sp
 
 - Pricing: compute at cost plus a margin, or bundled into a plan.
 - Export control: some startup data falls under ITAR or EAR, which may mean US-only regions.
-- Long jobs: agents speak only when spoken to, so a multi-hour job probably needs an approved "when this finishes, continue" step.
+- Long jobs: answered by an approved "when this finishes, continue" step. An agent says at submission what it will do once a job or sweep ends; approving the job approves that, and Beam mentions the agent as the approver when the last job ends (convex/jobResume.ts).
 - Simulations at workspace level replace today's rule that a study belongs to one chat.

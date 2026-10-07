@@ -34,13 +34,14 @@ export function SimulationCard({ id, me }: { id: Id<"simulationCases">; me: stri
         <T mono size={11} tone="ink3">v{sim.version}</T>
       </View>
       <T mono size={11} tone={latest && SQ[latest.state] === "work" ? "live" : "ink2"}>{status}</T>
+      {latest?.resume && !waiting ? <T size={12} tone={latest.resume.error ? "warn" : "ink3"}>{latest.resume.error ?? `${latest.resume.sentAt ? "Asked" : "Then"} @${latest.resume.handle} ${latest.resume.sentAt ? "to continue" : "continues"}: ${latest.resume.note}`}</T> : null}
       {done?.results ? <View style={{ gap: 2, marginTop: 4 }}>
         {done.results.headline.map((q) => <View key={q.name} style={[styles.q, { borderBottomColor: t.line }]}><T mono size={11.5} tone="ink3" lines={1} style={{ flexShrink: 1 }}>{q.label}</T><T mono size={11.5}>{text(q)}</T></View>)}
         <T mono size={11} tone="ink2" style={{ marginTop: 4 }}>✓ {done.results.checks.pass} pass{done.results.checks.review ? ` · ${done.results.checks.review} to review` : ""}{done.results.checks.fail ? ` · ${done.results.checks.fail} failed` : ""}{done.version !== latest?.version ? ` · from v${done.version}` : ""}</T>
         {done.results.flagged.map((c) => <T key={c.id} mono size={11} tone={c.status === "fail" ? "bad" : "warn"}>{c.status === "fail" ? "✕" : "!"} {c.label}{c.value ? ` · ${c.value}` : ""}</T>)}
       </View> : null}
       {waiting ? <View style={{ gap: 6, marginTop: 8 }}>
-        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.</T>
+        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.{waiting.resume ? ` Approving also lets @${waiting.resume.handle} continue when it ends: ${waiting.resume.note}` : ""}</T>
         <Pressable accessibilityRole="button" disabled={busy} onPress={async () => {
           setBusy(true); setError(null);
           try { await approve({ id: waiting._id }); if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }

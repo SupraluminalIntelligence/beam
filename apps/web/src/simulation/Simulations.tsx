@@ -193,7 +193,7 @@ function Jobs({ sim, chatId, login, jobLives, onOpen }: { sim: Sim; chatId: Id<"
       <span className={`job-dot ${j.state}`} />
       <b>{jobName(j)}</b>
       <span className="sim-job-what">
-        {j.state === "awaiting-approval" ? <>{what(j)} · requested by {j.requestedBy} {new Date(j.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</>
+        {j.state === "awaiting-approval" ? <>{what(j)} · requested by {j.requestedBy} {new Date(j.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{j.resume && <> · then @{j.resume.handle} continues: {j.resume.note}</>}</>
           : active && l ? <>{latest(l.view, 3) || what(j)}<Sparkline view={l.view} width={220} height={18} /></>
           : j.results ? <>{j.results.headline.map(q => `${q.label} ${quantityText(q)}`).join(" · ")}{" · "}✓ {j.results.checks.pass}{j.results.checks.review ? ` · ! ${j.results.checks.review}` : ""}{j.results.checks.fail ? ` · ✕ ${j.results.checks.fail}` : ""}</>
           : j.error ? <span className="bad">{j.error}</span> : <>{what(j)}{j.state === "cancelled" ? " · cancelled · no results" : j.state === "succeeded" ? " · no results written" : ""}</>}
@@ -206,6 +206,7 @@ function Jobs({ sim, chatId, login, jobLives, onOpen }: { sim: Sim; chatId: Id<"
         {j.state !== "awaiting-approval" && <button className="link" onClick={() => ui.openSurface(chatId, `job:${j._id}`)}>Log</button>}
         {(active || j.state === "queued") && !j.cancelRequestedAt && <button className="link" disabled={busy} onClick={() => void act(() => cancel({ id: j._id }))}>Cancel</button>}
         {j.cancelRequestedAt && !["succeeded", "failed", "cancelled"].includes(j.state) && <small>cancelling…</small>}
+        {j.resume && j.state !== "awaiting-approval" && <small className={j.resume.error ? "warn" : undefined} title={j.resume.note}>{j.resume.error ?? `${j.resume.sentAt ? "asked" : "then"} @${j.resume.handle} ${j.resume.sentAt ? "to continue" : "continues"}: ${j.resume.note}`}</small>}
       </span>
     </div>;
   };
