@@ -15,7 +15,20 @@ describe("run_version", () => {
     const run = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "run_version")!;
     const out = JSON.parse(String(await run.run({ id: "sim", version: 5, machine: "local", requestKey: "k", continueWith: "refine" })));
     expect(out).toMatchObject({ jobId: "job-1", reused: true });
-    expect(out.next).toMatch(/already mentioned you/);
+    expect(out.next).toMatch(/no mention is coming/);
+  });
+
+  it("treats a continuation Beam gave up on as settled, and one still being retried as coming", async () => {
+    let resume: Record<string, unknown> = { note: "refine", error: "Couldn't start @claude", tries: 4 };
+    const client = {
+      query: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => ({ _id: args["id"], state: "succeeded", resume })),
+      mutation: vi.fn(async () => "job-1"),
+    } as unknown as ConvexClient;
+    const run = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "run_version")!;
+    const args = { id: "sim", version: 5, machine: "local", requestKey: "k", continueWith: "refine" };
+    expect(JSON.parse(String(await run.run(args)))).toMatchObject({ reused: true });
+    resume = { ...resume, check: 2 };
+    expect(JSON.parse(String(await run.run(args)))).toMatchObject({ submitted: true });
   });
 });
 
@@ -53,5 +66,20 @@ describe("sweep", () => {
     await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "local", requestKey: "k", continueWith: "compute the GCI" })).rejects.toThrow("v7");
     expect(calls[0]).toMatchObject({ continueWith: "compute the GCI", group: "sweep:k", size: 3 });
     expect(calls.at(-1)).toEqual({ token: "token", runId: "run", group: "sweep:k" });
+  });
+
+  it("tells the agent to retry the sweep when it can't close a partial one", async () => {
+    let version = 5, n = 0;
+    const client = {
+      query: vi.fn(async () => ({ simulations: [{ id: "sim", name: "Cantilever", version, versions: [{ version: 5, setup: stored }] }] })),
+      mutation: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => {
+        if ("setup" in args) return { id: "sim", version: ++version, unchanged: false };
+        if (!("continueWith" in args)) throw new Error("Connection lost");
+        if (++n === 2) throw new Error("Connection lost");
+        return `job-${n}`;
+      }),
+    } as unknown as ConvexClient;
+    const sweep = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "sweep")!;
+    await expect(sweep.run({ id: "sim", version: 5, parameter: "tip_load", values: [250, 500, 1000], machine: "local", requestKey: "k", continueWith: "compute the GCI" })).rejects.toThrow(/retry the sweep with the same requestKey/);
   });
 });

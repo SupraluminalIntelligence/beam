@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ConvexClient } from "convex/browser";
 import type { BeamTool } from "@beam/harness";
-import { BUILT_IN_ENVIRONMENTS, compareQuantities, FilesSetup, ImageRef, JobPath, MachineId, Parameter, ResultsManifest, setupChanges, sweepSetups } from "@beam/contracts";
+import { BUILT_IN_ENVIRONMENTS, compareQuantities, FilesSetup, ImageRef, JobPath, jobFinished, MachineId, Parameter, ResultsManifest, setupChanges, sweepSetups } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { afterSubmit, continueWith, stageInputs } from "./tools.ts";
@@ -37,9 +37,11 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
   const run = (id: string, version: number, machine: string, requestKey: string, then?: { continueWith: string; group?: string; size?: number }) =>
     client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey, ...(then ?? {}) });
-  // A retried request key can return jobs Beam already mentioned the agent about: no mention is coming for those.
-  const alreadySent = async (ids: Id<"computeJobs">[]) => (await Promise.all(ids.map(id => client.query(api.compute.forRun, { token, runId, id })))).every(j => !Array.isArray(j) && !!j.resume?.sentAt);
-  const sent = "These jobs already ended and Beam already mentioned you about them; read them now with get_job and results_read rather than waiting.";
+  // A retried request key can return jobs whose continuation is settled: sent already, or given up on with a
+  // reason (and no check left scheduled). No mention is coming for those.
+  const alreadySent = async (ids: Id<"computeJobs">[]) => (await Promise.all(ids.map(id => client.query(api.compute.forRun, { token, runId, id }))))
+    .every(j => !Array.isArray(j) && !!j.resume && (!!j.resume.sentAt || (jobFinished(j.state) && !!j.resume.error && j.resume.check === undefined)));
+  const sent = "These jobs already ended and no mention is coming for them (it was sent, or resume.error says why not); read them now with get_job and results_read rather than waiting.";
 
   return [
     {
@@ -94,7 +96,9 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
           }
         } catch (e) {
           // Stopped partway: the jobs already submitted still continue the agent once they end.
-          if (group && rows.length) await client.mutation(api.compute.closeContinuationForRun, { token, runId, group: group.group }).catch(() => undefined);
+          if (group && rows.length) await client.mutation(api.compute.closeContinuationForRun, { token, runId, group: group.group }).catch((c: unknown) => {
+            throw new Error(`${(e as Error).message}. The jobs already submitted will not continue you until the sweep is complete (${(c as Error).message}): retry the sweep with the same requestKey.`);
+          });
           throw e;
         }
         if (then && await alreadySent(rows.map(r => r.jobId))) return JSON.stringify({ parameter: a["parameter"], runs: rows, reused: true, next: sent });
