@@ -3,7 +3,8 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { readableMutation, readableQuery, requireChat, requireMember } from "./lib";
-import { chatAccess, enqueue, jobSimulationId, runAccess, summary } from "./compute";
+import { chatAccess, continueArgs, enqueue, jobSimulationId, resumeRequest, runAccess, summary } from "./compute";
+import type { ResumeRequest } from "./jobResume";
 import { ensureCard } from "./drafts";
 
 export { ensureCard };
@@ -133,7 +134,7 @@ async function draftOf(ctx: MutationCtx, chat: Doc<"chats">) {
 }
 
 type RunVersion = { id: Id<"simulationCases">; version: number; machine: string; requestKey: string };
-async function runVersion(ctx: MutationCtx, chatId: Id<"chats">, runnerId: Id<"runners">, login: string, a: RunVersion, needsApproval: boolean, sourceRunId?: Id<"runs">) {
+async function runVersion(ctx: MutationCtx, chatId: Id<"chats">, runnerId: Id<"runners">, login: string, a: RunVersion, needsApproval: boolean, sourceRunId?: Id<"runs">, resume?: ResumeRequest) {
   const sim = await ctx.db.get(a.id);
   if (!sim || sim.chatId !== chatId) throw new Error("Simulation unavailable in this chat");
   if (kindOf(sim) !== "files") throw new Error("Run a recipe simulation's mesh and solve with run_simulation");
@@ -141,7 +142,7 @@ async function runVersion(ctx: MutationCtx, chatId: Id<"chats">, runnerId: Id<"r
   if (!row?.setup) throw new Error(`${sim.name} has no v${a.version}`);
   const setup = FilesSetup.parse(row.setup);
   return enqueue(ctx, {
-    chatId, runnerId, requestedBy: login, requestKey: a.requestKey, needsApproval, ...(sourceRunId ? { sourceRunId } : {}),
+    chatId, runnerId, requestedBy: login, requestKey: a.requestKey, needsApproval, ...(sourceRunId ? { sourceRunId } : {}), resume,
     spec: {
       version: 1, kind: "environment", title: `${sim.name} · v${a.version}`.slice(0, 120), environment: setup.environment, command: setup.command,
       inputs: setup.files.map(f => ({ path: f.path, assetId: f.assetId })), machine: MachineId.parse(a.machine), timeoutSeconds: setup.timeoutSeconds,
@@ -164,9 +165,9 @@ export const saveVersionForRun = readableMutation({ args: { token: v.string(), r
   const { run } = await agentRun(ctx, a.token, a.runId);
   return saveFiles(ctx, run.chatId, run.dispatchedBy, a, run);
 } });
-export const runVersionForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), ...runArgs }, handler: async (ctx, a) => {
+export const runVersionForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), ...runArgs, ...continueArgs }, handler: async (ctx, a) => {
   const { run, agent } = await agentRun(ctx, a.token, a.runId);
-  return runVersion(ctx, run.chatId, run.runnerId, run.dispatchedBy, a, agent.permissionMode !== "auto", run._id);
+  return runVersion(ctx, run.chatId, run.runnerId, run.dispatchedBy, a, agent.permissionMode !== "auto", run._id, resumeRequest(agent, a));
 } });
 
 /** A person runs a version from the app: explicit authorization, so no approval step. */

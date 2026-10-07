@@ -16,6 +16,7 @@ import { CLOUD_LAUNCH_WINDOW_SECONDS, CLOUD_MAX_TIMEOUT_SECONDS, MACHINES, autho
 import { SimulationCase, meshKey, simulationOutputs, meshAssetPath, meshInputPath, simulationMeshInputs, modelInputPath, MODEL_MAX_TRIANGLES, studyOutput } from "../packages/contracts/src/simulation";
 import { isCfdImage } from "../packages/contracts/src/environments";
 import { workingSimulation } from "./drafts";
+import { approvedResume, jobEnded, newResume, type ResumeRequest } from "./jobResume";
 
 type Ctx = QueryCtx | MutationCtx;
 const executing = ["preparing", "running", "publishing"];
@@ -68,7 +69,7 @@ async function targetAccess(ctx: Ctx, chatId: Id<"chats">, runnerId: Id<"runners
   return runner;
 }
 
-export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId: Id<"runners">; requestedBy: string; sourceRunId?: Id<"runs">; requestKey: string; spec: unknown; needsApproval: boolean }) {
+export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; runnerId: Id<"runners">; requestedBy: string; sourceRunId?: Id<"runs">; requestKey: string; spec: unknown; needsApproval: boolean; resume?: ResumeRequest | undefined }) {
   const spec = JobSpec.parse(input.spec);
   const billing = cloudBilling(spec);
   if (!input.requestKey.trim() || input.requestKey.length > 160) throw new Error("Invalid request key");
@@ -119,7 +120,7 @@ export async function enqueue(ctx: MutationCtx, input: { chatId: Id<"chats">; ru
     ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}), requestKey: input.requestKey,
     backend: billing ? "modal-sandbox" : "local-process", spec, state: input.needsApproval ? "awaiting-approval" : "queued",
     createdAt: now, updatedAt: now, log: "", error: null, outputs: [], ...(reserved ? { billing: reserved } : {}),
-    ...(simulation ? { simulationId: simulation._id } : {}),
+    ...(simulation ? { simulationId: simulation._id } : {}), ...newResume(input.resume, input.requestedBy, input.needsApproval),
   });
   // A study's card shows its jobs; a simulation's card shows its jobs, so a job needs no message of its own.
   if(study) await ensureStudyCard(ctx,study.caseId as Id<"simulationCases">,input.requestedBy);
@@ -226,12 +227,16 @@ async function simulationRunAccess(ctx:MutationCtx,token:string,runId:Id<"runs">
 export const saveSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),...saveCaseArgs},handler:async(ctx,a)=>{const{run}=await simulationRunAccess(ctx,a.token,a.runId);if(a.id&&a.id!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before editing it");return saveCase(ctx,run.chatId,run.dispatchedBy,a,run._id);}});
 export const selectSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),caseId:v.id("simulationCases")},handler:async(ctx,a)=>{const {run}=await simulationRunAccess(ctx,a.token,a.runId);await selectStudy(ctx,run.chatId,a.caseId,run.dispatchedBy,run._id);return{activeStudyId:a.caseId};}});
 export const submitSimulationForRun=readableMutation({args:{token:v.string(),runId:v.id("runs"),...simulationArgs},handler:async(ctx,a)=>{const{run,agent}=await simulationRunAccess(ctx,a.token,a.runId);if(a.caseId!==(run.studyId===undefined?(await ctx.db.get(run.chatId))?.activeStudyId:run.studyId))throw new Error("Select this study explicitly before running it");return enqueueSimulation(ctx,run.chatId,run.runnerId,run.dispatchedBy,a,agent.permissionMode!=="auto",run._id);}});
-export const submitForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any() }, handler: async (ctx, a) => {
+/** What an agent asks to continue with when the job ends, and which submission it belongs to (a sweep's jobs share one). */
+export const continueArgs = { continueWith: v.optional(v.string()), group: v.optional(v.string()) };
+export const resumeRequest = (agent: Doc<"agents">, a: { requestKey: string; continueWith?: string | undefined; group?: string | undefined }): ResumeRequest | undefined =>
+  a.continueWith === undefined ? undefined : { agentId: agent._id, handle: agent.handle, note: a.continueWith, group: a.group ?? a.requestKey };
+export const submitForRun = readableMutation({ args: { token: v.string(), runId: v.id("runs"), requestKey: v.string(), spec: v.any(), ...continueArgs }, handler: async (ctx, a) => {
   const { run } = await runAccess(ctx, a.token, a.runId);
   if (!["working", "starting"].includes(run.state)) throw new Error("Agent run has ended");
   const agent = await ctx.db.get(run.agentId);
   if (!agent || agent.permissionMode === "plan") throw new Error("Plan mode cannot submit compute jobs");
-  return enqueue(ctx, { chatId: run.chatId, runnerId: run.runnerId, requestedBy: run.dispatchedBy, sourceRunId: run._id, requestKey: a.requestKey, spec: a.spec, needsApproval: agent.permissionMode !== "auto" });
+  return enqueue(ctx, { chatId: run.chatId, runnerId: run.runnerId, requestedBy: run.dispatchedBy, sourceRunId: run._id, requestKey: a.requestKey, spec: a.spec, needsApproval: agent.permissionMode !== "auto", resume: resumeRequest(agent, a) });
 } });
 export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => {
   const job = await ctx.db.get(id); if (!job) throw new Error("Job not found");
@@ -240,17 +245,18 @@ export const approve = mutation({ args: { id: v.id("computeJobs") }, handler: as
   if (u.githubLogin !== job.requestedBy) throw new Error("Only the requester can approve this job");
   if (job.billing) {
     const chat = await chatAccess(ctx, job.chatId, job.requestedBy);
-    await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now(), billing: await reserve(ctx, chat.workspaceId, job.billing) });
+    await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now(), billing: await reserve(ctx, chat.workspaceId, job.billing), ...approvedResume(job, u.githubLogin!) });
     return;
   }
   await targetAccess(ctx, job.chatId, job.runnerId, job.requestedBy);
-  await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now() });
+  await ctx.db.patch(id, { state: "queued", approvedBy: u.githubLogin!, updatedAt: Date.now(), ...approvedResume(job, u.githubLogin!) });
 } });
 async function cancelJob(ctx: MutationCtx, id: Id<"computeJobs">) {
   const job = await ctx.db.get(id); if (!job || jobFinished(job.state)) return;
   const now = Date.now(), unclaimed = ["queued", "awaiting-approval"].includes(job.state);
   const billing = unclaimed ? await settle(ctx, job, now) : job.billing;
   await ctx.db.patch(id, { cancelRequestedAt: now, updatedAt: now, ...(unclaimed ? { state: "cancelled", endedAt: now } : {}), ...(billing ? { billing } : {}) });
+  if (unclaimed) await jobEnded(ctx, job);
 }
 export const cancel = mutation({ args: { id: v.id("computeJobs") }, handler: async (ctx, { id }) => {
   const job = await ctx.db.get(id); if (!job) throw new Error("Job not found");
@@ -335,7 +341,8 @@ export const claim = readableMutation({ args: { token: v.string(), id: v.id("com
     try { await chatAccess(ctx, job.chatId, job.requestedBy); }
     catch (e) {
       const now = Date.now(), billing = await settle(ctx, job, now);
-      await ctx.db.patch(job._id, { state: "failed", error: (e as Error).message, endedAt: now, updatedAt: now, ...(billing ? { billing } : {}) }); return false;
+      await ctx.db.patch(job._id, { state: "failed", error: (e as Error).message, endedAt: now, updatedAt: now, ...(billing ? { billing } : {}) });
+      await jobEnded(ctx, job); return false;
     }
     await ctx.db.patch(job._id, { state: "preparing", startedAt: Date.now(), updatedAt: Date.now() }); return true;
   }
@@ -394,6 +401,7 @@ export const report = readableMutation({ args: { token: v.string(), id: v.id("co
     }
   }
   await ctx.db.patch(job._id, { state, log: a.log.slice(-16000), error, updatedAt: now, ...(a.handle ? { handle: a.handle } : {}), ...(a.exitCode !== undefined ? { exitCode: a.exitCode } : {}), ...(jobFinished(state) ? { endedAt: now } : {}), ...(billing ? { billing } : {}), ...(cancelRequestedAt ? { cancelRequestedAt } : {}), ...(billing && finished && machine ? { awaitingRelease: true } : {}) });
+  if (finished) await jobEnded(ctx, job);
 } });
 /**
  * The gateway is about to create a cloud job's machine. Recorded first, so metering starts here and a

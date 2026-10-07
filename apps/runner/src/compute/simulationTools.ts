@@ -4,7 +4,7 @@ import type { BeamTool } from "@beam/harness";
 import { BUILT_IN_ENVIRONMENTS, compareQuantities, FilesSetup, ImageRef, JobPath, MachineId, Parameter, ResultsManifest, setupChanges, sweepSetups } from "@beam/contracts";
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
-import { stageInputs } from "./tools.ts";
+import { afterSubmit, continueWith, stageInputs } from "./tools.ts";
 
 const environmentOf = (raw: string) => {
   const builtIn = BUILT_IN_ENVIRONMENTS.find(e => e.name === raw);
@@ -21,8 +21,7 @@ const environmentOf = (raw: string) => {
 export function simulationTools(client: ConvexClient, token: string, runId: Id<"runs">, directory: string, permissionMode: string): BeamTool[] {
   const writable = () => { if (permissionMode === "plan") throw new Error("Plan mode cannot save or run simulations"); };
   // Outside auto mode a job waits for the person; an agent that polls for that holds the turn open for nothing.
-  const next = (then: string) => permissionMode === "auto" ? then
-    : "Each job waits for the person who asked to approve it (the simulation's Jobs tab, or Approve all). Do not wait or poll for that: end your turn now, saying which jobs need approving and what you found so far. They will @mention you once the jobs have run.";
+  const next = (then: string, continuing: boolean) => afterSubmit(permissionMode, continuing, then);
   const state = () => client.query(api.simulations.forRun, { token, runId });
   const find = async (id: string) => {
     const sim = (await state()).simulations.find(s => s.id === id);
@@ -36,8 +35,8 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
   };
   const save = (a: { id?: string | undefined; version?: number | undefined; from?: number | undefined; name: string; setup: FilesSetup; note?: string | undefined }) =>
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
-  const run = (id: string, version: number, machine: string, requestKey: string) =>
-    client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey });
+  const run = (id: string, version: number, machine: string, requestKey: string, then?: { continueWith: string; group: string }) =>
+    client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey, ...(then ?? {}) });
 
   return [
     {
@@ -60,19 +59,22 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     {
       name: "run_version",
       description: "Run a saved version of a files simulation as a durable job on a machine, and return the job ID immediately. The job's /work holds the version's files and beam/parameters.json; results are what it writes under beam/out. Follow it with get_job; read results with results_read. Reuse requestKey when retrying. In non-auto modes the requester approves first. Machine: only local today.",
-      schema: { id: z.string(), version: z.number().int().positive(), machine: MachineId.default("local"), requestKey: z.string().min(1).max(160) },
+      schema: { id: z.string(), version: z.number().int().positive(), machine: MachineId.default("local"), requestKey: z.string().min(1).max(160), continueWith },
       run: async a => {
         writable();
-        const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), String(a["requestKey"]));
-        return JSON.stringify({ jobId: id, submitted: true, next: next("Follow it with get_job, then results_read once it succeeds.") });
+        const requestKey = String(a["requestKey"]), then = continueWith.parse(a["continueWith"]);
+        const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), requestKey, then ? { continueWith: then, group: requestKey } : undefined);
+        return JSON.stringify({ jobId: id, submitted: true, next: next("Follow it with get_job, then results_read once it succeeds.", !!then) });
       },
     },
     {
       name: "sweep",
       description: "Run one simulation version once per value of one declared parameter: saves a new version for each value (everything else unchanged; the base's own value reuses the base version) and submits a job for each. Returns each value's version and job ID. Use for parameter studies and for mesh convergence when mesh size is a parameter (three values refined by a constant ratio give a grid convergence index). Compare the results with compare_versions. Up to 32 values. On the local machine the jobs run one after another, not side by side; parallelise inside each with $BEAM_CORES MPI processes. Unavailable in plan mode.",
-      schema: { id: z.string(), version: z.number().int().positive(), parameter: z.string(), values: z.array(z.union([z.number().finite(), z.string(), z.boolean()])).min(1).max(32), machine: MachineId.default("local"), requestKey: z.string().min(1).max(120) },
+      schema: { id: z.string(), version: z.number().int().positive(), parameter: z.string(), values: z.array(z.union([z.number().finite(), z.string(), z.boolean()])).min(1).max(32), machine: MachineId.default("local"), requestKey: z.string().min(1).max(120), continueWith },
       run: async a => {
         writable();
+        // One mention when the whole sweep has ended: its jobs share the sweep's request key as their group.
+        const then = continueWith.parse(a["continueWith"]), group = then ? { continueWith: then, group: `sweep:${String(a["requestKey"])}` } : undefined;
         const id = String(a["id"]), sim = await find(id), from = Number(a["version"]), base = await versionOf(id, from);
         const setups = sweepSetups(base, String(a["parameter"]), a["values"] as (number | string | boolean)[]);
         let current = sim.version;
@@ -82,9 +84,9 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
           // The base's own value runs the base version rather than saving a copy of it.
           const version = setupChanges(base, setup).length === 0 ? from
             : (current = (await save({ id, version: current, from, name: sim.name, setup, note: `Sweep ${String(a["parameter"])} = ${String(value)}` })).version);
-          rows.push({ value, version, jobId: await run(id, version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`) });
+          rows.push({ value, version, jobId: await run(id, version, String(a["machine"] ?? "local"), `${String(a["requestKey"])}-${i}`, group) });
         }
-        return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.") });
+        return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.", !!then) });
       },
     },
     {

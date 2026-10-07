@@ -5,7 +5,7 @@ import { BUILT_IN_ENVIRONMENTS, EnvironmentJobSpec, EnvironmentName, ImageRef, J
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
 import { closeLocalMachine, environmentAvailable, execOnLocalMachine, openLocalMachine } from "./environment.ts";
-import { stageInputs } from "./tools.ts";
+import { afterSubmit, continueWith, stageInputs } from "./tools.ts";
 
 /** An environment by name (built-in) or by digest (custom). */
 function resolveEnvironment(raw: string) {
@@ -67,7 +67,7 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
       schema: {
         requestKey: z.string().min(1).max(160), title: z.string().min(1).max(120), environment: z.string(),
         command: z.string().min(1).max(8000), inputPaths: z.array(JobPath).max(64),
-        machine: MachineId.default("local"), timeoutSeconds: z.number().int().min(1).max(86400),
+        machine: MachineId.default("local"), timeoutSeconds: z.number().int().min(1).max(86400), continueWith,
       },
       run: async a => {
         writable();
@@ -81,8 +81,9 @@ export function environmentTools(client: ConvexClient, token: string, runId: Id<
           if (canonical(prior.spec as EnvironmentJobSpec) !== canonical(spec)) throw new Error("Request key belongs to a different job");
           return JSON.stringify({ id: prior._id, state: prior.state, reused: true });
         }
-        const id = await client.mutation(api.compute.submitForRun, { token, runId, requestKey, spec: { ...spec, inputs: await stageInputs(client, token, runId, directory, paths) } });
-        return JSON.stringify({ id, submitted: true, note: "Use get_job for state and logs, results_read once it succeeds. Outside auto mode the requester approves it first, on the simulation's Jobs tab or card." });
+        const then = continueWith.parse(a["continueWith"]);
+        const id = await client.mutation(api.compute.submitForRun, { token, runId, requestKey, spec: { ...spec, inputs: await stageInputs(client, token, runId, directory, paths) }, ...(then ? { continueWith: then } : {}) });
+        return JSON.stringify({ id, submitted: true, note: afterSubmit(permissionMode, !!then, "Use get_job for state and logs, results_read once it succeeds.") });
       },
     },
     {

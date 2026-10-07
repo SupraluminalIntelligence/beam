@@ -40,7 +40,7 @@ export function SimulationCard({ id, me }: { id: Id<"simulationCases">; me: stri
         {done.results.flagged.map((c) => <T key={c.id} mono size={11} tone={c.status === "fail" ? "bad" : "warn"}>{c.status === "fail" ? "✕" : "!"} {c.label}{c.value ? ` · ${c.value}` : ""}</T>)}
       </View> : null}
       {waiting ? <View style={{ gap: 6, marginTop: 8 }}>
-        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.</T>
+        <T size={13} tone="ink2">{waiting.title} is waiting for you to approve it{waiting.environment ? ` · ${waiting.environment} environment` : ""}.{waiting.resume ? ` Approving also lets @${waiting.resume.handle} continue when it ends: ${waiting.resume.note}` : ""}</T>
         <Pressable accessibilityRole="button" disabled={busy} onPress={async () => {
           setBusy(true); setError(null);
           try { await approve({ id: waiting._id }); if (Platform.OS !== "web") void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
