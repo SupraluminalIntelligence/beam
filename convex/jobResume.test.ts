@@ -49,9 +49,9 @@ it("continues the agent as the person who approved the job, once, after it ends"
   expect(sendAs).toHaveBeenCalledOnce();
   const [, , login, message] = vi.mocked(sendAs).mock.calls[0]!;
   expect(login).toBe("alice");
-  expect(message).toMatchObject({ chatId: "chat", mentionHandle: "claude", localRunnerId: "runner" });
+  expect(message).toMatchObject({ chatId: "chat", mentionHandle: "claude", localRunnerId: "runner", notify: false }); // Beam wrote it: an @login in the note notifies nobody
   expect(vi.mocked(chooseRunner).mock.calls[0]![4]).toBe("runner"); // the machine it was submitted from, as when the run began
-  expect(message.text).toMatch(/^@claude The job you submitted has ended:\n- mesh: succeeded\n\nYou said you'd continue with: read the residuals/);
+  expect(message.text).toMatch(/^@claude The job you submitted has ended:\n- mesh \(computeJobs-0\): succeeded\n\nYou said you'd continue with: read the residuals/);
   expect(message.studyId).toBe(tables.computeJobs![0].simulationId); // the simulation the job belongs to
   expect(tables.computeJobs![0].resume.sentAt).toBeTypeOf("number");
   await call(fire, ctx, { jobId: id });
@@ -67,7 +67,7 @@ it("waits for every job submitted together, then sends one message with each out
   expect(sendAs).not.toHaveBeenCalled();
   await finish(b, "failed"); await drain();
   expect(sendAs).toHaveBeenCalledOnce();
-  expect(vi.mocked(sendAs).mock.calls[0]![3].text).toContain("The 2 jobs you submitted together have ended:\n- sweep-0: succeeded\n- sweep-1: failed (solver diverged)");
+  expect(vi.mocked(sendAs).mock.calls[0]![3].text).toContain("The 2 jobs you submitted together have ended:\n- sweep-0 (computeJobs-0): succeeded\n- sweep-1 (computeJobs-1): failed (solver diverged)");
 });
 
 it("continues on the simulation the jobs belong to, even after the chat moved to another", async () => {
@@ -188,7 +188,7 @@ it("sends a retried sweep's new jobs as their own round once a closed group has 
   tables.runs![0].state = "working"; // the agent retries the sweep: s-0 is reused, s-1 is new
   await finish(await submit("s-1", { continueWith: "compare", group: "sweep:s", size: 2 })); await drain();
   expect(sendAs).toHaveBeenCalledTimes(2);
-  expect(vi.mocked(sendAs).mock.calls[1]![3].text).toContain("- s-0: succeeded\n- s-1: succeeded");
+  expect(vi.mocked(sendAs).mock.calls[1]![3].text).toContain("- s-0 (computeJobs-0): succeeded\n- s-1 (computeJobs-1): succeeded");
 });
 
 it("closes a retried sweep from its unsent jobs when the retry also stops partway", async () => {

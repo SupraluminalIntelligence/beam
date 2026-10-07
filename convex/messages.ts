@@ -48,7 +48,7 @@ export const send = mutation({
 });
 
 /** A message from one person, wherever it came from (the plain apps, or a layer). Access is the caller's to check. */
-export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string, { chatId, text, mentionHandle, localRunnerId, expectedConnection, targetRunId, attachments = [], studyId = chat.activeStudyId }: { chatId: Id<"chats">; text: string; mentionHandle: string | null; localRunnerId?: Id<"runners"> | undefined; expectedConnection?: string | undefined; targetRunId?: Id<"runs"> | undefined; attachments?: Id<"files">[] | undefined; /** The simulation the message is about; the chat's working one unless given. */ studyId?: Id<"simulationCases"> | null | undefined }) {
+export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string, { chatId, text, mentionHandle, localRunnerId, expectedConnection, targetRunId, attachments = [], studyId = chat.activeStudyId, notify = true }: { chatId: Id<"chats">; text: string; mentionHandle: string | null; localRunnerId?: Id<"runners"> | undefined; expectedConnection?: string | undefined; targetRunId?: Id<"runs"> | undefined; attachments?: Id<"files">[] | undefined; /** The simulation the message is about; the chat's working one unless given. */ studyId?: Id<"simulationCases"> | null | undefined; /** False when Beam wrote the text, so nobody is told this person mentioned them. */ notify?: boolean }) {
   const body = text.trim();
   if (!body && !attachments.length) throw new Error("empty");
   if (attachments.length > 10 || new Set(attachments).size !== attachments.length) throw new Error("Maximum 10 files per message");
@@ -85,7 +85,7 @@ export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string
   const id = await ctx.db.insert("messages", { ...(localRunnerId ? { localRunnerId } : {}), studyContext, chatId, author: login, kind, text: body, runId: live?._id ?? null, reactions: [], attachments });
   for (const fileId of attachments) await ctx.db.patch(fileId, { messageId: id });
   await followParticipant(ctx, chatId, login);
-  await notifyMentions(ctx, id);
+  if (notify) await notifyMentions(ctx, id);
   let runner: string | null = null;
   if (kind === "dispatch") runner = (await startRun(ctx, chat, target!, id, login, localRunnerId, expectedConnection)).runnerName;
   // Plain messages in a team chat with agents go to the router: it decides whether an agent should act.

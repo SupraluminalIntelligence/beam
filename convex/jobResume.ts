@@ -31,8 +31,8 @@ const members = (ctx: MutationCtx, chatId: Id<"chats">, requestedBy: string, gro
 const groupOf = (ctx: MutationCtx, job: Doc<"computeJobs">) => members(ctx, job.chatId, job.requestedBy, job.resume!.group);
 
 /** The message the agent gets: what ended, and what it said it would do next. */
-export function resumeText(handle: string, jobs: { title: string; state: string; error: string | null }[], note: string, by: string) {
-  const lines = jobs.map(j => `- ${j.title}: ${j.state}${j.state === "failed" && j.error ? ` (${j.error.slice(0, 200)})` : ""}`);
+export function resumeText(handle: string, jobs: { id: string; title: string; state: string; error: string | null }[], note: string, by: string) {
+  const lines = jobs.map(j => `- ${j.title} (${j.id}): ${j.state}${j.state === "failed" && j.error ? ` (${j.error.slice(0, 200)})` : ""}`);
   const what = jobs.length === 1 ? "The job you submitted has ended" : `The ${jobs.length} jobs you submitted together have ended`;
   return `@${handle} ${what}:\n${lines.join("\n")}\n\nYou said you'd continue with: ${note}\n\n(Sent by Beam: ${by} approved continuing when these jobs finished.)`;
 }
@@ -82,10 +82,11 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
     return wait === undefined ? mark({ tries, error, check: undefined }) : later(wait, { tries, error: `${error}. Trying again later.` });
   }
   const ordered = group.slice().sort((a, b) => a.createdAt - b.createdAt);
-  const titles = ordered.map(j => ({ title: (j.spec as { title?: string }).title ?? "Job", state: j.state, error: j.error }));
+  const titles = ordered.map(j => ({ id: j._id, title: (j.spec as { title?: string }).title ?? "Job", state: j.state, error: j.error }));
+  // Beam wrote this text, partly from what the agent asked for: an @login in it must not notify anyone as from `by`.
   // The agent continues on the simulation its jobs belong to, even if the chat has moved to another since.
   const spec = JobSpec.parse(job.spec), simulation = job.simulationId ?? (spec.kind === "environment" && spec.simulation ? spec.simulation.caseId as Id<"simulationCases"> : undefined);
-  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId, ...(simulation ? { studyId: simulation } : {}) });
+  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId, notify: false, ...(simulation ? { studyId: simulation } : {}) });
   await mark({ sentAt: Date.now(), error: undefined, check: undefined });
 } });
 
