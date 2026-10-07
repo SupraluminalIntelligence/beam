@@ -206,7 +206,7 @@ function Jobs({ sim, chatId, login, jobLives, onOpen }: { sim: Sim; chatId: Id<"
         {j.state !== "awaiting-approval" && <button className="link" onClick={() => ui.openSurface(chatId, `job:${j._id}`)}>Log</button>}
         {(active || j.state === "queued") && !j.cancelRequestedAt && <button className="link" disabled={busy} onClick={() => void act(() => cancel({ id: j._id }))}>Cancel</button>}
         {j.cancelRequestedAt && !["succeeded", "failed", "cancelled"].includes(j.state) && <small>cancelling…</small>}
-        {j.resume?.error && <small className="warn" title={j.resume.note}>{j.resume.error}</small>}
+        {j.resume && j.state !== "awaiting-approval" && <small className={j.resume.error ? "warn" : undefined} title={j.resume.note}>{j.resume.error ?? `${j.resume.sentAt ? "asked" : "then"} @${j.resume.handle} ${j.resume.sentAt ? "to continue" : "continues"}: ${j.resume.note}`}</small>}
       </span>
     </div>;
   };

@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireChatLogin } from "./lib";
 import { chooseRunner, isLive } from "./runs";
 import { sendAs } from "./messages";
-import { jobFinished } from "../packages/contracts/src/compute";
+import { jobFinished, JobSpec } from "../packages/contracts/src/compute";
 import { resolveExecution } from "../packages/contracts/src/execution";
 
 /**
@@ -26,10 +26,9 @@ export async function jobEnded(ctx: MutationCtx, job: Doc<"computeJobs">) {
   if (job.resume && !job.resume.sentAt) await ctx.scheduler.runAfter(0, internal.jobResume.fire, { jobId: job._id });
 }
 
-async function groupOf(ctx: MutationCtx, job: Doc<"computeJobs">) {
-  const jobs = await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", job.chatId)).collect();
-  return jobs.filter(j => j.requestedBy === job.requestedBy && j.resume?.group === job.resume!.group);
-}
+const members = (ctx: MutationCtx, chatId: Id<"chats">, requestedBy: string, group: string) =>
+  ctx.db.query("computeJobs").withIndex("by_resume_group", q => q.eq("chatId", chatId).eq("requestedBy", requestedBy).eq("resume.group", group)).collect();
+const groupOf = (ctx: MutationCtx, job: Doc<"computeJobs">) => members(ctx, job.chatId, job.requestedBy, job.resume!.group);
 
 /** The message the agent gets: what ended, and what it said it would do next. */
 export function resumeText(handle: string, jobs: { title: string; state: string; error: string | null }[], note: string, by: string) {
@@ -82,7 +81,9 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
   }
   const ordered = group.slice().sort((a, b) => a.createdAt - b.createdAt);
   const titles = ordered.map(j => ({ title: (j.spec as { title?: string }).title ?? "Job", state: j.state, error: j.error }));
-  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId });
+  // The agent continues on the simulation its jobs belong to, even if the chat has moved to another since.
+  const spec = JobSpec.parse(job.spec), simulation = job.simulationId ?? (spec.kind === "environment" && spec.simulation ? spec.simulation.caseId as Id<"simulationCases"> : undefined);
+  await sendAs(ctx, chat, by, { chatId: chat._id, text: resumeText(agent.handle, titles, job.resume.note, by), mentionHandle: agent.handle, localRunnerId, ...(simulation ? { studyId: simulation } : {}) });
   await mark({ sentAt: Date.now(), error: undefined, check: undefined });
 } });
 
@@ -91,12 +92,12 @@ export const fire = internalMutation({ args: { jobId: v.id("computeJobs"), check
  * comes once they end. Access is the caller's to check.
  */
 export async function closeGroup(ctx: MutationCtx, chatId: Id<"chats">, requestedBy: string, group: string) {
-  const members = (await ctx.db.query("computeJobs").withIndex("by_chat", q => q.eq("chatId", chatId)).collect()).filter(j => j.requestedBy === requestedBy && j.resume?.group === group);
-  for (const j of members) await ctx.db.patch(j._id, { resume: { ...j.resume!, size: members.length } });
+  const jobs = await members(ctx, chatId, requestedBy, group);
+  for (const j of jobs) await ctx.db.patch(j._id, { resume: { ...j.resume!, size: jobs.length } });
   // From a job still waiting to send: in a retried sweep, the oldest member has usually sent already.
-  const unsent = members.find(j => !j.resume?.sentAt);
-  if (unsent && members.every(j => jobFinished(j.state))) await jobEnded(ctx, unsent);
-  return members.length;
+  const unsent = jobs.find(j => !j.resume?.sentAt);
+  if (unsent && jobs.every(j => jobFinished(j.state))) await jobEnded(ctx, unsent);
+  return jobs.length;
 }
 
 /** On approval: the approver authorizes continuing too. */

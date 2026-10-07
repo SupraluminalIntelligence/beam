@@ -48,7 +48,7 @@ export const send = mutation({
 });
 
 /** A message from one person, wherever it came from (the plain apps, or a layer). Access is the caller's to check. */
-export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string, { chatId, text, mentionHandle, localRunnerId, expectedConnection, targetRunId, attachments = [] }: { chatId: Id<"chats">; text: string; mentionHandle: string | null; localRunnerId?: Id<"runners"> | undefined; expectedConnection?: string | undefined; targetRunId?: Id<"runs"> | undefined; attachments?: Id<"files">[] | undefined }) {
+export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string, { chatId, text, mentionHandle, localRunnerId, expectedConnection, targetRunId, attachments = [], studyId = chat.activeStudyId }: { chatId: Id<"chats">; text: string; mentionHandle: string | null; localRunnerId?: Id<"runners"> | undefined; expectedConnection?: string | undefined; targetRunId?: Id<"runs"> | undefined; attachments?: Id<"files">[] | undefined; /** The simulation the message is about; the chat's working one unless given. */ studyId?: Id<"simulationCases"> | null | undefined }) {
   const body = text.trim();
   if (!body && !attachments.length) throw new Error("empty");
   if (attachments.length > 10 || new Set(attachments).size !== attachments.length) throw new Error("Maximum 10 files per message");
@@ -80,7 +80,7 @@ export async function sendAs(ctx: MutationCtx, chat: Doc<"chats">, login: string
   if (chat.untitled) Object.assign(patch, { untitled: false, title: autoTitle(body || "Attached files") });
   if (chat.state && chat.state !== "open") patch["state"] = "open"; // a message reopens a done or settled thread
   await ctx.db.patch(chatId, patch);
-  const study = chat.activeStudyId ? await ctx.db.get(chat.activeStudyId) : null;
+  const study = studyId ? await ctx.db.get(studyId) : null;
   const studyContext = study?.chatId === chatId ? {id:study._id,revision:study.revision,name:study.name} : null;
   const id = await ctx.db.insert("messages", { ...(localRunnerId ? { localRunnerId } : {}), studyContext, chatId, author: login, kind, text: body, runId: live?._id ?? null, reactions: [], attachments });
   for (const fileId of attachments) await ctx.db.patch(fileId, { messageId: id });

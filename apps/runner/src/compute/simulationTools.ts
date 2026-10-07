@@ -37,6 +37,9 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
     client.mutation(api.simulations.saveVersionForRun, { token, runId, name: a.name, setup: a.setup, ...(a.id ? { id: a.id as Id<"simulationCases"> } : {}), ...(a.version !== undefined ? { version: a.version } : {}), ...(a.from !== undefined ? { from: a.from } : {}), ...(a.note ? { note: a.note } : {}) });
   const run = (id: string, version: number, machine: string, requestKey: string, then?: { continueWith: string; group?: string; size?: number }) =>
     client.mutation(api.simulations.runVersionForRun, { token, runId, id: id as Id<"simulationCases">, version, machine, requestKey, ...(then ?? {}) });
+  // A retried request key can return jobs Beam already mentioned the agent about: no mention is coming for those.
+  const alreadySent = async (ids: Id<"computeJobs">[]) => (await Promise.all(ids.map(id => client.query(api.compute.forRun, { token, runId, id })))).every(j => !Array.isArray(j) && !!j.resume?.sentAt);
+  const sent = "These jobs already ended and Beam already mentioned you about them; read them now with get_job and results_read rather than waiting.";
 
   return [
     {
@@ -64,6 +67,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
         writable();
         const requestKey = String(a["requestKey"]), then = continueWith.parse(a["continueWith"]);
         const id = await run(String(a["id"]), Number(a["version"]), String(a["machine"] ?? "local"), requestKey, then ? { continueWith: then } : undefined);
+        if (then && await alreadySent([id])) return JSON.stringify({ jobId: id, reused: true, next: sent });
         return JSON.stringify({ jobId: id, submitted: true, next: next("Follow it with get_job, then results_read once it succeeds.", !!then) });
       },
     },
@@ -93,6 +97,7 @@ export function simulationTools(client: ConvexClient, token: string, runId: Id<"
           if (group && rows.length) await client.mutation(api.compute.closeContinuationForRun, { token, runId, group: group.group }).catch(() => undefined);
           throw e;
         }
+        if (then && await alreadySent(rows.map(r => r.jobId))) return JSON.stringify({ parameter: a["parameter"], runs: rows, reused: true, next: sent });
         return JSON.stringify({ parameter: a["parameter"], runs: rows, next: next("Follow the jobs with get_job, then compare_versions with their job IDs.", !!then) });
       },
     },

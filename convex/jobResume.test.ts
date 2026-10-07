@@ -21,7 +21,7 @@ function fixture(permissionMode = "ask") {
   const scheduled: { delay: number; args: any }[] = [];
   const db: any = {
     normalizeId: (_: string, id: string) => id, get: async (id: string) => Object.values(tables).flat().find(r => r._id === id) ?? null,
-    query: (table: string) => { const filters: [string, unknown][] = []; let desc = false; const rows = () => { const r = (tables[table] ?? []).filter(x => filters.every(([k, v]) => x[k] === v)); return desc ? r.slice().reverse() : r; }; const chain: any = { withIndex: (_: string, fn: any) => { const q = { eq: (k: string, v: unknown) => { filters.push([k, v]); return q; } }; fn(q); return chain; }, order: (d: string) => { desc = d === "desc"; return chain; }, collect: async () => rows(), take: async (n: number) => rows().slice(0, n), first: async () => rows()[0] ?? null }; return chain; },
+    query: (table: string) => { const filters: [string, unknown][] = []; let desc = false; const rows = () => { const r = (tables[table] ?? []).filter(x => filters.every(([k, v]) => k.split(".").reduce((o: any, p) => o?.[p], x) === v)); return desc ? r.slice().reverse() : r; }; const chain: any = { withIndex: (_: string, fn: any) => { const q = { eq: (k: string, v: unknown) => { filters.push([k, v]); return q; } }; fn(q); return chain; }, order: (d: string) => { desc = d === "desc"; return chain; }, collect: async () => rows(), take: async (n: number) => rows().slice(0, n), first: async () => rows()[0] ?? null }; return chain; },
     insert: async (table: string, value: any) => { const id = `${table}-${tables[table]!.length}`; tables[table]!.push({ _id: id, _creationTime: Date.now(), ...value }); return id; },
     patch: async (id: string, value: any) => Object.assign(await db.get(id), value),
   };
@@ -52,6 +52,7 @@ it("continues the agent as the person who approved the job, once, after it ends"
   expect(message).toMatchObject({ chatId: "chat", mentionHandle: "claude", localRunnerId: "runner" });
   expect(vi.mocked(chooseRunner).mock.calls[0]![4]).toBe("runner"); // the machine it was submitted from, as when the run began
   expect(message.text).toMatch(/^@claude The job you submitted has ended:\n- mesh: succeeded\n\nYou said you'd continue with: read the residuals/);
+  expect(message.studyId).toBe(tables.computeJobs![0].simulationId); // the simulation the job belongs to
   expect(tables.computeJobs![0].resume.sentAt).toBeTypeOf("number");
   await call(fire, ctx, { jobId: id });
   expect(sendAs).toHaveBeenCalledOnce();
@@ -67,6 +68,14 @@ it("waits for every job submitted together, then sends one message with each out
   await finish(b, "failed"); await drain();
   expect(sendAs).toHaveBeenCalledOnce();
   expect(vi.mocked(sendAs).mock.calls[0]![3].text).toContain("The 2 jobs you submitted together have ended:\n- sweep-0: succeeded\n- sweep-1: failed (solver diverged)");
+});
+
+it("continues on the simulation the jobs belong to, even after the chat moved to another", async () => {
+  const { submit, finish, drain, tables } = fixture("auto");
+  const id = await submit("mesh", { continueWith: "refine" });
+  tables.computeJobs![0].simulationId = "sim-a";
+  await finish(id); await drain();
+  expect(vi.mocked(sendAs).mock.calls[0]![3].studyId).toBe("sim-a");
 });
 
 it("sends nothing for jobs nobody approved or everyone cancelled, and says why", async () => {

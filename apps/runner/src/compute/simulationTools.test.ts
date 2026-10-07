@@ -6,6 +6,19 @@ const IMAGE = "ghcr.io/supraluminalintelligence/beam-env-fea@sha256:" + "a".repe
 // As Convex returns it: fields in alphabetical order, not the schema's.
 const stored = { command: "python solve.py", environment: { image: IMAGE, name: "fea" }, files: [], kind: "files", parameters: [{ label: "Tip load", name: "tip_load", unit: "N", value: 500 }], timeoutSeconds: 600 };
 
+describe("run_version", () => {
+  it("says so, rather than promising a mention, when a retried request key returns a job Beam already mentioned", async () => {
+    const client = {
+      query: vi.fn(async (_fn: unknown, args: Record<string, unknown>) => ({ _id: args["id"], state: "succeeded", resume: { note: "refine", sentAt: 1 } })),
+      mutation: vi.fn(async () => "job-1"),
+    } as unknown as ConvexClient;
+    const run = simulationTools(client, "token", "run" as never, "/tmp", "auto").find(t => t.name === "run_version")!;
+    const out = JSON.parse(String(await run.run({ id: "sim", version: 5, machine: "local", requestKey: "k", continueWith: "refine" })));
+    expect(out).toMatchObject({ jobId: "job-1", reused: true });
+    expect(out.next).toMatch(/already mentioned you/);
+  });
+});
+
 describe("sweep", () => {
   it("saves a version per new value, derived from the base, and runs the base itself for its own value", async () => {
     let version = 5;
